@@ -1,0 +1,68 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Server {
+  id                   String   @id @default(cuid())
+  name                 String
+  apiEndpoint          String
+  apiToken             String
+  sshHost              String
+  sshPort              Int      @default(22)
+  sshUsername          String
+  sshPath              String   @default("/uploads")
+
+  // Configuration
+  maxRetries           Int      @default(3)
+  backoffStrategy      String   @default("exponential") // "exponential" | "linear"
+  mediaCheckPolicy     String   @default("SKIP_NO_ITA")  // "SKIP_NO_ITA" | "ALWAYS_UPLOAD"
+
+  // Caching
+  lastSpaceCheckAt     DateTime?
+  cachedFreeSpaceBytes BigInt?
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  uploads              Upload[]
+}
+
+model Upload {
+  id                   String   @id @default(cuid())
+  filename             String
+  filepath             String
+  size                 BigInt   // File size in bytes
+
+  // Media information
+  mediaInfo            String?  // JSON: {audioTracks: [{lang, codec}], subtitles: [{lang, codec}]}
+  hasItalianAudio      Boolean  @default(false)
+  hasItalianSubtitles  Boolean  @default(false)
+
+  // Upload details
+  serverId             String?
+  server               Server?  @relation(fields: [serverId], references: [id], onDelete: SetNull)
+
+  status               String   @default("PENDING")  // PENDING | QUEUED | UPLOADING | COMPLETED | FAILED | SKIPPED
+  progress             Int      @default(0)          // 0-100
+  progressBytes        BigInt   @default(0)          // Bytes uploaded
+
+  // Retry tracking
+  currentRetryCount    Int      @default(0)
+  retryStrategy        String?  // "exponential" | "linear" from server config
+
+  // Timestamps
+  startedAt            DateTime?
+  completedAt          DateTime?
+  error                String?  // Error message if failed
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}

@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  wayfinderr-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATABASE_URL=file:./data/wayfinderr.db
+      - WATCH_DIR=/makemkv-output
+      - LOG_LEVEL=info
+    volumes:
+      - makemkv-output:/makemkv-output:ro
+      - wayfinderr-data:/app/data
+    depends_on:
+      - makemkv
+    restart: unless-stopped
+    networks:
+      - wayfinderr
+
+  wayfinderr-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:3001
+    depends_on:
+      - wayfinderr-backend
+    restart: unless-stopped
+    networks:
+      - wayfinderr
+
+  makemkv:
+    image: jlesage/makemkv:latest
+    ports:
+      - "5800:5800"
+    volumes:
+      - makemkv-output:/output
+      - /mnt/bluray:/mnt/video:ro  # Update this path to your Blu-ray drive mount
+    environment:
+      - DISPLAY_WIDTH=1280
+      - DISPLAY_HEIGHT=720
+      - VNC_PASSWORD=changeme
+    restart: unless-stopped
+    networks:
+      - wayfinderr
+
+volumes:
+  makemkv-output:
+    driver: local
+  wayfinderr-data:
+    driver: local
+
+networks:
+  wayfinderr:
+    driver: bridge
