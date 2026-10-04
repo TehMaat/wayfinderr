@@ -1,13 +1,12 @@
-import { PrismaClient, Upload, Server } from '@prisma/client';
+import { PrismaClient, Prisma, Upload, Server } from '@prisma/client';
 import logger from '../config/logger.js';
 
 export class DatabaseService {
-  private prisma: PrismaClient;
+  private prisma = new PrismaClient({
+    log: [{ emit: 'event' as const, level: 'error' as const }],
+  });
 
   constructor() {
-    this.prisma = new PrismaClient({
-      log: [{ emit: 'event', level: 'error' }],
-    });
 
     this.prisma.$on('error', (e) => {
       logger.error(e, 'Prisma error');
@@ -30,6 +29,7 @@ export class DatabaseService {
     sshHost: string;
     sshPort?: number;
     sshUsername: string;
+    sshPassword?: string;
     sshPath?: string;
     maxRetries?: number;
     backoffStrategy?: string;
@@ -38,7 +38,7 @@ export class DatabaseService {
     return this.prisma.server.create({ data });
   }
 
-  async updateServer(id: string, data: Partial<Server>): Promise<Server> {
+  async updateServer(id: string, data: Prisma.ServerUpdateInput): Promise<Server> {
     return this.prisma.server.update({ where: { id }, data });
   }
 
@@ -93,7 +93,7 @@ export class DatabaseService {
     return this.prisma.upload.create({ data });
   }
 
-  async updateUpload(id: string, data: Partial<Upload>): Promise<Upload> {
+  async updateUpload(id: string, data: Prisma.UploadUncheckedUpdateInput): Promise<Upload> {
     return this.prisma.upload.update({ where: { id }, data });
   }
 

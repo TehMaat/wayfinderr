@@ -18,6 +18,7 @@ model Server {
   sshHost              String
   sshPort              Int      @default(22)
   sshUsername          String
+  sshPassword          String?  // Optional: if empty, SSH_PRIVATE_KEY_PATH is used
   sshPath              String   @default("/uploads")
 
   // Configuration
@@ -33,6 +34,8 @@ model Server {
   updatedAt            DateTime @updatedAt
 
   uploads              Upload[]
+
+  @@index([name])
 }
 
 model Upload {
@@ -65,4 +68,7 @@ model Upload {
 
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
+
+  @@index([status])
+  @@index([serverId])
 }

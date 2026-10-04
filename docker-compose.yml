@@ -1,61 +1,58 @@
-version: '3.8'
+# Uses the prebuilt images published by GitHub Actions on ghcr.io.
+# To build locally instead:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 services:
   wayfinderr-backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ${WAYFINDERR_REGISTRY:-ghcr.io/tehmaat}/wayfinderr-backend:${WAYFINDERR_TAG:-latest}
     ports:
       - "3001:3001"
     environment:
       - NODE_ENV=production
       - PORT=3001
-      - DATABASE_URL=file:./data/wayfinderr.db
+      - DATABASE_URL=file:/app/data/wayfinderr.db
       - WATCH_DIR=/makemkv-output
-      - LOG_LEVEL=info
+      - WATCH_USE_POLLING=${WATCH_USE_POLLING:-false}
+      - MAX_CONCURRENT_UPLOADS=${MAX_CONCURRENT_UPLOADS:-2}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
-      - makemkv-output:/makemkv-output:ro
+      # Folder where MakeMKV saves the .mkv files (set MAKEMKV_OUTPUT_DIR in .env)
+      - ${MAKEMKV_OUTPUT_DIR:-./makemkv-output}:/makemkv-output:ro
       - wayfinderr-data:/app/data
-    depends_on:
-      - makemkv
     restart: unless-stopped
     networks:
       - wayfinderr
 
   wayfinderr-frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: ${WAYFINDERR_REGISTRY:-ghcr.io/tehmaat}/wayfinderr-frontend:${WAYFINDERR_TAG:-latest}
     ports:
       - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:3001
     depends_on:
       - wayfinderr-backend
     restart: unless-stopped
     networks:
       - wayfinderr
 
+  # Optional: MakeMKV in Docker (Linux host with an optical drive).
+  # Start it with: docker compose --profile makemkv up -d
   makemkv:
     image: jlesage/makemkv:latest
+    profiles: ["makemkv"]
     ports:
       - "5800:5800"
     volumes:
-      - makemkv-output:/output
-      - /mnt/bluray:/mnt/video:ro  # Update this path to your Blu-ray drive mount
-    environment:
-      - DISPLAY_WIDTH=1280
-      - DISPLAY_HEIGHT=720
-      - VNC_PASSWORD=changeme
+      - makemkv-config:/config
+      - ${MAKEMKV_OUTPUT_DIR:-./makemkv-output}:/output
+    # devices:
+    #   - /dev/sr0:/dev/sr0
+    #   - /dev/sg0:/dev/sg0
     restart: unless-stopped
     networks:
       - wayfinderr
 
 volumes:
-  makemkv-output:
-    driver: local
   wayfinderr-data:
-    driver: local
+  makemkv-config:
 
 networks:
   wayfinderr:

@@ -69,10 +69,8 @@ router.post('/:id/refresh', async (req: Request, res: Response) => {
       return;
     }
 
-    // Force fresh fetch by clearing cache
-    await db.updateServerCachedSpace(server.id, BigInt(0));
-
-    const space = await serverManager.getServerSpace(server);
+    // Bypass the cache
+    const space = await serverManager.getServerSpace(server, true);
     if (!space) {
       res.status(500).json({ error: 'Failed to fetch space info' });
       return;
@@ -83,7 +81,7 @@ router.post('/:id/refresh', async (req: Request, res: Response) => {
       name: server.name,
       freeSpaceBytes: space.freeSpaceBytes.toString(),
       freeSpaceGB: (Number(space.freeSpaceBytes) / 1024 / 1024 / 1024).toFixed(2),
-      lastSpaceCheckAt: server.lastSpaceCheckAt,
+      lastSpaceCheckAt: new Date(),
     });
   } catch (error) {
     logger.error(error, 'Failed to refresh space info');

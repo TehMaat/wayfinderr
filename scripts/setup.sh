@@ -18,8 +18,8 @@ if ! command -v docker &> /dev/null; then
 fi
 echo "✓ Docker installed"
 
-if ! command -v docker-compose &> /dev/null; then
-    echo "❌ Docker Compose is not installed. Please install Docker Compose."
+if ! docker compose version &> /dev/null; then
+    echo "❌ Docker Compose v2 is not available. Please update Docker."
     exit 1
 fi
 echo "✓ Docker Compose installed"
@@ -31,8 +31,8 @@ fi
 echo "✓ Project structure valid"
 
 echo ""
-echo "🐳 Building Docker images..."
-docker-compose build
+echo "🐳 Pulling Docker images..."
+docker compose pull
 
 echo ""
 echo "✅ Setup complete!"

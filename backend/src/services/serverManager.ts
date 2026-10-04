@@ -18,10 +18,11 @@ interface UltraAPIResponse {
 export class ServerManager {
   private cacheTimeout = 60000; // 60 seconds cache
 
-  async getServerSpace(server: Server): Promise<ServerSpaceInfo | null> {
+  async getServerSpace(server: Server, force = false): Promise<ServerSpaceInfo | null> {
     try {
       // Check cache first
       if (
+        !force &&
         server.lastSpaceCheckAt &&
         Date.now() - server.lastSpaceCheckAt.getTime() < this.cacheTimeout &&
         server.cachedFreeSpaceBytes
@@ -103,8 +104,8 @@ export class ServerManager {
     }
 
     // Sort by free space descending, select the one with most free space
-    spaceInfos.sort(
-      (a, b) => Number(b.freeSpaceBytes - a.freeSpaceBytes)
+    spaceInfos.sort((a, b) =>
+      b.freeSpaceBytes > a.freeSpaceBytes ? 1 : b.freeSpaceBytes < a.freeSpaceBytes ? -1 : 0
     );
 
     const selected = spaceInfos[0];
@@ -123,50 +124,29 @@ export class ServerManager {
     };
   }
 
-  async selectServerForUpload(excludeServerId?: string): Promise<SelectedServer | null> {
-    const servers = await db.getServers();
-
-    if (servers.length === 0) {
-      logger.error('No servers configured');
-      return null;
-    }
-
+  /**
+   * Servers with at least minFreeBytes free, sorted by free space (most free first).
+   */
+  async getUploadCandidates(minFreeBytes = 0n): Promise<SelectedServer[]> {
     const spaceInfos = await this.getAllServersSpace();
 
-    if (spaceInfos.length === 0) {
-      logger.error('Could not fetch space info from any server');
-      return null;
-    }
-
-    // Filter out excluded server
-    let candidates = spaceInfos;
-    if (excludeServerId) {
-      candidates = candidates.filter((s) => s.serverId !== excludeServerId);
-    }
-
-    if (candidates.length === 0) {
-      logger.warn('No servers available (all excluded or errored)');
-      return null;
-    }
-
-    // Sort by free space descending
-    candidates.sort((a, b) => Number(b.freeSpaceBytes - a.freeSpaceBytes));
-
-    const selected = candidates[0];
+    const candidates = spaceInfos
+      .filter((s) => s.freeSpaceBytes >= minFreeBytes)
+      .sort((a, b) => (b.freeSpaceBytes > a.freeSpaceBytes ? 1 : b.freeSpaceBytes < a.freeSpaceBytes ? -1 : 0));
 
     logger.info(
       {
-        serverId: selected.serverId,
-        freeSpaceBytes: selected.freeSpaceBytes.toString(),
+        minFreeBytes: minFreeBytes.toString(),
         servers: spaceInfos.map((s) => ({
           id: s.serverId,
           free: s.freeSpaceBytes.toString(),
         })),
+        candidates: candidates.map((c) => c.serverId),
       },
-      'Server selected for upload'
+      'Upload candidates computed'
     );
 
-    return selected;
+    return candidates.map((c) => ({ serverId: c.serverId, freeSpaceBytes: c.freeSpaceBytes }));
   }
 }
 

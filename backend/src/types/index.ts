@@ -46,5 +46,8 @@ export interface Config {
   PORT: number;
   DATABASE_URL: string;
   WATCH_DIR: string;
+  WATCH_USE_POLLING: boolean;
   LOG_LEVEL: string;
+  MAX_CONCURRENT_UPLOADS: number;
+  SSH_PRIVATE_KEY_PATH?: string;
 }

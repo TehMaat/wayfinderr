@@ -1,14 +1,55 @@
 import { Router, Request, Response } from 'express';
+import { Server } from '@prisma/client';
 import { db } from '../services/database.js';
+import { serverManager } from '../services/serverManager.js';
+import { uploadManager } from '../services/uploadManager.js';
 import logger from '../config/logger.js';
 
 const router = Router();
 
-// GET all servers with current space info
+// Never send the SSH password back to the browser
+const toPublic = ({ sshPassword, ...server }: Server) => ({
+  ...server,
+  hasSshPassword: Boolean(sshPassword),
+});
+
+const STRING_FIELDS = [
+  'name',
+  'apiEndpoint',
+  'apiToken',
+  'sshHost',
+  'sshUsername',
+  'sshPassword',
+  'sshPath',
+  'backoffStrategy',
+  'mediaCheckPolicy',
+] as const;
+const INT_FIELDS = ['sshPort', 'maxRetries'] as const;
+
+// Keeps only known fields, converts numbers, drops empty strings
+// (an empty password on edit means "keep the current one")
+const parseServerBody = (body: Record<string, unknown>) => {
+  const data: Record<string, string | number> = {};
+  for (const field of STRING_FIELDS) {
+    const value = body[field];
+    if (typeof value === 'string' && value.trim() !== '') {
+      data[field] = value.trim();
+    }
+  }
+  for (const field of INT_FIELDS) {
+    const value = parseInt(String(body[field] ?? ''), 10);
+    if (!Number.isNaN(value)) {
+      data[field] = value;
+    }
+  }
+  return data;
+};
+
+// GET all servers
 router.get('/', async (req: Request, res: Response) => {
   try {
     const servers = await db.getServers();
-    res.json(servers);
+    res.json(servers.map(toPublic));
   } catch (error) {
     logger.error(error, 'Failed to fetch servers');
     res.status(500).json({ error: 'Failed to fetch servers' });
@@ -23,7 +64,7 @@ router.get('/:id', async (req: Request, res: Response) => {
       res.status(404).json({ error: 'Server not found' });
       return;
     }
-    res.json(server);
+    res.json(toPublic(server));
   } catch (error) {
     logger.error(error, 'Failed to fetch server');
     res.status(500).json({ error: 'Failed to fetch server' });
@@ -33,18 +74,8 @@ router.get('/:id', async (req: Request, res: Response) => {
 // POST create server
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const {
-      name,
-      apiEndpoint,
-      apiToken,
-      sshHost,
-      sshPort,
-      sshUsername,
-      sshPath,
-      maxRetries,
-      backoffStrategy,
-      mediaCheckPolicy,
-    } = req.body;
+    const data = parseServerBody(req.body);
+    const { name, apiEndpoint, apiToken, sshHost, sshUsername } = data;
 
     if (!name || !apiEndpoint || !apiToken || !sshHost || !sshUsername) {
       res.status(400).json({ error: 'Missing required fields' });
@@ -52,19 +83,15 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     const server = await db.createServer({
-      name,
-      apiEndpoint,
-      apiToken,
-      sshHost,
-      sshPort: sshPort || 22,
-      sshUsername,
-      sshPath: sshPath || '/uploads',
-      maxRetries: maxRetries || 3,
-      backoffStrategy: backoffStrategy || 'exponential',
-      mediaCheckPolicy: mediaCheckPolicy || 'SKIP_NO_ITA',
+      ...data,
+      name: String(name),
+      apiEndpoint: String(apiEndpoint),
+      apiToken: String(apiToken),
+      sshHost: String(sshHost),
+      sshUsername: String(sshUsername),
     });
 
-    res.status(201).json(server);
+    res.status(201).json(toPublic(server));
   } catch (error) {
     logger.error(error, 'Failed to create server');
     res.status(500).json({ error: 'Failed to create server' });
@@ -74,19 +101,46 @@ router.post('/', async (req: Request, res: Response) => {
 // PUT update server
 router.put('/:id', async (req: Request, res: Response) => {
   try {
-    const server = await db.updateServer(req.params.id, req.body);
-    res.json(server);
+    const server = await db.updateServer(req.params.id, parseServerBody(req.body));
+    res.json(toPublic(server));
   } catch (error) {
     logger.error(error, 'Failed to update server');
     res.status(500).json({ error: 'Failed to update server' });
   }
 });
 
+// POST test server: Ultra.cc API + SSH/SFTP login + destination folder
+router.post('/:id/test', async (req: Request, res: Response) => {
+  const server = await db.getServerById(req.params.id).catch(() => null);
+  if (!server) {
+    res.status(404).json({ error: 'Server not found' });
+    return;
+  }
+
+  const space = await serverManager.getServerSpace(server, true);
+  if (!space) {
+    res.status(502).json({ error: 'Ultra.cc API unreachable or token invalid' });
+    return;
+  }
+
+  try {
+    await uploadManager.testConnection(server);
+  } catch (error) {
+    res.status(502).json({ error: `SSH/SFTP failed: ${(error as Error).message}` });
+    return;
+  }
+
+  res.json({
+    ok: true,
+    freeSpaceGB: (Number(space.freeSpaceBytes) / 1024 / 1024 / 1024).toFixed(2),
+  });
+});
+
 // DELETE server
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const server = await db.deleteServer(req.params.id);
-    res.json(server);
+    res.json(toPublic(server));
   } catch (error) {
     logger.error(error, 'Failed to delete server');
     res.status(500).json({ error: 'Failed to delete server' });

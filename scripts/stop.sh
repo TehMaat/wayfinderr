@@ -14,7 +14,7 @@ fi
 
 # Stop services
 echo "Stopping Docker services..."
-docker-compose down
+docker compose down
 
 echo ""
 echo "✅ Services stopped successfully!"

@@ -1,0 +1,13 @@
+# Override to build the images from the local source instead of pulling them:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+
+services:
+  wayfinderr-backend:
+    image: wayfinderr-backend:local
+    build:
+      context: ./backend
+
+  wayfinderr-frontend:
+    image: wayfinderr-frontend:local
+    build:
+      context: ./frontend

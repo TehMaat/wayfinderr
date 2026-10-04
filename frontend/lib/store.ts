@@ -3,7 +3,7 @@ import { create } from 'zustand';
 export interface Upload {
   id: string;
   filename: string;
-  size: bigint;
+  size: string; // bytes, serialized as string by the API
   status: 'PENDING' | 'QUEUED' | 'UPLOADING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
   progress: number;
   hasItalianAudio: boolean;
@@ -19,6 +19,15 @@ export interface Server {
   freeSpaceBytes: string;
   freeSpaceGB: string;
   lastSpaceCheckAt?: string;
+  // Present when loaded from /api/servers
+  apiEndpoint?: string;
+  apiToken?: string;
+  sshHost?: string;
+  sshPort?: number;
+  sshUsername?: string;
+  sshPath?: string;
+  hasSshPassword?: boolean;
+  mediaCheckPolicy?: string;
 }
 
 interface UploadsStore {

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../services/database.js';
+import { jobQueue } from '../services/jobQueue.js';
 import logger from '../config/logger.js';
 
 const router = Router();
@@ -33,7 +34,7 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// POST retry upload (placeholder for now)
+// POST retry upload
 router.post('/:id/retry', async (req: Request, res: Response) => {
   try {
     const upload = await db.getUploadById(req.params.id);
@@ -42,15 +43,21 @@ router.post('/:id/retry', async (req: Request, res: Response) => {
       return;
     }
 
-    // Reset upload state for retry
-    const updated = await db.updateUpload(req.params.id, {
-      status: 'PENDING',
+    if (upload.status !== 'FAILED' && upload.status !== 'SKIPPED') {
+      res.status(409).json({ error: `Upload is ${upload.status}, cannot retry` });
+      return;
+    }
+
+    // Reset upload state and put it back in the queue
+    await db.updateUpload(req.params.id, {
       progress: 0,
-      currentRetryCount: (upload.currentRetryCount || 0) + 1,
+      progressBytes: 0n,
+      currentRetryCount: 0,
       error: null,
     });
+    await jobQueue.enqueueUpload({ uploadId: upload.id, filepath: upload.filepath });
 
-    res.json(updated);
+    res.json(await db.getUploadById(upload.id));
   } catch (error) {
     logger.error(error, 'Failed to retry upload');
     res.status(500).json({ error: 'Failed to retry upload' });

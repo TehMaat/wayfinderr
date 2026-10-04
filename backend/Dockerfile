@@ -3,30 +3,32 @@ FROM node:20-alpine AS builder
 
 WORKDIR /build
 
+RUN apk add --no-cache openssl
+
 COPY package*.json ./
-RUN npm ci --only=production && npm cache clean --force
+COPY prisma ./prisma
+RUN npm ci
 
 COPY . .
-RUN npm run build
+RUN npm run build && npm prune --omit=dev && npx prisma generate
 
 # Runtime stage
 FROM node:20-alpine
 
 WORKDIR /app
 
-# Install ffmpeg for media info parsing
-RUN apk add --no-cache ffmpeg openssh-client
+# ffprobe (ffmpeg) for media info, openssl for Prisma
+RUN apk add --no-cache ffmpeg openssl
 
-# Copy built app from builder
-COPY --from=builder /build/dist ./dist
+COPY --from=builder /build/package*.json ./
 COPY --from=builder /build/node_modules ./node_modules
+COPY --from=builder /build/dist ./dist
 COPY --from=builder /build/prisma ./prisma
-COPY --from=builder /build/.env* ./
 
-# Create data directory
-RUN mkdir -p ./data
+RUN mkdir -p /app/data
 
+ENV NODE_ENV=production
 EXPOSE 3001
 
-# Run migrations and start app
+# Apply migrations, then start
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]

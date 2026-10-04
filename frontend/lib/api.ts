@@ -1,8 +1,14 @@
 import axios from 'axios';
+import { getApiUrl } from './config';
 
 const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001',
   timeout: 10000,
+});
+
+// Resolved per request: the URL depends on the host the page was opened from
+apiClient.interceptors.request.use((config) => {
+  config.baseURL = getApiUrl();
+  return config;
 });
 
 // Servers API

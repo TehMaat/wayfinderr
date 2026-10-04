@@ -14,6 +14,7 @@ export default function ServersPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingServer, setEditingServer] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     fetchServers();
@@ -44,10 +45,11 @@ export default function ServersPage() {
   const handleTestServer = async (serverId: string) => {
     try {
       setTesting(serverId);
-      await serversApi.testServer(serverId);
-      // Refresh space info for this server
-      await serversApi.refreshSpace(serverId);
+      setNotice(null);
+      // Checks the Ultra.cc API and the SSH/SFTP login, and refreshes the space cache
+      const { data } = await serversApi.testServer(serverId);
       await fetchServers();
+      setNotice(`Connection OK — ${data.freeSpaceGB} GB free`);
     } catch (err: any) {
       console.error('Server test failed:', err);
       setError('Server test failed: ' + (err.response?.data?.error || err.message));
@@ -92,6 +94,12 @@ export default function ServersPage() {
             {loading ? 'Loading...' : 'Refresh'}
           </button>
         </div>
+
+        {notice && (
+          <div className="mb-6 p-4 bg-green-900/20 border border-green-600 rounded text-green-300">
+            {notice}
+          </div>
+        )}
 
         {error && (
           <div className="mb-6 p-4 bg-red-900/20 border border-red-600 rounded text-red-300">

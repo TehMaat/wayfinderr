@@ -1,8 +1,9 @@
 import { EventEmitter } from 'events';
-import { createReadStream, statSync } from 'fs';
+import { createReadStream, readFileSync, statSync } from 'fs';
 import path from 'path';
-import { Client as SSHClient, ClientChannel } from 'ssh2';
+import { Client as SSHClient, ConnectConfig, SFTPWrapper } from 'ssh2';
 import logger from '../config/logger.js';
+import { config } from '../config/index.js';
 import { db } from './database.js';
 import { Server } from '@prisma/client';
 
@@ -13,95 +14,104 @@ export interface UploadOptions {
   onProgress: (progress: number, bytes: bigint) => void;
 }
 
+// Emit progress at most this often (DB writes + WebSocket messages)
+const PROGRESS_INTERVAL_MS = 1000;
+
+const sftpCall = <T = void>(fn: (cb: (err: Error | null | undefined, res?: T) => void) => void) =>
+  new Promise<T>((resolve, reject) => {
+    fn((err, res) => (err ? reject(err) : resolve(res as T)));
+  });
+
 export class UploadManager extends EventEmitter {
-  private sshConnections: Map<string, SSHClient> = new Map();
+  private activeConnections: Set<SSHClient> = new Set();
 
   async uploadFile(options: UploadOptions): Promise<boolean> {
     const { uploadId, filepath, server, onProgress } = options;
 
+    logger.info(
+      { uploadId, serverId: server.id, filepath },
+      'Starting file upload'
+    );
+
+    const fileSize = statSync(filepath).size;
+    const filename = path.basename(filepath);
+
+    await db.updateUpload(uploadId, {
+      status: 'UPLOADING',
+      startedAt: new Date(),
+      size: BigInt(fileSize),
+      progress: 0,
+      progressBytes: 0n,
+    });
+
+    const remoteDir = server.sshPath.replace(/\\/g, '/').replace(/\/+$/, '') || '/';
+    const remotePath = path.posix.join(remoteDir, filename);
+    // Upload under a temporary name so the destination never sees a partial file
+    const tempPath = path.posix.join(remoteDir, `.${filename}.part`);
+
+    const ssh = await this.connect(server);
     try {
-      logger.info(
-        { uploadId, serverId: server.id, filepath },
-        'Starting file upload'
-      );
+      const sftp = await sftpCall<SFTPWrapper>((cb) => ssh.sftp(cb));
 
-      // Get file size
-      const fileStats = statSync(filepath);
-      const fileSize = fileStats.size;
-      const filename = path.basename(filepath);
+      await this.ensureRemoteDir(sftp, remoteDir);
 
-      // Update upload status to UPLOADING
-      await db.updateUpload(uploadId, {
-        status: 'UPLOADING',
-        startedAt: new Date(),
-        size: BigInt(fileSize),
-      });
+      await new Promise<void>((resolve, reject) => {
+        const readStream = createReadStream(filepath);
+        const writeStream = sftp.createWriteStream(tempPath);
+        let uploadedBytes = 0n;
+        let lastEmit = 0;
+        let settled = false;
 
-      // Create SSH connection
-      const ssh = await this.getSSHConnection(server);
+        const fail = (error: Error) => {
+          if (settled) return;
+          settled = true;
+          readStream.destroy();
+          writeStream.destroy();
+          reject(error);
+        };
 
-      // Create SFTP client
-      return new Promise((resolve, reject) => {
-        ssh.sftp((err, sftp) => {
-          if (err) {
-            logger.error({ uploadId, error: err }, 'SFTP error');
-            reject(err);
-            return;
+        readStream.on('data', (chunk) => {
+          uploadedBytes += BigInt(chunk.length);
+          const now = Date.now();
+          if (now - lastEmit >= PROGRESS_INTERVAL_MS) {
+            lastEmit = now;
+            const progress = fileSize > 0 ? Math.floor((Number(uploadedBytes) / fileSize) * 100) : 100;
+            onProgress(progress, uploadedBytes);
           }
-
-          // Ensure remote directory exists
-          const remotePath = path.join(
-            server.sshPath,
-            filename
-          ).replace(/\\/g, '/'); // Convert to Unix path
-          const remoteDir = path.dirname(remotePath).replace(/\\/g, '/');
-
-          sftp.mkdir(remoteDir, true, async (err) => {
-            if (err && err.code !== 2) {
-              // 2 = directory exists
-              logger.error({ uploadId, error: err }, 'Failed to create remote directory');
-              reject(err);
-              return;
-            }
-
-            // Upload file
-            const readStream = createReadStream(filepath);
-            const writeStream = sftp.createWriteStream(remotePath);
-            let uploadedBytes = 0n;
-
-            readStream.on('data', (chunk) => {
-              uploadedBytes += BigInt(chunk.length);
-              const progress = Math.floor(
-                (Number(uploadedBytes) / fileSize) * 100
-              );
-              onProgress(progress, uploadedBytes);
-            });
-
-            readStream.on('error', (error) => {
-              logger.error({ uploadId, error }, 'Read stream error');
-              reject(error);
-            });
-
-            writeStream.on('error', (error) => {
-              logger.error({ uploadId, error }, 'Write stream error');
-              reject(error);
-            });
-
-            writeStream.on('close', async () => {
-              logger.info(
-                { uploadId, uploadedBytes: uploadedBytes.toString() },
-                'Upload completed'
-              );
-              resolve(true);
-            });
-
-            readStream.pipe(writeStream);
-          });
         });
+
+        readStream.on('error', (error) => {
+          logger.error({ uploadId, error }, 'Read stream error');
+          fail(error);
+        });
+
+        writeStream.on('error', (error: Error) => {
+          logger.error({ uploadId, error }, 'Write stream error');
+          fail(error);
+        });
+
+        writeStream.on('close', () => {
+          if (settled) return;
+          settled = true;
+          resolve();
+        });
+
+        readStream.pipe(writeStream);
       });
-    } catch (error) {
-      logger.error({ uploadId, error }, 'Upload failed');
-      throw error;
+
+      // Verify the size, then move the file into place
+      const stats = await sftpCall<{ size: number }>((cb) => sftp.stat(tempPath, cb));
+      if (stats.size !== fileSize) {
+        throw new Error(`Remote size mismatch: ${stats.size} != ${fileSize}`);
+      }
+      await sftpCall((cb) => sftp.unlink(remotePath, cb)).catch(() => undefined);
+      await sftpCall((cb) => sftp.rename(tempPath, remotePath, cb));
+
+      onProgress(100, BigInt(fileSize));
+      logger.info({ uploadId, remotePath }, 'Upload completed');
+      return true;
+    } finally {
+      ssh.end();
     }
   }
 
@@ -119,6 +129,7 @@ export class UploadManager extends EventEmitter {
           'Upload attempt'
         );
 
+        await db.updateUpload(uploadId, { currentRetryCount: attempt });
         const success = await this.uploadFile(options);
 
         if (success) {
@@ -127,6 +138,7 @@ export class UploadManager extends EventEmitter {
             status: 'COMPLETED',
             completedAt: new Date(),
             progress: 100,
+            error: null,
           });
           return true;
         }
@@ -138,20 +150,13 @@ export class UploadManager extends EventEmitter {
         );
 
         if (attempt < maxRetries - 1) {
-          const delay = this.calculateBackoff(
-            attempt,
-            backoffStrategy
-          );
-          logger.info(
-            { uploadId, delay },
-            `Retrying after ${delay}ms`
-          );
+          const delay = this.calculateBackoff(attempt, backoffStrategy);
+          logger.info({ uploadId, delay }, `Retrying after ${delay}ms`);
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
     }
 
-    // All retries exhausted
     logger.error(
       { uploadId, maxRetries, lastError: lastError?.message },
       'Upload failed after all retries'
@@ -166,58 +171,89 @@ export class UploadManager extends EventEmitter {
     return false;
   }
 
-  private calculateBackoff(attempt: number, strategy: string): number {
-    if (strategy === 'linear') {
-      return (attempt + 1) * 1000; // 1s, 2s, 3s
-    } else {
-      // exponential: 100ms, 200ms, 400ms
-      return Math.pow(2, attempt) * 100;
+  /**
+   * Opens an SSH connection, checks SFTP and the destination folder, then closes it.
+   */
+  async testConnection(server: Server): Promise<void> {
+    const ssh = await this.connect(server);
+    try {
+      const sftp = await sftpCall<SFTPWrapper>((cb) => ssh.sftp(cb));
+      await this.ensureRemoteDir(sftp, server.sshPath.replace(/\/+$/, '') || '/');
+    } finally {
+      ssh.end();
     }
   }
 
-  private async getSSHConnection(server: Server): Promise<SSHClient> {
-    const connKey = server.id;
+  private calculateBackoff(attempt: number, strategy: string): number {
+    if (strategy === 'linear') {
+      return (attempt + 1) * 10_000; // 10s, 20s, 30s
+    }
+    // exponential: 5s, 10s, 20s...
+    return Math.pow(2, attempt) * 5_000;
+  }
 
-    // Return existing connection if available
-    if (this.sshConnections.has(connKey)) {
-      const conn = this.sshConnections.get(connKey)!;
-      if (conn.hasConnection) {
-        return conn;
+  private async ensureRemoteDir(sftp: SFTPWrapper, dir: string): Promise<void> {
+    const parts = dir.split('/').filter(Boolean);
+    let current = dir.startsWith('/') ? '' : '.';
+    for (const part of parts) {
+      current = `${current}/${part}`;
+      const exists = await sftpCall<unknown>((cb) => sftp.stat(current, cb))
+        .then(() => true)
+        .catch(() => false);
+      if (!exists) {
+        await sftpCall((cb) => sftp.mkdir(current, cb));
       }
     }
+  }
 
-    // Create new connection
+  private connect(server: Server): Promise<SSHClient> {
+    const connectConfig: ConnectConfig = {
+      host: server.sshHost,
+      port: server.sshPort,
+      username: server.sshUsername,
+      readyTimeout: 20000,
+      keepaliveInterval: 15000,
+    };
+
+    if (server.sshPassword) {
+      connectConfig.password = server.sshPassword;
+    } else if (config.SSH_PRIVATE_KEY_PATH) {
+      connectConfig.privateKey = readFileSync(config.SSH_PRIVATE_KEY_PATH);
+    } else {
+      return Promise.reject(
+        new Error('No SSH credentials: set a password on the server or SSH_PRIVATE_KEY_PATH')
+      );
+    }
+
     return new Promise((resolve, reject) => {
       const conn = new SSHClient();
-
-      conn.on('error', (err) => {
-        logger.error(
-          { serverId: server.id, error: err },
-          'SSH connection error'
-        );
-        this.sshConnections.delete(connKey);
-      });
-
-      conn.connect({
-        host: server.sshHost,
-        port: server.sshPort,
-        username: server.sshUsername,
-        readyTimeout: 10000,
-      });
+      let ready = false;
 
       conn.on('ready', () => {
+        ready = true;
         logger.info({ serverId: server.id }, 'SSH connection established');
-        this.sshConnections.set(connKey, conn);
+        this.activeConnections.add(conn);
         resolve(conn);
       });
+
+      conn.on('error', (err) => {
+        logger.error({ serverId: server.id, error: err.message }, 'SSH connection error');
+        if (!ready) reject(err);
+      });
+
+      conn.on('close', () => {
+        this.activeConnections.delete(conn);
+      });
+
+      conn.connect(connectConfig);
     });
   }
 
   close(): void {
-    for (const [, conn] of this.sshConnections) {
+    for (const conn of this.activeConnections) {
       conn.end();
     }
-    this.sshConnections.clear();
+    this.activeConnections.clear();
     logger.info('All SSH connections closed');
   }
 }

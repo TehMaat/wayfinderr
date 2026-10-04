@@ -1,5 +1,5 @@
 import express from 'express';
-import cors from 'express-cors';
+import cors from 'cors';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import { statSync } from 'fs';
@@ -10,10 +10,14 @@ import { fileWatcher } from './services/fileWatcher.js';
 import { mediaInfoParser } from './services/mediaInfo.js';
 import { jobQueue } from './services/jobQueue.js';
 import { uploadManager } from './services/uploadManager.js';
-import { serverManager } from './services/serverManager.js';
 import serverRoutes from './routes/servers.js';
 import uploadRoutes from './routes/uploads.js';
 import spaceRoutes from './routes/space.js';
+
+// Prisma returns BigInt for sizes: serialize them as strings in JSON responses
+(BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function () {
+  return this.toString();
+};
 
 const app = express();
 const httpServer = createServer(app);
@@ -95,11 +99,9 @@ jobQueue.on('upload-skipped', ({ uploadId }) => {
 
 // File watcher event handler
 fileWatcher.on('file-detected', async (event) => {
+  let uploadId: string | null = null;
   try {
     logger.info(event, 'Processing detected file');
-
-    // Parse media info
-    const mediaInfo = await mediaInfoParser.parseFile(event.filepath);
 
     // Get file size
     const fileSize = BigInt(statSync(event.filepath).size);
@@ -111,6 +113,10 @@ fileWatcher.on('file-detected', async (event) => {
       size: fileSize,
       status: 'PENDING',
     });
+    uploadId = upload.id;
+
+    // Parse media info
+    const mediaInfo = await mediaInfoParser.parseFile(event.filepath);
 
     // Update upload with media info
     await db.updateUpload(upload.id, {
@@ -146,6 +152,12 @@ fileWatcher.on('file-detected', async (event) => {
     });
   } catch (error) {
     logger.error({ event, error }, 'Failed to process detected file');
+    if (uploadId) {
+      await db
+        .updateUpload(uploadId, { status: 'FAILED', error: (error as Error).message })
+        .catch(() => undefined);
+      broadcast({ type: 'upload-failed', uploadId });
+    }
   }
 });
 
@@ -194,6 +206,9 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 // Start server
 const startServer = async () => {
   try {
+    // Resume uploads left unfinished by a previous run
+    await jobQueue.resumePending();
+
     // Start file watcher
     fileWatcher.start();
 

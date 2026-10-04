@@ -56,7 +56,6 @@ data/
 
 # Docker
 .docker/
-.dockerignore
 
 # Temporary files
 .tmp/

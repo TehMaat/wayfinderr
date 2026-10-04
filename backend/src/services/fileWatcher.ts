@@ -2,6 +2,7 @@ import chokidar from 'chokidar';
 import { EventEmitter } from 'events';
 import path from 'path';
 import logger from '../config/logger.js';
+import { config } from '../config/index.js';
 
 export interface FileDetectedEvent {
   filepath: string;
@@ -24,9 +25,13 @@ export class FileWatcher extends EventEmitter {
       this.watcher = chokidar.watch(this.watchDir, {
         persistent: true,
         ignoreInitial: true,
+        // Polling is needed when the folder is a Windows/network mount seen from Docker
+        usePolling: config.WATCH_USE_POLLING,
+        interval: 2000,
+        // MakeMKV writes big files slowly: wait until the size is stable for 30s
         awaitWriteFinish: {
-          stabilityThreshold: 500,
-          pollInterval: 100,
+          stabilityThreshold: 30000,
+          pollInterval: 1000,
         },
         // Ignore temporary files
         ignored: /(^|[\/\\])\.|~tmp/,
@@ -64,4 +69,4 @@ export class FileWatcher extends EventEmitter {
   }
 }
 
-export const fileWatcher = new FileWatcher(process.env.WATCH_DIR || '/makemkv-output');
+export const fileWatcher = new FileWatcher(config.WATCH_DIR);
