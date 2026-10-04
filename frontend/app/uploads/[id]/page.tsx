@@ -1,173 +1,249 @@
 'use client';
 
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { uploadsApi } from '@/lib/api';
-import { Upload } from '@/lib/store';
+import { useRouter } from 'next/navigation';
+import { AlertTriangle, ArrowLeft, AudioLines, Captions, FileVideo, RotateCcw, Trash2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { EmptyState } from '@/components/empty-state';
+import { StatusBadge } from '@/components/status-badge';
+import { canDelete, canRetry } from '@/components/upload-actions';
+import { deleteUpload, retryUpload } from '@/lib/actions';
+import { useAppStore } from '@/lib/store';
+import { cn, formatBytes, formatDate, formatDuration, formatSpeed } from '@/lib/utils';
+
+interface Track {
+  language: string;
+  codec: string;
+  index: number;
+}
+
+const isItalian = (lang: string) => ['ita', 'it', 'it-it'].includes(lang.toLowerCase()) || lang.toLowerCase().startsWith('ital');
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 py-2 text-sm">
+      <span className="shrink-0 whitespace-nowrap text-muted-foreground">{label}</span>
+      <span className="min-w-0 truncate text-right tabular">{children}</span>
+    </div>
+  );
+}
+
+function TrackList({ title, icon: Icon, tracks }: { title: string; icon: typeof AudioLines; tracks: Track[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Icon className="h-4 w-4 text-muted-foreground" />
+          {title}
+        </CardTitle>
+        <span className="text-xs text-muted-foreground">{tracks.length}</span>
+      </CardHeader>
+      <CardContent>
+        {tracks.length === 0 ? (
+          <p className="text-sm text-muted-foreground">None</p>
+        ) : (
+          <div className="divide-y divide-border/60">
+            {tracks.map((t) => (
+              <div key={t.index} className="flex items-center justify-between py-2 text-sm">
+                <span className="flex items-center gap-2">
+                  <span className="w-6 text-xs tabular text-muted-foreground">#{t.index}</span>
+                  <span className={cn('font-medium uppercase', isItalian(t.language) && 'text-success')}>
+                    {t.language}
+                  </span>
+                  {isItalian(t.language) && <Badge variant="success">ITA</Badge>}
+                </span>
+                <span className="font-mono text-xs text-muted-foreground">{t.codec}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function UploadDetailPage({ params }: { params: { id: string } }) {
-  const [upload, setUpload] = useState<Upload | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [retrying, setRetrying] = useState(false);
+  const router = useRouter();
+  const upload = useAppStore((s) => s.uploads.find((u) => u.id === params.id));
+  const transfer = useAppStore((s) => s.transfers[params.id]);
+  const [loading, setLoading] = useState(!upload);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
+  // Uploads older than the loaded list are fetched on demand
   useEffect(() => {
-    fetchUpload();
+    useAppStore
+      .getState()
+      .refreshUpload(params.id)
+      .finally(() => setLoading(false));
   }, [params.id]);
 
-  const fetchUpload = async () => {
+  const media = useMemo(() => {
     try {
-      setLoading(true);
-      const { data } = await uploadsApi.getUpload(params.id);
-      setUpload(data);
-      setError(null);
-    } catch (err: any) {
-      console.error('Failed to fetch upload:', err);
-      setError('Failed to load upload details');
-    } finally {
-      setLoading(false);
+      const parsed = upload?.mediaInfo ? JSON.parse(upload.mediaInfo) : null;
+      return { audio: (parsed?.audioTracks ?? []) as Track[], subs: (parsed?.subtitles ?? []) as Track[], parsed: Boolean(parsed) };
+    } catch {
+      return { audio: [], subs: [], parsed: false };
     }
-  };
-
-  const handleRetry = async () => {
-    try {
-      setRetrying(true);
-      await uploadsApi.retryUpload(params.id);
-      await fetchUpload();
-    } catch (err: any) {
-      console.error('Failed to retry:', err);
-      setError('Failed to retry upload');
-    } finally {
-      setRetrying(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8 flex items-center justify-center">
-        <div className="text-slate-400">Loading upload details...</div>
-      </div>
-    );
-  }
+  }, [upload?.mediaInfo]);
 
   if (!upload) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
-        <div className="container mx-auto">
-          <Link href="/uploads" className="text-blue-400 hover:text-blue-300 mb-4 inline-block">
-            ← Back to Uploads
-          </Link>
-          <div className="bg-slate-700 p-8 rounded-lg text-center">
-            <p className="text-slate-400">Upload not found</p>
+      <div className="mx-auto max-w-5xl p-4 md:p-6">
+        {loading ? (
+          <div className="space-y-4">
+            <Skeleton className="h-8 w-1/2" />
+            <Skeleton className="h-40 w-full" />
           </div>
-        </div>
+        ) : (
+          <EmptyState
+            icon={FileVideo}
+            title="Upload not found"
+            action={
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/uploads">Back to uploads</Link>
+              </Button>
+            }
+          />
+        )}
       </div>
     );
   }
 
+  const uploading = upload.status === 'UPLOADING';
+  const remaining = Number(upload.size) - Number(upload.progressBytes);
+  const eta = transfer?.speed ? remaining / transfer.speed : null;
+  const duration =
+    upload.startedAt && upload.completedAt
+      ? (new Date(upload.completedAt).getTime() - new Date(upload.startedAt).getTime()) / 1000
+      : null;
+  const remotePath = upload.server?.sshPath ? `${upload.server.sshPath.replace(/\/+$/, '')}/${upload.filename}` : null;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
-      <div className="container mx-auto max-w-2xl">
-        <Link href="/uploads" className="text-blue-400 hover:text-blue-300 mb-4 inline-block">
-          ← Back to Uploads
-        </Link>
+    <div className="mx-auto max-w-5xl space-y-5 p-4 md:p-6">
+      <Link href="/uploads" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+        <ArrowLeft className="h-3.5 w-3.5" />
+        Uploads
+      </Link>
 
-        {error && (
-          <div className="mb-6 p-4 bg-red-900/20 border border-red-600 rounded text-red-300">
-            {error}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
+            <FileVideo className="h-5 w-5" />
           </div>
-        )}
-
-        <div className="bg-slate-700 rounded-lg p-6 mb-6">
-          <div className="mb-6">
-            <h1 className="text-2xl font-bold text-white break-all">{upload.filename}</h1>
-            <p className="text-slate-400 text-sm mt-2">
-              {(Number(upload.size) / 1024 / 1024).toFixed(2)} MB
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className="bg-slate-600 p-4 rounded">
-              <p className="text-slate-400 text-sm">Status</p>
-              <div className="mt-2">
-                <span className={`px-3 py-1 rounded text-sm font-medium inline-block ${
-                  upload.status === 'COMPLETED' ? 'bg-green-700 text-green-200' :
-                  upload.status === 'FAILED' ? 'bg-red-700 text-red-200' :
-                  upload.status === 'UPLOADING' ? 'bg-blue-700 text-blue-200' :
-                  'bg-yellow-700 text-yellow-200'
-                }`}>
-                  {upload.status}
-                </span>
-              </div>
+          <div className="min-w-0 space-y-1.5">
+            <h1 className="break-all text-lg font-semibold leading-tight">{upload.filename}</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge status={upload.status} />
+              <span className="text-xs text-muted-foreground tabular">{formatBytes(upload.size)}</span>
             </div>
-
-            <div className="bg-slate-600 p-4 rounded">
-              <p className="text-slate-400 text-sm">Progress</p>
-              <p className="text-2xl font-bold text-white mt-2">{upload.progress}%</p>
-            </div>
-
-            <div className="bg-slate-600 p-4 rounded">
-              <p className="text-slate-400 text-sm">Created</p>
-              <p className="text-white mt-2">
-                {new Date(upload.createdAt).toLocaleString()}
-              </p>
-            </div>
-
-            {upload.completedAt && (
-              <div className="bg-slate-600 p-4 rounded">
-                <p className="text-slate-400 text-sm">Completed</p>
-                <p className="text-white mt-2">
-                  {new Date(upload.completedAt).toLocaleString()}
-                </p>
-              </div>
-            )}
-          </div>
-
-          <div className="bg-slate-600 p-4 rounded mb-6">
-            <p className="text-slate-400 text-sm mb-3">Media Information</p>
-            <div className="space-y-2">
-              <div className="flex items-center">
-                <span className="text-white mr-2">🔊 Italian Audio:</span>
-                <span className={upload.hasItalianAudio ? 'text-green-400' : 'text-red-400'}>
-                  {upload.hasItalianAudio ? 'Yes' : 'No'}
-                </span>
-              </div>
-              <div className="flex items-center">
-                <span className="text-white mr-2">📝 Italian Subtitles:</span>
-                <span className={upload.hasItalianSubtitles ? 'text-green-400' : 'text-red-400'}>
-                  {upload.hasItalianSubtitles ? 'Yes' : 'No'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {upload.error && (
-            <div className="bg-red-900/20 border border-red-600 rounded p-4 mb-6">
-              <p className="text-red-300 text-sm">
-                <span className="font-semibold">Error:</span> {upload.error}
-              </p>
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            {upload.status === 'FAILED' && (
-              <button
-                onClick={handleRetry}
-                disabled={retrying}
-                className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50"
-              >
-                {retrying ? 'Retrying...' : 'Retry Upload'}
-              </button>
-            )}
-            <Link
-              href="/uploads"
-              className="px-4 py-2 bg-slate-600 text-white rounded hover:bg-slate-500"
-            >
-              Back
-            </Link>
           </div>
         </div>
+        <div className="flex gap-2">
+          {canRetry(upload) && (
+            <Button size="sm" onClick={() => retryUpload(upload.id)}>
+              <RotateCcw />
+              Retry
+            </Button>
+          )}
+          {canDelete(upload) && (
+            <Button size="sm" variant="outline" onClick={() => setConfirmOpen(true)}>
+              <Trash2 />
+              Remove
+            </Button>
+          )}
+        </div>
       </div>
+
+      {uploading && (
+        <Card className="p-4">
+          <div className="mb-2 flex items-center justify-between text-sm">
+            <span className="font-medium tabular">{upload.progress}%</span>
+            <span className="text-xs text-muted-foreground tabular">
+              {formatBytes(upload.progressBytes)} of {formatBytes(upload.size)} · {formatSpeed(transfer?.speed ?? 0)} · ETA{' '}
+              {formatDuration(eta)}
+            </span>
+          </div>
+          <Progress value={upload.progress} animated className="h-2.5" />
+        </Card>
+      )}
+
+      {upload.error && (
+        <div
+          className={cn(
+            'flex items-start gap-3 rounded-lg border p-4 text-sm',
+            upload.status === 'SKIPPED'
+              ? 'border-warning/40 bg-warning/10 text-warning'
+              : 'border-destructive/40 bg-destructive/10 text-destructive'
+          )}
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span className="break-words">{upload.error}</span>
+        </div>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Transfer</CardTitle>
+          </CardHeader>
+          <CardContent className="divide-y divide-border/60">
+            <Row label="Server">{upload.server?.name ?? '–'}</Row>
+            <Row label="Remote path">
+              <span className="font-mono text-xs">{remotePath ?? '–'}</span>
+            </Row>
+            <Row label="Attempts">{upload.status === 'COMPLETED' ? upload.currentRetryCount + 1 : upload.currentRetryCount}</Row>
+            <Row label="Duration">{duration !== null ? formatDuration(duration) : '–'}</Row>
+            <Row label="Average speed">
+              {duration ? formatSpeed(Number(upload.size) / duration) : '–'}
+            </Row>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>File</CardTitle>
+          </CardHeader>
+          <CardContent className="divide-y divide-border/60">
+            <Row label="Local path">
+              <span className="font-mono text-xs">{upload.filepath}</span>
+            </Row>
+            <Row label="Detected">{formatDate(upload.createdAt)}</Row>
+            <Row label="Started">{formatDate(upload.startedAt)}</Row>
+            <Row label="Completed">{formatDate(upload.completedAt)}</Row>
+            <Row label="Italian">
+              {upload.hasItalianAudio || upload.hasItalianSubtitles
+                ? [upload.hasItalianAudio && 'audio', upload.hasItalianSubtitles && 'subtitles'].filter(Boolean).join(' + ')
+                : 'none'}
+            </Row>
+          </CardContent>
+        </Card>
+      </div>
+
+      {media.parsed ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <TrackList title="Audio tracks" icon={AudioLines} tracks={media.audio} />
+          <TrackList title="Subtitles" icon={Captions} tracks={media.subs} />
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">Media info not available.</p>
+      )}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Remove from history?"
+        description="The upload is removed from the list. The file itself (local and remote) is not touched."
+        confirmLabel="Remove"
+        onConfirm={async () => {
+          if (await deleteUpload(upload.id)) router.push('/uploads');
+        }}
+      />
     </div>
   );
 }

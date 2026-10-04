@@ -76,6 +76,14 @@ jobQueue.on('progress', ({ uploadId, progress, bytes }) => {
   });
 });
 
+jobQueue.on('upload-started', ({ uploadId, serverId }) => {
+  broadcast({
+    type: 'upload-started',
+    uploadId,
+    serverId,
+  });
+});
+
 jobQueue.on('upload-completed', ({ uploadId }) => {
   broadcast({
     type: 'upload-completed',

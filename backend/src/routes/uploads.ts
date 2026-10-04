@@ -8,7 +8,7 @@ const router = Router();
 // GET all uploads with pagination
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
+    const limit = Math.min(req.query.limit ? parseInt(req.query.limit as string) : 50, 1000);
     const offset = req.query.offset ? parseInt(req.query.offset as string) : 0;
 
     const { uploads, total } = await db.getUploads(limit, offset);
@@ -16,6 +16,16 @@ router.get('/', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error(error, 'Failed to fetch uploads');
     res.status(500).json({ error: 'Failed to fetch uploads' });
+  }
+});
+
+// GET counters for the dashboard and the filters
+router.get('/stats', async (req: Request, res: Response) => {
+  try {
+    res.json({ ...(await db.getUploadStats()), queueSize: jobQueue.getQueueSize() });
+  } catch (error) {
+    logger.error(error, 'Failed to fetch upload stats');
+    res.status(500).json({ error: 'Failed to fetch upload stats' });
   }
 });
 
@@ -61,6 +71,26 @@ router.post('/:id/retry', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error(error, 'Failed to retry upload');
     res.status(500).json({ error: 'Failed to retry upload' });
+  }
+});
+
+// DELETE upload record (history only, the file is not touched)
+router.delete('/:id', async (req: Request, res: Response) => {
+  try {
+    const upload = await db.getUploadById(req.params.id);
+    if (!upload) {
+      res.status(404).json({ error: 'Upload not found' });
+      return;
+    }
+    if (upload.status === 'QUEUED' || upload.status === 'UPLOADING') {
+      res.status(409).json({ error: `Upload is ${upload.status}, cannot delete` });
+      return;
+    }
+    await db.deleteUpload(upload.id);
+    res.json({ ok: true });
+  } catch (error) {
+    logger.error(error, 'Failed to delete upload');
+    res.status(500).json({ error: 'Failed to delete upload' });
   }
 });
 

@@ -120,6 +120,7 @@ export class JobQueue extends EventEmitter {
         serverId: server.id,
         error: null,
       });
+      this.emit('upload-started', { uploadId, serverId: server.id });
 
       const success = await uploadManager.uploadWithRetry({
         uploadId,

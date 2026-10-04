@@ -1,19 +1,28 @@
 import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import { AppShell } from '@/components/app-shell';
 import './globals.css';
 
+const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
+
 export const metadata: Metadata = {
-  title: 'Wayfinderr - MKV Upload Manager',
-  description: 'Automatic MKV file uploader with smart server selection',
+  title: 'Wayfinderr',
+  description: 'Automatic MKV uploader with smart server selection',
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+// Applies the saved theme before the first paint (dark by default)
+const themeScript =
+  "try{if(localStorage.getItem('theme')==='light')document.documentElement.classList.remove('dark')}catch(e){}";
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className="antialiased">{children}</body>
+    <html lang="en" className={`dark ${inter.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
+      <body className="font-sans">
+        <AppShell>{children}</AppShell>
+      </body>
     </html>
   );
 }

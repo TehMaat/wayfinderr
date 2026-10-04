@@ -1,142 +1,256 @@
 'use client';
 
-import { useEffect } from 'react';
 import Link from 'next/link';
-import { useUploadsStore, useServersStore } from '@/lib/store';
-import { useWebSocket } from '@/lib/useWebSocket';
+import {
+  ArrowRight,
+  ArrowUpFromLine,
+  CheckCircle2,
+  Clock,
+  FolderInput,
+  HardDrive,
+  Plus,
+  Server as ServerIcon,
+  XCircle,
+  type LucideIcon,
+} from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/empty-state';
+import { PageHeader } from '@/components/page-header';
+import { StatusBadge } from '@/components/status-badge';
+import { StorageBar } from '@/components/storage-bar';
+import { UploadTable } from '@/components/upload-table';
+import { selectTotalSpeed, useAppStore, type Upload } from '@/lib/store';
+import { cn, formatBytes, formatDuration, formatSpeed, timeAgo } from '@/lib/utils';
 
-export default function Dashboard() {
-  const uploadsStore = useUploadsStore();
-  const serversStore = useServersStore();
-  useWebSocket();
-
-  useEffect(() => {
-    // Fetch initial uploads and servers data
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    try {
-      const { uploadsApi, spaceApi } = await import('@/lib/api');
-
-      // Fetch uploads
-      const { data: uploadsRes } = await uploadsApi.listUploads({ limit: 10 });
-      uploadsStore.setUploads(uploadsRes.uploads || uploadsRes || []);
-
-      // Fetch servers with space info
-      const { data: serversRes } = await spaceApi.getAllSpace();
-      serversStore.setServers(serversRes || []);
-    } catch (error) {
-      console.error('Failed to fetch data:', error);
-    }
-  };
-
-  const activeUpload = uploadsStore.uploads.find((u) => u.status === 'UPLOADING');
-  const completedCount = uploadsStore.uploads.filter(
-    (u) => u.status === 'COMPLETED'
-  ).length;
-  const failedCount = uploadsStore.uploads.filter(
-    (u) => u.status === 'FAILED'
-  ).length;
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">Wayfinderr</h1>
-          <p className="text-slate-400">Automatic MKV uploader with smart server selection</p>
+function StatCard({
+  label,
+  value,
+  sub,
+  icon: Icon,
+  tone,
+  href,
+}: {
+  label: string;
+  value: React.ReactNode;
+  sub?: React.ReactNode;
+  icon: LucideIcon;
+  tone: string;
+  href?: string;
+}) {
+  const body = (
+    <Card className={cn('relative overflow-hidden p-4 transition-colors', href && 'hover:border-primary/40')}>
+      <div className="flex items-start justify-between">
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">{label}</p>
+          <p className="text-2xl font-semibold tabular tracking-tight">{value}</p>
         </div>
-
-        {/* Navigation */}
-        <div className="flex gap-4 mb-8">
-          <Link
-            href="/"
-            className="px-4 py-2 bg-slate-700 text-white rounded hover:bg-slate-600"
-          >
-            Dashboard
-          </Link>
-          <Link
-            href="/uploads"
-            className="px-4 py-2 bg-slate-700 text-white rounded hover:bg-slate-600"
-          >
-            Uploads
-          </Link>
-          <Link
-            href="/servers"
-            className="px-4 py-2 bg-slate-700 text-white rounded hover:bg-slate-600"
-          >
-            Servers
-          </Link>
-        </div>
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-slate-700 p-6 rounded-lg">
-            <p className="text-slate-400 text-sm">Total Uploads</p>
-            <p className="text-3xl font-bold text-white">{uploadsStore.uploads.length}</p>
-          </div>
-          <div className="bg-slate-700 p-6 rounded-lg">
-            <p className="text-slate-400 text-sm">Completed</p>
-            <p className="text-3xl font-bold text-green-400">{completedCount}</p>
-          </div>
-          <div className="bg-slate-700 p-6 rounded-lg">
-            <p className="text-slate-400 text-sm">Failed</p>
-            <p className="text-3xl font-bold text-red-400">{failedCount}</p>
-          </div>
-          <div className="bg-slate-700 p-6 rounded-lg">
-            <p className="text-slate-400 text-sm">Queue Size</p>
-            <p className="text-3xl font-bold text-blue-400">{uploadsStore.queueSize}</p>
-          </div>
-        </div>
-
-        {/* Current Upload */}
-        {activeUpload && (
-          <div className="bg-slate-700 p-6 rounded-lg mb-8">
-            <h2 className="text-xl font-bold text-white mb-4">Current Upload</h2>
-            <p className="text-slate-300 mb-2">{activeUpload.filename}</p>
-            <div className="w-full bg-slate-600 rounded-full h-2">
-              <div
-                className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${activeUpload.progress}%` }}
-              />
-            </div>
-            <p className="text-slate-400 text-sm mt-2">{activeUpload.progress}%</p>
-          </div>
-        )}
-
-        {/* Recent Uploads */}
-        <div className="bg-slate-700 p-6 rounded-lg">
-          <h2 className="text-xl font-bold text-white mb-4">Recent Uploads</h2>
-          <div className="space-y-3">
-            {uploadsStore.uploads.slice(0, 5).map((upload) => (
-              <div key={upload.id} className="flex items-center justify-between bg-slate-600 p-3 rounded">
-                <div>
-                  <p className="text-white font-medium">{upload.filename}</p>
-                  <p className="text-slate-400 text-sm">
-                    {upload.hasItalianAudio && '🔊 ITA Audio'}{' '}
-                    {upload.hasItalianSubtitles && '📝 ITA Subs'}
-                  </p>
-                </div>
-                <span className={`px-3 py-1 rounded text-sm font-medium ${
-                  upload.status === 'COMPLETED' ? 'bg-green-700 text-green-200' :
-                  upload.status === 'FAILED' ? 'bg-red-700 text-red-200' :
-                  upload.status === 'UPLOADING' ? 'bg-blue-700 text-blue-200' :
-                  'bg-yellow-700 text-yellow-200'
-                }`}>
-                  {upload.status}
-                </span>
-              </div>
-            ))}
-          </div>
-          <Link
-            href="/uploads"
-            className="text-blue-400 hover:text-blue-300 text-sm mt-4 inline-block"
-          >
-            View all uploads →
-          </Link>
+        <div className={cn('flex h-8 w-8 items-center justify-center rounded-md', tone)}>
+          <Icon className="h-4 w-4" />
         </div>
       </div>
+      {sub && <p className="mt-2 text-xs text-muted-foreground">{sub}</p>}
+    </Card>
+  );
+  return href ? <Link href={href}>{body}</Link> : body;
+}
+
+function ActiveTransfer({ upload }: { upload: Upload }) {
+  const transfer = useAppStore((s) => s.transfers[upload.id]);
+  const remaining = Number(upload.size) - Number(upload.progressBytes);
+  const eta = transfer?.speed ? remaining / transfer.speed : null;
+  const uploading = upload.status === 'UPLOADING';
+
+  return (
+    <Link href={`/uploads/${upload.id}`} className="block space-y-2 rounded-md p-2 -mx-2 transition-colors hover:bg-accent/50">
+      <div className="flex items-center justify-between gap-3">
+        <p className="truncate text-sm font-medium">{upload.filename}</p>
+        <StatusBadge status={upload.status} />
+      </div>
+      <Progress value={uploading ? upload.progress : 0} animated={uploading} className="h-2" />
+      <div className="flex items-center justify-between text-xs text-muted-foreground tabular">
+        <span>
+          {uploading
+            ? `${formatBytes(upload.progressBytes)} of ${formatBytes(upload.size)}`
+            : formatBytes(upload.size)}
+          {upload.server && <> · {upload.server.name}</>}
+        </span>
+        {uploading && (
+          <span>
+            {formatSpeed(transfer?.speed ?? 0)} · ETA {formatDuration(eta)}
+          </span>
+        )}
+      </div>
+    </Link>
+  );
+}
+
+export default function Dashboard() {
+  const uploads = useAppStore((s) => s.uploads);
+  const loaded = useAppStore((s) => s.uploadsLoaded);
+  const servers = useAppStore((s) => s.servers);
+  const serversLoaded = useAppStore((s) => s.serversLoaded);
+  const stats = useAppStore((s) => s.stats);
+  const speed = useAppStore(selectTotalSpeed);
+
+  const active = uploads
+    .filter((u) => u.status === 'UPLOADING' || u.status === 'QUEUED' || u.status === 'PENDING')
+    .sort((a, b) => (a.status === 'UPLOADING' ? -1 : b.status === 'UPLOADING' ? 1 : 0));
+  const uploadingCount = uploads.filter((u) => u.status === 'UPLOADING').length;
+  const by = stats?.byStatus ?? {};
+
+  return (
+    <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
+      <PageHeader title="Dashboard" description="MakeMKV rips are sent to the server with the most free space." />
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard
+          label="Completed"
+          value={stats ? by.COMPLETED ?? 0 : '–'}
+          sub={stats ? `${formatBytes(stats.completedBytes)} transferred` : undefined}
+          icon={CheckCircle2}
+          tone="bg-success/15 text-success"
+          href="/uploads"
+        />
+        <StatCard
+          label="Uploading"
+          value={uploadingCount}
+          sub={uploadingCount > 0 ? formatSpeed(speed) : 'Idle'}
+          icon={ArrowUpFromLine}
+          tone="bg-primary/15 text-primary"
+        />
+        <StatCard
+          label="In queue"
+          value={stats ? (by.QUEUED ?? 0) + (by.PENDING ?? 0) : '–'}
+          sub={stats ? `${by.SKIPPED ?? 0} skipped (no ITA)` : undefined}
+          icon={Clock}
+          tone="bg-info/15 text-info"
+        />
+        <StatCard
+          label="Failed"
+          value={stats ? by.FAILED ?? 0 : '–'}
+          sub={(by.FAILED ?? 0) > 0 ? 'Open uploads to retry' : 'All good'}
+          icon={XCircle}
+          tone="bg-destructive/15 text-destructive"
+          href="/uploads"
+        />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <div className="space-y-1.5">
+              <CardTitle>Active transfers</CardTitle>
+              <CardDescription>Live progress over SFTP</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {!loaded ? (
+              <div className="space-y-3">
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+              </div>
+            ) : active.length === 0 ? (
+              <EmptyState
+                icon={FolderInput}
+                title="Waiting for new files"
+                description="When MakeMKV finishes writing a .mkv in the watch folder, it is checked and uploaded automatically."
+                className="py-8"
+              />
+            ) : (
+              <div className="space-y-2">
+                {active.slice(0, 6).map((u) => (
+                  <ActiveTransfer key={u.id} upload={u} />
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="space-y-1.5">
+              <CardTitle>Storage</CardTitle>
+              <CardDescription>Free space on each server</CardDescription>
+            </div>
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/servers">
+                Manage
+                <ArrowRight />
+              </Link>
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!serversLoaded ? (
+              <Skeleton className="h-10 w-full" />
+            ) : servers.length === 0 ? (
+              <EmptyState
+                icon={HardDrive}
+                title="No servers"
+                description="Add your Ultra.cc servers to start uploading."
+                action={
+                  <Button size="sm" asChild>
+                    <Link href="/servers?add=1">
+                      <Plus />
+                      Add server
+                    </Link>
+                  </Button>
+                }
+                className="py-6"
+              />
+            ) : (
+              servers.map((server) => (
+                <div key={server.id} className="space-y-1.5">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="flex items-center gap-2 font-medium">
+                      <ServerIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                      {server.name}
+                    </span>
+                    <span
+                      className={cn(
+                        'text-[11px]',
+                        server.reachable === false ? 'text-destructive' : 'text-muted-foreground'
+                      )}
+                    >
+                      {server.reachable === false ? 'unreachable' : timeAgo(server.lastSpaceCheckAt)}
+                    </span>
+                  </div>
+                  <StorageBar server={server} />
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="space-y-1.5">
+            <CardTitle>Recent activity</CardTitle>
+            <CardDescription>Last files detected in the watch folder</CardDescription>
+          </div>
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/uploads">
+              View all
+              <ArrowRight />
+            </Link>
+          </Button>
+        </CardHeader>
+        <div className="border-t">
+          {!loaded ? (
+            <div className="space-y-2 p-4">
+              <Skeleton className="h-9 w-full" />
+              <Skeleton className="h-9 w-full" />
+            </div>
+          ) : uploads.length === 0 ? (
+            <p className="px-4 py-6 text-center text-sm text-muted-foreground">Nothing yet.</p>
+          ) : (
+            <UploadTable uploads={uploads.slice(0, 8)} compact />
+          )}
+        </div>
+      </Card>
     </div>
   );
 }

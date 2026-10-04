@@ -1,211 +1,234 @@
 'use client';
 
-import Link from 'next/link';
-import { useServersStore } from '@/lib/store';
 import { useEffect, useState } from 'react';
-import { serversApi, spaceApi } from '@/lib/api';
-import Modal from '@/components/Modal';
-import ServerForm from '@/components/ServerForm';
+import {
+  Activity,
+  FolderOpen,
+  HardDrive,
+  KeyRound,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Server as ServerIcon,
+  ShieldCheck,
+  Trash2,
+  UploadCloud,
+} from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { EmptyState } from '@/components/empty-state';
+import { PageHeader } from '@/components/page-header';
+import { ServerDialog } from '@/components/server-dialog';
+import { StorageBar } from '@/components/storage-bar';
+import { deleteServer, refreshServerSpace, testServer } from '@/lib/actions';
+import { useAppStore, type Server } from '@/lib/store';
+import { cn, timeAgo } from '@/lib/utils';
+
+function Detail({ icon: Icon, children }: { icon: typeof ServerIcon; children: React.ReactNode }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+      <Icon className="h-3.5 w-3.5 shrink-0" />
+      <span className="truncate">{children}</span>
+    </div>
+  );
+}
+
+function ServerCard({ server, onEdit }: { server: Server; onEdit: () => void }) {
+  const stats = useAppStore((s) => s.stats);
+  const uploading = useAppStore((s) => s.uploads.some((u) => u.serverId === server.id && u.status === 'UPLOADING'));
+  const [testing, setTesting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const status =
+    server.reachable === undefined
+      ? { label: 'Checking', className: 'bg-muted-foreground/40' }
+      : server.reachable
+        ? { label: 'Online', className: 'bg-success shadow-[0_0_6px_hsl(var(--success))]' }
+        : { label: 'API unreachable', className: 'bg-destructive' };
+
+  return (
+    <Card className="flex flex-col">
+      <div className="flex items-start justify-between gap-3 p-4 pb-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
+            <ServerIcon className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate font-semibold">{server.name}</p>
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className={cn('h-1.5 w-1.5 rounded-full', status.className)} />
+              {status.label}
+              {uploading && (
+                <Badge className="ml-1">
+                  <UploadCloud />
+                  Uploading
+                </Badge>
+              )}
+            </p>
+          </div>
+        </div>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" aria-label="Server actions">
+              <MoreHorizontal />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={onEdit}>
+              <Pencil />
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={async () => {
+                setRefreshing(true);
+                await refreshServerSpace(server.id);
+                setRefreshing(false);
+              }}
+            >
+              <RefreshCw />
+              Refresh space
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem destructive onSelect={() => setConfirmOpen(true)}>
+              <Trash2 />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <div className="px-4 pb-4">
+        <StorageBar server={server} />
+      </div>
+
+      <div className="grid gap-2 border-t px-4 py-3">
+        <Detail icon={KeyRound}>
+          {server.sshUsername}@{server.sshHost}:{server.sshPort} · {server.hasSshPassword ? 'password' : 'SSH key'}
+        </Detail>
+        <Detail icon={FolderOpen}>{server.sshPath}</Detail>
+        <Detail icon={ShieldCheck}>
+          {server.mediaCheckPolicy === 'SKIP_NO_ITA' ? 'Only files with Italian audio/subs' : 'Uploads every file'} ·{' '}
+          {server.maxRetries} retries
+        </Detail>
+        <Detail icon={Activity}>
+          {stats?.byServer[server.id] ?? 0} uploads · space checked {timeAgo(server.lastSpaceCheckAt)}
+          {refreshing && '…'}
+        </Detail>
+      </div>
+
+      <div className="mt-auto flex gap-2 border-t p-3">
+        <Button
+          variant="secondary"
+          size="sm"
+          className="flex-1"
+          disabled={testing}
+          onClick={async () => {
+            setTesting(true);
+            await testServer(server.id);
+            setTesting(false);
+          }}
+        >
+          <Activity className={cn(testing && 'animate-pulse')} />
+          {testing ? 'Testing…' : 'Test connection'}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onEdit}>
+          <Pencil />
+          Edit
+        </Button>
+      </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title={`Delete ${server.name}?`}
+        description="The server is removed from Wayfinderr. Upload history is kept, files on the server are not touched."
+        onConfirm={() => deleteServer(server.id)}
+      />
+    </Card>
+  );
+}
 
 export default function ServersPage() {
-  const serversStore = useServersStore();
-  const [loading, setLoading] = useState(true);
-  const [testing, setTesting] = useState<string | null>(null);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [editingServer, setEditingServer] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const servers = useAppStore((s) => s.servers);
+  const loaded = useAppStore((s) => s.serversLoaded);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<Server | undefined>(undefined);
 
+  // /servers?add=1 (sidebar "+" and dashboard) opens the add dialog
   useEffect(() => {
-    fetchServers();
+    if (new URLSearchParams(window.location.search).get('add')) {
+      setEditing(undefined);
+      setDialogOpen(true);
+      window.history.replaceState(null, '', '/servers');
+    }
   }, []);
 
-  const fetchServers = async () => {
-    try {
-      setLoading(true);
-      const { data: serversRes } = await serversApi.listServers();
-      const { data: spaceRes } = await spaceApi.getAllSpace();
-
-      // Merge server data with space info
-      const merged = serversRes.map((server: any) => ({
-        ...server,
-        ...spaceRes.find((s: any) => s.id === server.id),
-      }));
-
-      serversStore.setServers(merged);
-      setError(null);
-    } catch (err: any) {
-      console.error('Failed to fetch servers:', err);
-      setError('Failed to load servers');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleTestServer = async (serverId: string) => {
-    try {
-      setTesting(serverId);
-      setNotice(null);
-      // Checks the Ultra.cc API and the SSH/SFTP login, and refreshes the space cache
-      const { data } = await serversApi.testServer(serverId);
-      await fetchServers();
-      setNotice(`Connection OK — ${data.freeSpaceGB} GB free`);
-    } catch (err: any) {
-      console.error('Server test failed:', err);
-      setError('Server test failed: ' + (err.response?.data?.error || err.message));
-    } finally {
-      setTesting(null);
-    }
-  };
-
-  const handleDeleteServer = async (serverId: string) => {
-    if (!confirm('Are you sure you want to delete this server?')) return;
-
-    try {
-      await serversApi.deleteServer(serverId);
-      await fetchServers();
-    } catch (err: any) {
-      console.error('Failed to delete server:', err);
-      setError('Failed to delete server');
-    }
-  };
-
-  const handleFormSuccess = async () => {
-    setShowAddModal(false);
-    setEditingServer(null);
-    await fetchServers();
+  const openAdd = () => {
+    setEditing(undefined);
+    setDialogOpen(true);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
-      <div className="container mx-auto">
-        <div className="mb-8 flex justify-between items-center">
-          <div>
-            <Link href="/" className="text-blue-400 hover:text-blue-300 mb-4 inline-block">
-              ← Back to Dashboard
-            </Link>
-            <h1 className="text-3xl font-bold text-white">Server Management</h1>
-          </div>
-          <button
-            onClick={fetchServers}
-            disabled={loading}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-          >
-            {loading ? 'Loading...' : 'Refresh'}
-          </button>
+    <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
+      <PageHeader
+        title="Servers"
+        description="Uploads go to the reachable server with the most free space, one file per server at a time."
+        actions={
+          <Button onClick={openAdd}>
+            <Plus />
+            Add server
+          </Button>
+        }
+      />
+
+      {!loaded ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <Skeleton className="h-72" />
+          <Skeleton className="h-72" />
         </div>
+      ) : servers.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon={HardDrive}
+            title="No servers configured"
+            description="Add your Ultra.cc servers: Wayfinderr checks their free space and uploads over SFTP."
+            action={
+              <Button onClick={openAdd}>
+                <Plus />
+                Add server
+              </Button>
+            }
+          />
+        </Card>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {servers.map((server) => (
+            <ServerCard
+              key={server.id}
+              server={server}
+              onEdit={() => {
+                setEditing(server);
+                setDialogOpen(true);
+              }}
+            />
+          ))}
+        </div>
+      )}
 
-        {notice && (
-          <div className="mb-6 p-4 bg-green-900/20 border border-green-600 rounded text-green-300">
-            {notice}
-          </div>
-        )}
-
-        {error && (
-          <div className="mb-6 p-4 bg-red-900/20 border border-red-600 rounded text-red-300">
-            {error}
-          </div>
-        )}
-
-        {loading && serversStore.servers.length === 0 ? (
-          <div className="text-center text-slate-400">Loading servers...</div>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-              {serversStore.servers.map((server) => (
-                <div key={server.id} className="bg-slate-700 p-6 rounded-lg">
-                  <h2 className="text-xl font-bold text-white mb-4">{server.name}</h2>
-                  <div className="space-y-3">
-                    <div>
-                      <p className="text-slate-400 text-sm">Free Space</p>
-                      <p className="text-2xl font-bold text-white">{server.freeSpaceGB} GB</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 text-sm">Bytes</p>
-                      <p className="text-sm text-slate-300">{server.freeSpaceBytes}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 text-sm">Last Updated</p>
-                      <p className="text-sm text-slate-300">
-                        {server.lastSpaceCheckAt
-                          ? new Date(server.lastSpaceCheckAt).toLocaleString()
-                          : 'Never'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-4 flex gap-2">
-                    <button
-                      onClick={() => setEditingServer(server.id)}
-                      className="px-3 py-1 bg-slate-600 text-white rounded text-sm hover:bg-slate-500"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleTestServer(server.id)}
-                      disabled={testing === server.id}
-                      className="px-3 py-1 bg-slate-600 text-white rounded text-sm hover:bg-slate-500 disabled:opacity-50"
-                    >
-                      {testing === server.id ? 'Testing...' : 'Test'}
-                    </button>
-                    <button
-                      onClick={() => handleDeleteServer(server.id)}
-                      className="px-3 py-1 bg-red-600/50 text-red-200 rounded text-sm hover:bg-red-600"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {serversStore.servers.length === 0 && (
-              <div className="bg-slate-700 p-8 rounded-lg text-center mb-8">
-                <p className="text-slate-400 mb-4">No servers configured yet.</p>
-                <button
-                  onClick={() => setShowAddModal(true)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                >
-                  Add Server
-                </button>
-              </div>
-            )}
-
-            <div className="bg-slate-700 p-6 rounded-lg">
-              <button
-                onClick={() => {
-                  setEditingServer(null);
-                  setShowAddModal(true);
-                }}
-                className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 mb-4"
-              >
-                + Add New Server
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-
-      <Modal
-        isOpen={showAddModal || editingServer !== null}
-        title={editingServer ? 'Edit Server' : 'Add New Server'}
-        onClose={() => {
-          setShowAddModal(false);
-          setEditingServer(null);
-        }}
-      >
-        <ServerForm
-          server={
-            editingServer
-              ? serversStore.servers.find((s) => s.id === editingServer)
-              : undefined
-          }
-          onSuccess={handleFormSuccess}
-          onCancel={() => {
-            setShowAddModal(false);
-            setEditingServer(null);
-          }}
-        />
-      </Modal>
+      <ServerDialog open={dialogOpen} onOpenChange={setDialogOpen} server={editing} />
     </div>
   );
 }

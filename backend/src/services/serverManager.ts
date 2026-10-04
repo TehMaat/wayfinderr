@@ -1,4 +1,4 @@
-import axios, { AxiosError } from 'axios';
+import axios from 'axios';
 import logger from '../config/logger.js';
 import { db } from './database.js';
 import { ServerSpaceInfo, SelectedServer } from '../types/index.js';
@@ -15,27 +15,39 @@ interface UltraAPIResponse {
   };
 }
 
+// "1.5", "TB" -> bytes (Ultra.cc reports binary units)
+const toBytes = (value: number | undefined, unit: string | undefined): bigint => {
+  if (value === undefined || value === null || !unit) return 0n;
+  const powers: Record<string, number> = { B: 0, K: 1, M: 2, G: 3, T: 4, P: 5 };
+  const power = powers[unit.trim().charAt(0).toUpperCase()] ?? 0;
+  return BigInt(Math.round(Number(value) * Math.pow(1024, power)));
+};
+
 export class ServerManager {
   private cacheTimeout = 60000; // 60 seconds cache
+  // Used/total are not stored in the DB: keep the last values in memory
+  private capacity: Map<string, { used: bigint; total: bigint }> = new Map();
 
   async getServerSpace(server: Server, force = false): Promise<ServerSpaceInfo | null> {
     try {
       // Check cache first
       if (
         !force &&
+        // After a restart used/total are unknown: fetch once to fill them in
+        this.capacity.has(server.id) &&
         server.lastSpaceCheckAt &&
         Date.now() - server.lastSpaceCheckAt.getTime() < this.cacheTimeout &&
         server.cachedFreeSpaceBytes
       ) {
-        logger.info(
+        logger.debug(
           { serverId: server.id, cached: true },
           'Using cached server space'
         );
         return {
           serverId: server.id,
           freeSpaceBytes: server.cachedFreeSpaceBytes,
-          usedSpaceBytes: BigInt(0), // Not cached
-          totalSpaceBytes: BigInt(0), // Not cached
+          usedSpaceBytes: this.capacity.get(server.id)?.used ?? 0n,
+          totalSpaceBytes: this.capacity.get(server.id)?.total ?? 0n,
         };
       }
 
@@ -52,9 +64,12 @@ export class ServerManager {
         }
       );
 
-      const freeSpaceBytes = BigInt(
-        response.data.service_stats_info.free_storage_bytes
-      );
+      const stats = response.data.service_stats_info;
+      const freeSpaceBytes = BigInt(stats.free_storage_bytes);
+      const usedSpaceBytes = toBytes(stats.used_storage_value, stats.used_storage_unit);
+      let totalSpaceBytes = toBytes(stats.total_storage_value, stats.total_storage_unit);
+      if (totalSpaceBytes < freeSpaceBytes) totalSpaceBytes = freeSpaceBytes + usedSpaceBytes;
+      this.capacity.set(server.id, { used: usedSpaceBytes, total: totalSpaceBytes });
 
       // Update cache in database
       await db.updateServerCachedSpace(server.id, freeSpaceBytes);
@@ -62,8 +77,8 @@ export class ServerManager {
       const serverSpace: ServerSpaceInfo = {
         serverId: server.id,
         freeSpaceBytes,
-        usedSpaceBytes: BigInt(0),
-        totalSpaceBytes: BigInt(0),
+        usedSpaceBytes,
+        totalSpaceBytes,
       };
 
       logger.info(
@@ -73,8 +88,14 @@ export class ServerManager {
 
       return serverSpace;
     } catch (error) {
+      // Log only message and status: the axios error carries the request
+      // headers, including the API token
       logger.error(
-        { serverId: server.id, error },
+        {
+          serverId: server.id,
+          error: (error as Error).message,
+          status: axios.isAxiosError(error) ? error.response?.status : undefined,
+        },
         'Failed to fetch server space'
       );
       return null;

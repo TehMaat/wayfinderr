@@ -69,7 +69,7 @@ export class DatabaseService {
         orderBy: { createdAt: 'desc' },
         take: limit || 50,
         skip: offset || 0,
-        include: { server: true },
+        include: { server: { select: { id: true, name: true, sshPath: true } } },
       }),
       this.prisma.upload.count(),
     ]);
@@ -80,7 +80,7 @@ export class DatabaseService {
   async getUploadById(id: string): Promise<Upload | null> {
     return this.prisma.upload.findUnique({
       where: { id },
-      include: { server: true },
+      include: { server: { select: { id: true, name: true, sshPath: true } } },
     });
   }
 
@@ -100,8 +100,39 @@ export class DatabaseService {
   async getUploadsByStatus(status: string): Promise<Upload[]> {
     return this.prisma.upload.findMany({
       where: { status },
-      include: { server: true },
+      include: { server: { select: { id: true, name: true, sshPath: true } } },
     });
+  }
+
+  async deleteUpload(id: string): Promise<Upload> {
+    return this.prisma.upload.delete({ where: { id } });
+  }
+
+  async getUploadStats(): Promise<{
+    total: number;
+    byStatus: Record<string, number>;
+    byServer: Record<string, number>;
+    completedBytes: bigint;
+  }> {
+    const [statusGroups, serverGroups, completed] = await Promise.all([
+      this.prisma.upload.groupBy({ by: ['status'], _count: { _all: true } }),
+      this.prisma.upload.groupBy({ by: ['serverId'], _count: { _all: true } }),
+      this.prisma.upload.aggregate({ where: { status: 'COMPLETED' }, _sum: { size: true } }),
+    ]);
+
+    const byStatus: Record<string, number> = {};
+    let total = 0;
+    for (const group of statusGroups) {
+      byStatus[group.status] = group._count._all;
+      total += group._count._all;
+    }
+
+    const byServer: Record<string, number> = {};
+    for (const group of serverGroups) {
+      if (group.serverId) byServer[group.serverId] = group._count._all;
+    }
+
+    return { total, byStatus, byServer, completedBytes: completed._sum.size ?? 0n };
   }
 
   async disconnect(): Promise<void> {
