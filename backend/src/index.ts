@@ -1,6 +1,6 @@
 import express from 'express';
-import cors from 'cors';
 import { createServer } from 'http';
+import { Duplex } from 'stream';
 import { WebSocketServer } from 'ws';
 import { statSync } from 'fs';
 import { config } from './config/index.js';
@@ -10,6 +10,9 @@ import { fileWatcher } from './services/fileWatcher.js';
 import { mediaInfoParser } from './services/mediaInfo.js';
 import { jobQueue } from './services/jobQueue.js';
 import { uploadManager } from './services/uploadManager.js';
+import { authEvents, authenticate, ensureSetupCode, getAccount } from './services/auth.js';
+import { isCrossSite, requireAuth, securityMiddleware } from './middleware/security.js';
+import authRoutes from './routes/auth.js';
 import serverRoutes from './routes/servers.js';
 import uploadRoutes from './routes/uploads.js';
 import spaceRoutes from './routes/space.js';
@@ -21,11 +24,16 @@ import spaceRoutes from './routes/space.js';
 
 const app = express();
 const httpServer = createServer(app);
-const wss = new WebSocketServer({ server: httpServer });
+const wss = new WebSocketServer({ noServer: true });
+
+// The browser reaches the backend only through the frontend proxy (and maybe a
+// reverse proxy before it): trust the client address and protocol it forwards
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
 
 // Middleware
-app.use(cors());
 app.use(express.json());
+app.use(securityMiddleware);
 
 // Logging middleware
 app.use((req, res, next) => {
@@ -33,7 +41,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// Routes
+// Routes: everything under /api needs a login, except /api/auth itself
+app.use('/api/auth', authRoutes);
+app.use('/api', requireAuth);
 app.use('/api/servers', serverRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/space', spaceRoutes);
@@ -43,11 +53,65 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', queue: jobQueue.getQueueSize() });
 });
 
-// WebSocket setup
+// Errors not handled by the routes (e.g. malformed JSON): JSON, never a stack trace
+app.use((error: Error & { status?: number }, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const status = error.status && error.status < 500 ? error.status : 500;
+  if (status === 500) logger.error(error, 'Request failed');
+  res.status(status).json({ error: status === 500 ? 'Internal server error' : error.message });
+});
+
+// WebSocket on /ws, for logged-in pages of this site only
+const rejectUpgrade = (socket: Duplex, status: string) => {
+  socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+};
+
+httpServer.on('upgrade', async (req, socket, head) => {
+  // A client that drops the connection mid-check must not crash the process
+  socket.on('error', () => socket.destroy());
+  try {
+    if (new URL(req.url ?? '/', 'http://localhost').pathname !== '/ws') {
+      rejectUpgrade(socket, '404 Not Found');
+      return;
+    }
+    if (isCrossSite(req.headers)) {
+      rejectUpgrade(socket, '403 Forbidden');
+      return;
+    }
+    if (!(await authenticate(req.headers))) {
+      rejectUpgrade(socket, '401 Unauthorized');
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+  } catch (error) {
+    logger.error(error, 'WebSocket upgrade failed');
+    rejectUpgrade(socket, '500 Internal Server Error');
+  }
+});
+
+// Password changed or "sign out everywhere": open sockets end too (the page
+// then checks its session and shows the login)
+authEvents.on('revoked', () => {
+  wss.clients.forEach((client) => client.close(4401, 'Session revoked'));
+});
+
 wss.on('connection', (ws) => {
   logger.info({ clients: wss.clients.size }, 'WebSocket client connected');
 
+  // Reverse proxies and tunnels drop idle connections: ping every 30s, and
+  // terminate a client that missed the previous pong
+  let alive = true;
+  ws.on('pong', () => (alive = true));
+  const heartbeat = setInterval(() => {
+    if (!alive) {
+      ws.terminate();
+      return;
+    }
+    alive = false;
+    ws.ping();
+  }, 30_000);
+
   ws.on('close', () => {
+    clearInterval(heartbeat);
     logger.info({ clients: wss.clients.size }, 'WebSocket client disconnected');
   });
 
@@ -214,6 +278,9 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 // Start server
 const startServer = async () => {
   try {
+    // Without an account everything is closed until it is created with this code
+    if (!(await getAccount())) ensureSetupCode();
+
     // Resume uploads left unfinished by a previous run
     await jobQueue.resumePending();
 

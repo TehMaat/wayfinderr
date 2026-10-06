@@ -1,15 +1,32 @@
 import axios from 'axios';
-import { getApiUrl } from './config';
+import { useAuthStore } from './auth';
 
+// Same-origin requests: the frontend server proxies /api to the backend.
+// The session is an HttpOnly cookie the browser sends on its own.
 const apiClient = axios.create({
   timeout: 15000,
 });
 
-// Resolved per request: the URL depends on the host the page was opened from
-apiClient.interceptors.request.use((config) => {
-  config.baseURL = getApiUrl();
-  return config;
+// Session expired, revoked or account reset: back to the login (or setup) screen
+apiClient.interceptors.response.use(undefined, (error) => {
+  const code = error?.response?.data?.code;
+  if (error?.response?.status === 401 && (code === 'auth_required' || code === 'auth_setup_required')) {
+    useAuthStore.getState().signedOut(code === 'auth_setup_required');
+  }
+  return Promise.reject(error);
 });
+
+// Auth API
+export const authApi = {
+  status: () => apiClient.get<{ configured: boolean; username: string | null }>('/api/auth/status'),
+  setup: (data: { setupCode: string; username: string; password: string }) =>
+    apiClient.post<{ username: string }>('/api/auth/setup', data),
+  login: (data: { username: string; password: string }) => apiClient.post<{ username: string }>('/api/auth/login', data),
+  logout: () => apiClient.post('/api/auth/logout'),
+  logoutEverywhere: () => apiClient.post('/api/auth/logout-everywhere'),
+  changePassword: (data: { currentPassword: string; newPassword: string }) =>
+    apiClient.post('/api/auth/change-password', data),
+};
 
 // Servers API
 export const serversApi = {

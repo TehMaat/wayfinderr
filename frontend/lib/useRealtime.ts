@@ -1,9 +1,10 @@
 import { useEffect } from 'react';
 import { toast } from 'sonner';
 import { useAppStore } from './store';
-import { getApiUrl } from './config';
+import { getWsUrl } from './config';
 
 const RECONNECT_DELAY_MS = 3000;
+const SESSION_REVOKED = 4401; // close code sent by the backend
 
 /**
  * Single WebSocket connection for the whole app (mounted once in the app shell).
@@ -11,7 +12,7 @@ const RECONNECT_DELAY_MS = 3000;
  */
 export const useRealtime = () => {
   useEffect(() => {
-    const wsUrl = getApiUrl().replace(/^http/, 'ws');
+    const wsUrl = getWsUrl();
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let statsTimer: ReturnType<typeof setTimeout> | null = null;
@@ -86,11 +87,16 @@ export const useRealtime = () => {
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         // A socket closed by the cleanup may close after its replacement has
         // opened (React dev mounts effects twice): it must not touch the state
         if (disposed) return;
         useAppStore.getState().setConnected(false);
+        // Session revoked (password changed elsewhere, "sign out everywhere"):
+        // any API call now answers 401 and brings back the login screen
+        if (event.code === SESSION_REVOKED) {
+          useAppStore.getState().loadStats().catch(() => undefined);
+        }
         reconnectTimer = setTimeout(connect, RECONNECT_DELAY_MS);
       };
     };

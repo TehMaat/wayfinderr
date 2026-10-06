@@ -3,10 +3,10 @@
 #   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 services:
+  # Not published: the frontend proxies /api and /ws to it over the compose network,
+  # by this service name (wayfinderr-backend)
   wayfinderr-backend:
     image: ${WAYFINDERR_REGISTRY:-ghcr.io/tehmaat}/wayfinderr-backend:${WAYFINDERR_TAG:-latest}
-    ports:
-      - "3001:3001"
     environment:
       - NODE_ENV=production
       - PORT=3001

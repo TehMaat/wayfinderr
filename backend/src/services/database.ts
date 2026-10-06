@@ -135,6 +135,36 @@ export class DatabaseService {
     return { total, byStatus, byServer, completedBytes: completed._sum.size ?? 0n };
   }
 
+  // Settings (key/value)
+  async getSettings(keys: string[]): Promise<Record<string, string>> {
+    const rows = await this.prisma.setting.findMany({ where: { key: { in: keys } } });
+    return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  }
+
+  async setSettings(values: Record<string, string>): Promise<void> {
+    await this.prisma.$transaction(
+      Object.entries(values).map(([key, value]) =>
+        this.prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } })
+      )
+    );
+  }
+
+  // Creates the setting only if it is missing; returns the stored value either way
+  async getOrCreateSetting(key: string, create: () => string): Promise<string> {
+    const existing = await this.prisma.setting.findUnique({ where: { key } });
+    if (existing) return existing.value;
+    try {
+      return (await this.prisma.setting.create({ data: { key, value: create() } })).value;
+    } catch {
+      // Created concurrently by another request
+      return (await this.prisma.setting.findUniqueOrThrow({ where: { key } })).value;
+    }
+  }
+
+  async deleteSettings(keys: string[]): Promise<void> {
+    await this.prisma.setting.deleteMany({ where: { key: { in: keys } } });
+  }
+
   async disconnect(): Promise<void> {
     await this.prisma.$disconnect();
   }

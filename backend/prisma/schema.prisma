@@ -72,3 +72,10 @@ model Upload {
   @@index([status])
   @@index([serverId])
 }
+
+// Key/value app settings: the login account and the session signing secret
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

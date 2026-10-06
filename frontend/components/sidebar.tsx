@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { ArrowUpFromLine, Compass, LayoutDashboard, Plus, Server as ServerIcon, UploadCloud } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
+import { AccountMenu } from '@/components/account-menu';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Tooltip } from '@/components/ui/tooltip';
 
@@ -112,11 +113,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         })}
       </div>
 
-      <div className="flex items-center justify-between border-t px-5 py-3">
-        <div className="text-[11px] leading-tight text-muted-foreground">
-          <div>Wayfinderr</div>
-          <div>MakeMKV → Ultra.cc</div>
-        </div>
+      <div className="flex items-center justify-between gap-2 border-t px-3 py-3">
+        <AccountMenu />
         <ThemeToggle />
       </div>
     </div>
