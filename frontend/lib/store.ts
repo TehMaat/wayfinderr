@@ -30,7 +30,7 @@ export interface Server {
   id: string;
   name: string;
   apiEndpoint: string;
-  apiToken: string;
+  hasApiToken: boolean;
   sshHost: string;
   sshPort: number;
   sshUsername: string;

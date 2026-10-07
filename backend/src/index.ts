@@ -53,12 +53,20 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', queue: jobQueue.getQueueSize() });
 });
 
-// Errors not handled by the routes (e.g. malformed JSON): JSON, never a stack trace
-app.use((error: Error & { status?: number }, req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  const status = error.status && error.status < 500 ? error.status : 500;
-  if (status === 500) logger.error(error, 'Request failed');
-  res.status(status).json({ error: status === 500 ? 'Internal server error' : error.message });
-});
+// Errors not handled by the routes (e.g. malformed JSON): a fixed message, never
+// the error's own text or a stack trace
+const ERROR_MESSAGES: Record<string, string> = {
+  'entity.parse.failed': 'Invalid JSON',
+  'entity.too.large': 'Request too large',
+};
+app.use(
+  (error: Error & { status?: number; type?: string }, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    const status = error.status && error.status < 500 ? error.status : 500;
+    if (status === 500) logger.error(error, 'Request failed');
+    const message = status === 500 ? 'Internal server error' : ERROR_MESSAGES[error.type ?? ''] ?? 'Bad request';
+    res.status(status).json({ error: message });
+  }
+);
 
 // WebSocket on /ws, for logged-in pages of this site only
 const rejectUpgrade = (socket: Duplex, status: string) => {
