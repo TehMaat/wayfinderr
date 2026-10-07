@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import { toast } from 'sonner';
 import { useAppStore } from './store';
+import { checkSession } from './api';
+import { useAuthStore } from './auth';
 import { getWsUrl } from './config';
 
 const RECONNECT_DELAY_MS = 3000;
@@ -92,10 +94,13 @@ export const useRealtime = () => {
         // opened (React dev mounts effects twice): it must not touch the state
         if (disposed) return;
         useAppStore.getState().setConnected(false);
-        // Session revoked (password changed elsewhere, "sign out everywhere"):
-        // any API call now answers 401 and brings back the login screen
+        // Session revoked or expired: the login screen if it was this page's,
+        // otherwise (password just changed here) reconnect with the new cookie
         if (event.code === SESSION_REVOKED) {
-          useAppStore.getState().loadStats().catch(() => undefined);
+          checkSession().then(() => {
+            if (!disposed && useAuthStore.getState().status === 'ready') connect();
+          });
+          return;
         }
         reconnectTimer = setTimeout(connect, RECONNECT_DELAY_MS);
       };
@@ -105,6 +110,7 @@ export const useRealtime = () => {
 
     return () => {
       disposed = true;
+      useAppStore.getState().setConnected(false);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (statsTimer) clearTimeout(statsTimer);
       ws?.close();

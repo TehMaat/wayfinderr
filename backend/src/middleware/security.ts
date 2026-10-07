@@ -1,6 +1,6 @@
 import { IncomingHttpHeaders } from 'http';
 import { NextFunction, Request, Response } from 'express';
-import { authenticate, getAccount } from '../services/auth.js';
+import { authenticate, ensureSetupCode, getAccount } from '../services/auth.js';
 
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -41,6 +41,7 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
   try {
     const account = await getAccount();
     if (!account) {
+      ensureSetupCode();
       res.status(401).json({ error: 'No account yet: create it first', code: 'auth_setup_required' });
       return;
     }

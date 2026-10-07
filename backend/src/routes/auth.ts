@@ -81,6 +81,7 @@ router.post(
         res.status(409).json({ error: 'The account already exists', code: 'auth_already_configured' });
         return;
       }
+      ensureSetupCode(); // after `reset-auth` the running server has none yet
       if (!checkSetupCode(req.body?.setupCode)) {
         fail(req, res, 403, 'Wrong setup code: copy it from the backend log', 'auth_setup_code_invalid');
         return;
@@ -105,6 +106,12 @@ router.post(
   '/login',
   handle(async (req, res) => {
     if (limited(req, res)) return;
+    // Account deleted with `reset-auth` while this login page was open
+    if (!(await getAccount())) {
+      ensureSetupCode();
+      res.status(401).json({ error: 'No account yet: create it first', code: 'auth_setup_required' });
+      return;
+    }
     const { username, password } = req.body ?? {};
     const account =
       typeof username === 'string' && typeof password === 'string' ? await verifyLogin(username, password) : null;

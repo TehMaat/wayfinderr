@@ -26,6 +26,7 @@ import { MIN_PASSWORD_LENGTH, useAuthStore } from '@/lib/auth';
 import { errorMessage } from '@/lib/utils';
 
 function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const username = useAuthStore((s) => s.username);
   const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirm: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,14 +64,17 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
           <DialogDescription>Every other device is signed out; this one stays signed in.</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
+          {/* Lets password managers update the right account */}
+          <input type="text" name="username" value={username ?? ''} autoComplete="username" readOnly hidden />
           {error && (
             <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {error}
             </div>
           )}
           <div className="space-y-1.5">
-            <Label>Current password</Label>
+            <Label htmlFor="current-password">Current password</Label>
             <Input
+              id="current-password"
               name="currentPassword"
               type="password"
               value={form.currentPassword}
@@ -81,8 +85,9 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
             />
           </div>
           <div className="space-y-1.5">
-            <Label>New password</Label>
+            <Label htmlFor="new-password">New password</Label>
             <Input
+              id="new-password"
               name="newPassword"
               type="password"
               value={form.newPassword}
@@ -94,8 +99,16 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
             <p className="text-[11px] text-muted-foreground">At least {MIN_PASSWORD_LENGTH} characters</p>
           </div>
           <div className="space-y-1.5">
-            <Label>Confirm new password</Label>
-            <Input name="confirm" type="password" value={form.confirm} onChange={update} autoComplete="new-password" required />
+            <Label htmlFor="confirm-password">Confirm new password</Label>
+            <Input
+              id="confirm-password"
+              name="confirm"
+              type="password"
+              value={form.confirm}
+              onChange={update}
+              autoComplete="new-password"
+              required
+            />
             {mismatch && <p className="text-[11px] text-destructive">The passwords do not match</p>}
           </div>
           <DialogFooter>
@@ -129,8 +142,9 @@ export function AccountMenu() {
   const logout = async () => {
     try {
       await authApi.logout();
-    } finally {
       useAuthStore.getState().signedOut();
+    } catch (err) {
+      toast.error('Could not sign out', { description: errorMessage(err) });
     }
   };
 

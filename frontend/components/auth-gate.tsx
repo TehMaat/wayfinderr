@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Compass, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input, Label } from '@/components/ui/input';
-import { authApi } from '@/lib/api';
+import { authApi, checkSession } from '@/lib/api';
 import { MIN_PASSWORD_LENGTH, useAuthStore } from '@/lib/auth';
 import { errorMessage } from '@/lib/utils';
 
@@ -25,12 +25,28 @@ function AuthCard({ description, children }: { description: string; children: Re
   );
 }
 
-function Field({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) {
+function Field({
+  id,
+  label,
+  hint,
+  error,
+  children,
+}: {
+  id: string;
+  label: string;
+  hint?: React.ReactNode;
+  error?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="space-y-1.5">
-      <Label>{label}</Label>
+      <Label htmlFor={id}>{label}</Label>
       {children}
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+      {error ? (
+        <p className="text-[11px] text-destructive">{error}</p>
+      ) : (
+        hint && <p className="text-[11px] text-muted-foreground">{hint}</p>
+      )}
     </div>
   );
 }
@@ -45,6 +61,7 @@ function FormError({ error }: { error: string | null }) {
 }
 
 function LoginScreen() {
+  const sessionEnded = useAuthStore((s) => s.sessionEnded);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -66,14 +83,22 @@ function LoginScreen() {
   };
 
   return (
-    <AuthCard description="Sign in to continue.">
+    <AuthCard description={sessionEnded ? 'Your session has ended: sign in again.' : 'Sign in to continue.'}>
       <form onSubmit={submit} className="space-y-4">
         <FormError error={error} />
-        <Field label="Username">
-          <Input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus required />
-        </Field>
-        <Field label="Password">
+        <Field id="login-username" label="Username">
           <Input
+            id="login-username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
+            autoFocus
+            required
+          />
+        </Field>
+        <Field id="login-password" label="Password">
+          <Input
+            id="login-password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -107,6 +132,9 @@ function SetupScreen() {
       useAuthStore.getState().signedIn(data.username);
     } catch (err) {
       setError(errorMessage(err, 'Could not create the account'));
+      // Created meanwhile (another tab): the login screen
+      const code = (err as { response?: { data?: { code?: string } } })?.response?.data?.code;
+      if (code === 'auth_already_configured') checkSession();
     } finally {
       setBusy(false);
     }
@@ -117,14 +145,16 @@ function SetupScreen() {
       <form onSubmit={submit} className="space-y-4">
         <FormError error={error} />
         <Field
+          id="setup-code"
           label="Setup code"
           hint={
             <>
-              Printed in the backend log: <code className="font-mono">docker logs wayfinderr-backend</code>
+              Printed in the backend log: <code className="font-mono">docker compose logs wayfinderr-backend</code>
             </>
           }
         >
           <Input
+            id="setup-code"
             name="setupCode"
             value={form.setupCode}
             onChange={update}
@@ -135,11 +165,12 @@ function SetupScreen() {
             required
           />
         </Field>
-        <Field label="Username">
-          <Input name="username" value={form.username} onChange={update} autoComplete="username" required />
+        <Field id="setup-username" label="Username">
+          <Input id="setup-username" name="username" value={form.username} onChange={update} autoComplete="username" required />
         </Field>
-        <Field label="Password" hint={`At least ${MIN_PASSWORD_LENGTH} characters`}>
+        <Field id="setup-password" label="Password" hint={`At least ${MIN_PASSWORD_LENGTH} characters`}>
           <Input
+            id="setup-password"
             name="password"
             type="password"
             value={form.password}
@@ -149,8 +180,16 @@ function SetupScreen() {
             required
           />
         </Field>
-        <Field label="Confirm password" hint={mismatch ? 'The passwords do not match' : undefined}>
-          <Input name="confirm" type="password" value={form.confirm} onChange={update} autoComplete="new-password" required />
+        <Field id="setup-confirm" label="Confirm password" error={mismatch ? 'The passwords do not match' : undefined}>
+          <Input
+            id="setup-confirm"
+            name="confirm"
+            type="password"
+            value={form.confirm}
+            onChange={update}
+            autoComplete="new-password"
+            required
+          />
         </Field>
         <Button
           type="submit"

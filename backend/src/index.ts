@@ -1,5 +1,5 @@
 import express from 'express';
-import { createServer } from 'http';
+import { createServer, IncomingMessage } from 'http';
 import { Duplex } from 'stream';
 import { WebSocketServer } from 'ws';
 import { statSync } from 'fs';
@@ -31,15 +31,15 @@ const wss = new WebSocketServer({ noServer: true });
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
 
-// Middleware
-app.use(express.json());
-app.use(securityMiddleware);
-
 // Logging middleware
 app.use((req, res, next) => {
   logger.info({ method: req.method, path: req.path }, 'Request received');
   next();
 });
+
+// Middleware: cross-site requests are refused before their body is even read
+app.use(securityMiddleware);
+app.use(express.json());
 
 // Routes: everything under /api needs a login, except /api/auth itself
 app.use('/api/auth', authRoutes);
@@ -60,7 +60,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   'entity.too.large': 'Request too large',
 };
 app.use(
-  (error: Error & { status?: number; type?: string }, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  (error: Error & { status?: number; type?: string }, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (res.headersSent) return next(error);
     const status = error.status && error.status < 500 ? error.status : 500;
     if (status === 500) logger.error(error, 'Request failed');
     const message = status === 500 ? 'Internal server error' : ERROR_MESSAGES[error.type ?? ''] ?? 'Bad request';
@@ -102,11 +103,12 @@ authEvents.on('revoked', () => {
   wss.clients.forEach((client) => client.close(4401, 'Session revoked'));
 });
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req: IncomingMessage) => {
   logger.info({ clients: wss.clients.size }, 'WebSocket client connected');
 
-  // Reverse proxies and tunnels drop idle connections: ping every 30s, and
-  // terminate a client that missed the previous pong
+  // Every 30s: ping, since reverse proxies and tunnels drop idle connections
+  // (a client that missed the previous pong is gone), and check the session
+  // again, since it may have expired or been revoked by `reset-auth`
   let alive = true;
   ws.on('pong', () => (alive = true));
   const heartbeat = setInterval(() => {
@@ -116,6 +118,11 @@ wss.on('connection', (ws) => {
     }
     alive = false;
     ws.ping();
+    authenticate(req.headers)
+      .then((username) => {
+        if (!username) ws.close(4401, 'Session ended');
+      })
+      .catch(() => undefined);
   }, 30_000);
 
   ws.on('close', () => {
@@ -259,6 +266,9 @@ const shutdown = async (signal: string) => {
 
     // Close SSH connections
     uploadManager.close();
+
+    // Close the browsers' WebSockets, or the HTTP server would wait for them
+    wss.clients.forEach((client) => client.close(1001, 'Server shutting down'));
 
     // Close database
     await db.disconnect();

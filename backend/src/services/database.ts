@@ -155,10 +155,26 @@ export class DatabaseService {
     if (existing) return existing.value;
     try {
       return (await this.prisma.setting.create({ data: { key, value: create() } })).value;
-    } catch {
+    } catch (error) {
       // Created concurrently by another request
-      return (await this.prisma.setting.findUniqueOrThrow({ where: { key } })).value;
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        return (await this.prisma.setting.findUniqueOrThrow({ where: { key } })).value;
+      }
+      throw error;
     }
+  }
+
+  // Adds 1 to a numeric setting (1 when missing) and writes the other values in
+  // the same transaction; returns the new number
+  async incrementSetting(key: string, values: Record<string, string> = {}): Promise<string> {
+    return this.prisma.$transaction(async (tx) => {
+      const current = Number((await tx.setting.findUnique({ where: { key } }))?.value ?? 1);
+      const next = String((Number.isFinite(current) ? current : 1) + 1);
+      for (const [name, value] of Object.entries({ ...values, [key]: next })) {
+        await tx.setting.upsert({ where: { key: name }, create: { key: name, value }, update: { value } });
+      }
+      return next;
+    });
   }
 
   async deleteSettings(keys: string[]): Promise<void> {

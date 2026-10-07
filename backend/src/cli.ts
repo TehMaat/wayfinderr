@@ -3,7 +3,7 @@ import { resetAccount } from './services/auth.js';
 
 /**
  * Maintenance commands, run inside the backend container:
- *   docker exec wayfinderr-backend node dist/cli.js reset-auth
+ *   docker compose exec wayfinderr-backend node dist/cli.js reset-auth
  */
 const commands: Record<string, { help: string; run: () => Promise<void> }> = {
   'reset-auth': {
@@ -12,7 +12,7 @@ const commands: Record<string, { help: string; run: () => Promise<void> }> = {
       await resetAccount();
       console.log('Account deleted and every session signed out.');
       console.log('Open Wayfinderr, then copy the setup code for the new account from the backend log');
-      console.log('(docker logs wayfinderr-backend).');
+      console.log('(docker compose logs wayfinderr-backend).');
     },
   },
 };

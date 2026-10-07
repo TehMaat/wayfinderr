@@ -96,14 +96,11 @@ export const validateCredentials = (username: unknown, password: unknown): strin
 
 export const createAccount = async (username: string, password: string): Promise<Account> => {
   if (await getAccount()) throw new Error('Account already exists');
-  // Keep counting from the previous version: tokens of a reset account stay invalid
-  const previous = Number((await db.getSettings([KEYS.tokenVersion]))[KEYS.tokenVersion] ?? 0);
-  const tokenVersion = String((Number.isFinite(previous) ? previous : 0) + 1);
   const passwordHash = await hashPassword(password);
-  await db.setSettings({
+  // A new token version: the tokens of a reset account stay invalid
+  const tokenVersion = await db.incrementSetting(KEYS.tokenVersion, {
     [KEYS.username]: username,
     [KEYS.passwordHash]: passwordHash,
-    [KEYS.tokenVersion]: tokenVersion,
   });
   setupCode = null;
   return { username, passwordHash, tokenVersion };
@@ -119,18 +116,15 @@ export const verifyLogin = async (username: string, password: string): Promise<A
 };
 
 /** Every session issued so far stops working; returns the new token version. */
-export const revokeAllSessions = async (): Promise<string> => {
-  const current = Number((await db.getSettings([KEYS.tokenVersion]))[KEYS.tokenVersion] ?? 1);
-  const next = String((Number.isFinite(current) ? current : 1) + 1);
-  await db.setSettings({ [KEYS.tokenVersion]: next });
+export const revokeAllSessions = async (values: Record<string, string> = {}): Promise<string> => {
+  const tokenVersion = await db.incrementSetting(KEYS.tokenVersion, values);
   authEvents.emit('revoked');
-  return next;
+  return tokenVersion;
 };
 
-export const changePassword = async (newPassword: string): Promise<string> => {
-  await db.setSettings({ [KEYS.passwordHash]: await hashPassword(newPassword) });
-  return revokeAllSessions();
-};
+/** Sets the new password and revokes every session, in one transaction. */
+export const changePassword = async (newPassword: string): Promise<string> =>
+  revokeAllSessions({ [KEYS.passwordHash]: await hashPassword(newPassword) });
 
 /** Deletes the account (CLI recovery): the setup screen opens again. */
 export const resetAccount = async (): Promise<void> => {
@@ -195,12 +189,15 @@ export const authenticate = async (headers: IncomingHttpHeaders, account?: Accou
 
 let setupCode: string | null = null;
 
-/** The one-time code for creating the account, printed in the log once. */
+/**
+ * The one-time code for creating the account, printed in the log once. Called
+ * whenever someone finds there is no account (startup, status, any /api call),
+ * so a code exists again after `reset-auth`.
+ */
 export const ensureSetupCode = (): string => {
   if (!setupCode) {
     setupCode = process.env.WAYFINDERR_SETUP_CODE || randomBytes(9).toString('base64url');
-    const line = '='.repeat(72);
-    logger.warn(`\n${line}\nNo account yet: open Wayfinderr and create it with this setup code: ${setupCode}\n${line}`);
+    logger.warn({ setupCode }, `No account yet: open Wayfinderr and create it with the setup code ${setupCode}`);
   }
   return setupCode;
 };

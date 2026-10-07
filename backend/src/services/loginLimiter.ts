@@ -5,9 +5,10 @@
  *
  * The client is the address the reverse proxy forwards (X-Forwarded-For, see
  * `trust proxy` in index.ts): Traefik/Pangolin set it and drop any value the
- * browser sent. Without a reverse proxy a client can send its own, so keep such
- * a setup on the LAN. There is no global cap: anyone could use it to lock the
- * owner out.
+ * browser sent. The frontend's own proxy adds none, so without a reverse proxy
+ * every device counts as the frontend (one shared limit) and a client could
+ * send its own header: keep such a setup on the LAN. There is no global cap:
+ * anyone could use it to lock the owner out.
  */
 
 export const MAX_FAILURES = 5;
