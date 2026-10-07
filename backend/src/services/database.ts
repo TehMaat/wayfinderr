@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma, Upload, Server } from '@prisma/client';
+import { PrismaClient, Prisma, Rip, Upload, Server } from '@prisma/client';
 import logger from '../config/logger.js';
 
 export class DatabaseService {
@@ -133,6 +133,35 @@ export class DatabaseService {
     }
 
     return { total, byStatus, byServer, completedBytes: completed._sum.size ?? 0n };
+  }
+
+  // Rip queries
+  async getRips(): Promise<Rip[]> {
+    return this.prisma.rip.findMany({ orderBy: { createdAt: 'desc' } });
+  }
+
+  async getRipById(id: string): Promise<Rip | null> {
+    return this.prisma.rip.findUnique({ where: { id } });
+  }
+
+  async getRipsByStatus(statuses: string[]): Promise<Rip[]> {
+    return this.prisma.rip.findMany({ where: { status: { in: statuses } }, orderBy: { createdAt: 'asc' } });
+  }
+
+  async createRip(data: Prisma.RipCreateInput): Promise<Rip> {
+    return this.prisma.rip.create({ data });
+  }
+
+  async updateRip(id: string, data: Prisma.RipUpdateInput): Promise<Rip> {
+    return this.prisma.rip.update({ where: { id }, data });
+  }
+
+  async deleteRip(id: string): Promise<Rip> {
+    return this.prisma.rip.delete({ where: { id } });
+  }
+
+  async getUploadByPath(filepath: string): Promise<Upload | null> {
+    return this.prisma.upload.findFirst({ where: { filepath }, orderBy: { createdAt: 'desc' } });
   }
 
   // Settings (key/value)

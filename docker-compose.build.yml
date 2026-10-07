@@ -11,3 +11,8 @@ services:
     image: wayfinderr-frontend:local
     build:
       context: ./frontend
+
+  makemkv:
+    image: wayfinderr-makemkv:local
+    build:
+      context: ./makemkv

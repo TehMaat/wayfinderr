@@ -16,6 +16,8 @@ import authRoutes from './routes/auth.js';
 import serverRoutes from './routes/servers.js';
 import uploadRoutes from './routes/uploads.js';
 import spaceRoutes from './routes/space.js';
+import ripRoutes from './routes/rips.js';
+import { ripper } from './services/ripper/index.js';
 
 // Prisma returns BigInt for sizes: serialize them as strings in JSON responses
 (BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function () {
@@ -47,6 +49,7 @@ app.use('/api', requireAuth);
 app.use('/api/servers', serverRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/space', spaceRoutes);
+app.use('/api/rips', ripRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -184,6 +187,10 @@ jobQueue.on('upload-skipped', ({ uploadId }) => {
   });
 });
 
+// Ripper events: the page refetches the rip, progress updates it in place
+ripper.on('rip-updated', ({ ripId, status }) => broadcast({ type: 'rip-updated', ripId, status }));
+ripper.on('rip-progress', ({ ripId, progress }) => broadcast({ type: 'rip-progress', ripId, progress }));
+
 // File watcher event handler
 fileWatcher.on('file-detected', async (event) => {
   let uploadId: string | null = null;
@@ -261,8 +268,9 @@ const shutdown = async (signal: string) => {
     // Stop accepting new jobs
     jobQueue.pause();
 
-    // Close file watcher
+    // Close file watcher and the rip loop (a running rip goes on in the MakeMKV container)
     await fileWatcher.stop();
+    ripper.stop();
 
     // Close SSH connections
     uploadManager.close();
@@ -304,6 +312,9 @@ const startServer = async () => {
 
     // Start file watcher
     fileWatcher.start();
+
+    // Rip film discs from the downloads folder (RIP_ENABLED)
+    ripper.start();
 
     // Start HTTP server
     httpServer.listen(config.PORT, () => {

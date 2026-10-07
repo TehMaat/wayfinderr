@@ -1,8 +1,9 @@
 name: Docker images
 
-# Builds the backend and frontend images and publishes them to GitHub Container Registry:
+# Builds the images and publishes them to GitHub Container Registry:
 #   ghcr.io/<owner>/wayfinderr-backend
 #   ghcr.io/<owner>/wayfinderr-frontend
+#   ghcr.io/<owner>/wayfinderr-makemkv   (jlesage/makemkv + the rip runner)
 # Tags: latest (main), sha-<commit>, and 1.2.3 / 1.2 for git tags like v1.2.3.
 
 on:
@@ -23,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [backend, frontend]
+        service: [backend, frontend, makemkv]
 
     steps:
       - uses: actions/checkout@v4

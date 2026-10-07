@@ -1,4 +1,5 @@
 import PQueue from 'p-queue';
+import { unlink } from 'fs/promises';
 import { EventEmitter } from 'events';
 import logger from '../config/logger.js';
 import { config } from '../config/index.js';
@@ -140,6 +141,12 @@ export class JobQueue extends EventEmitter {
 
       if (success) {
         logger.info({ uploadId, serverId: server.id }, 'Upload completed');
+        if (config.DELETE_AFTER_UPLOAD) {
+          // The copy on the server is complete: free the local disk
+          await unlink(filepath)
+            .then(() => logger.info({ uploadId, filepath }, 'Local file deleted after upload'))
+            .catch((error) => logger.error({ uploadId, filepath, error }, 'Failed to delete local file'));
+        }
         this.emit('upload-completed', { uploadId });
       } else {
         logger.error({ uploadId }, 'Upload failed');
