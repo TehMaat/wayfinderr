@@ -36,8 +36,9 @@ const BOX_MASK = 3854;
 const BOX_ERROR = [516, 1288];
 const BOX_REGISTRATION = 1544;
 // Messages that mean the source could not be read, even with exit code 0
-// (5010 "Failed to open disc")
-const FAILURE_CODES = new Set([5010]);
+// (5010 "Failed to open disc"), or a registration problem (5020 invalid key,
+// 5021 version too old, 5073 temporary key expired: exit code 253)
+const FAILURE_CODES = new Set([5010, 5020, 5021, 5073]);
 
 export const PROGRESS_MAX = 65536;
 
