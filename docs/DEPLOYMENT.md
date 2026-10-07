@@ -122,6 +122,8 @@ networks:
 
 The fixed addresses must be free and inside the network's subnet (`docker network inspect pangolin`).
 
+For automatic ripping add, besides the `.env` settings in the README: the downloads folder read-only in the backend (`- /path/to/downloads:/downloads:ro`, with `RIP_ENABLED=true` and `TMDB_API_KEY`), the watch folder writable in the backend (no `:ro`), and the `makemkv` service with the `ghcr.io/tehmaat/wayfinderr-makemkv` image, the same downloads folder as `/storage:ro`, the watch folder as `/output` and `MAKEMKV_KEY`. MakeMKV needs no address the backend knows: they only share the watch folder.
+
 Create the account before the resource is public: take the setup code from `docker logs wayfinderr-backend` and open the app from the Docker host, e.g. through an SSH tunnel (`ssh -L 3000:172.18.0.111:3000 <docker-host>`, then http://localhost:3000), or keep Pangolin's own authentication on the resource until it is done.
 
 ### Nginx

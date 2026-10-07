@@ -347,6 +347,84 @@ Re-enqueue a failed upload for retry.
 }
 ```
 
+## Rips API
+
+Film discs found in the downloads folder (`RIP_ENABLED=true`), see the README's *Automatic ripping*.
+
+### List Rips
+
+```
+GET /api/rips
+```
+
+**Response:** 200 OK
+```json
+{
+  "status": { "enabled": true, "runnerAlive": true, "tmdbConfigured": true, "language": "it", "minLength": 2700 },
+  "rips": [
+    {
+      "id": "rip123",
+      "sourcePath": "Le.Film.2019.BluRay/movie.iso",
+      "sourceType": "ISO",
+      "downloadName": "Le.Film.2019.BluRay",
+      "status": "NEEDS_ATTENTION",
+      "reason": "Several long titles (1h52, 1h38): more than one film or cut, choose one",
+      "discName": "LE_FILM",
+      "titles": [
+        {
+          "index": 0,
+          "durationSec": 6720,
+          "sizeBytes": 32212254720,
+          "chapters": 24,
+          "segmentsMap": "1-5",
+          "streams": [{ "type": "audio", "lang": "ita", "codec": "DTS", "forced": false, "commentary": false }]
+        }
+      ],
+      "titleIndex": null,
+      "tmdbId": 101,
+      "title": "Il film",
+      "originalTitle": "Le Film",
+      "originalLanguage": "fr",
+      "year": 2019,
+      "progress": 0,
+      "outputFile": null,
+      "upload": null,
+      "suggestion": { "title": "Le Film", "year": 2019 }
+    }
+  ]
+}
+```
+
+`status`: `WAITING` (still downloading), `QUEUED`, `SCANNING`, `RIPPING` (`progress` 0-100), `DONE` (`outputFile` in the watch folder, `upload` once picked up), `NEEDS_ATTENTION` (`reason` says what to choose), `FAILED`, `SKIPPED`. `suggestion` is the title and year read from the download name, to search TMDB.
+
+### Choose and Rip
+
+```
+POST /api/rips/:id/choose
+Content-Type: application/json
+
+{ "titleIndex": 1, "tmdbId": 101 }
+```
+
+Either field may be left out to keep the current one. Allowed when the rip is `NEEDS_ATTENTION`, `FAILED` or `SKIPPED`; the rip is queued with that title and film, without asking again. Errors: 400 (not integers), 404, 409 (`No such title on the disc`, rip in another state).
+
+### Retry, Skip
+
+```
+POST /api/rips/:id/retry
+POST /api/rips/:id/skip
+```
+
+Retry starts over (scan and automatic choices); not while scanning or ripping. Skip never rips the disc and stops a running rip.
+
+### Search TMDB
+
+```
+GET /api/rips/tmdb/search?query=Le%20Film&year=2019
+```
+
+**Response:** 200 OK: `[{ "id": 101, "title": "Il film", "originalTitle": "Le Film", "originalLanguage": "fr", "year": 2019 }]`. 502 when TMDB fails.
+
 ## WebSocket
 
 ### Connect
@@ -434,6 +512,13 @@ Upload skipped (no Italian content).
     "reason": "No Italian audio or subtitles"
   }
 }
+```
+
+#### rip-updated, rip-progress
+A rip changed (`status` is `DELETED` when it was removed: its download disappeared before finishing), or a running rip progressed.
+```json
+{ "type": "rip-updated", "ripId": "rip123", "status": "RIPPING" }
+{ "type": "rip-progress", "ripId": "rip123", "progress": 42 }
 ```
 
 ## Error Responses

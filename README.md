@@ -2,7 +2,7 @@
 
 Automated MKV file transfer system with intelligent server selection and real-time monitoring.
 
-Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitles, and uploads it via SFTP to the server with the most free space, with automatic retry.
+Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitles, and uploads it via SFTP to the server with the most free space, with automatic retry. Optionally it also rips the film discs (ISO, Blu-ray and DVD folders) that land in the downloads folder.
 
 **Stack**: Node.js 20 • Express • Prisma + SQLite • Next.js 14 • WebSocket • Docker Compose (optional)
 
@@ -18,6 +18,7 @@ Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitl
 - 💾 **Full History** - SQLite-backed persistence with upload tracking
 - 🌐 **Web UI** - Dashboard, server management and upload history
 - 🔐 **Login** - One password-protected account; the browser only talks to the frontend, which proxies the API, so one HTTPS reverse proxy entry is enough
+- 💿 **Automatic ripping** - Film discs that finish downloading are identified on TMDB and ripped with MakeMKV (main title, Italian + original language), then uploaded; anything unsure waits for a choice in the UI
 
 ---
 
@@ -96,7 +97,27 @@ docker compose exec wayfinderr-backend node dist/cli.js reset-auth   # or: docke
 3. Click **Test**: it checks the API and the SSH/SFTP login
 4. Repeat for the second server
 
-From now on every new `.mkv` in the watch folder is uploaded automatically. A file is picked up once its size has been stable for 30 seconds.
+From now on every new `.mkv` in the watch folder is uploaded automatically. A file is picked up once its size has been stable for 30 seconds. With `DELETE_AFTER_UPLOAD=true` the local file is deleted once it is on the server.
+
+### Automatic ripping (optional)
+
+For films downloaded as discs: every `.iso`, Blu-ray folder (`BDMV`) or DVD folder (`VIDEO_TS`) that finishes downloading is ripped to MKV and uploaded.
+
+1. In `.env`: `RIP_ENABLED=true`, `DOWNLOADS_DIR` (the torrent client's download folder), `TMDB_API_KEY` ([themoviedb.org](https://www.themoviedb.org/settings/api) API key or read access token) and `MAKEMKV_KEY` (your registration key, or `BETA`).
+2. Start the MakeMKV service too: `docker compose --profile makemkv up -d`. Its image, `wayfinderr-makemkv`, is [jlesage/makemkv](https://github.com/jlesage/docker-makemkv) (web GUI on port 5800) plus a runner that executes the rips Wayfinderr asks for.
+
+For each disc Wayfinderr:
+
+1. waits until the download is complete (no `.!qB`/`.part` files, nothing changed for `RIP_QUIET_MINUTES`);
+2. reads its titles (`makemkvcon info`);
+3. finds the film on TMDB from the download name (title and year), or from the disc label;
+4. picks the film's title: the only one at least `RIP_MIN_LENGTH` long (45 minutes; shorter extras are ignored);
+5. rips it keeping video, audio and subtitles in Italian and in the film's original language (Italian first);
+6. moves it to the watch folder as `Title (Year).mkv`, with the Italian TMDB title: the upload follows.
+
+It never guesses: when a disc has more than one long title (several films or cuts), many look-alike playlists, no Italian track, more discs in the same download, an unsure TMDB match, or there is not enough space, the rip stops on **Rips** → *Needs a choice*: pick the title and/or the film there and it goes on. Downloads already in the folder the first time are listed as skipped (*Rip anyway* from the page, or `RIP_EXISTING=true`).
+
+The rips run one at a time inside the MakeMKV container; Wayfinderr only exchanges small job files with it in `<watch folder>/.wayfinderr`. Set the MakeMKV container's `USER_ID`/`GROUP_ID` to the owner of the watch folder: at start it takes ownership of `/output` if it cannot write there.
 
 ---
 
@@ -113,6 +134,20 @@ From now on every new `.mkv` in the watch folder is uploaded automatically. A fi
 | `WAYFINDERR_TAG` | `latest` | Docker image version to run |
 | `WAYFINDERR_SETUP_CODE` | random | Backend: fixed setup code for creating the account, instead of the one printed in the log |
 | `BACKEND_URL` | `http://wayfinderr-backend:3001` (Docker image), `http://localhost:3001` (local run) | Frontend **build** setting: where the frontend server proxies `/api`, `/health` and `/ws`. Compiled in by `next build` (Docker build arg), so changing it means rebuilding |
+| `DELETE_AFTER_UPLOAD` | `false` | Delete the local `.mkv` once uploaded |
+| `RIP_ENABLED` | `false` | Rip film discs from the downloads folder (needs the `makemkv` service) |
+| `DOWNLOADS_DIR` | `./downloads` | Docker: host folder with the downloads, mounted read-only in the backend (`/downloads`) and MakeMKV (`/storage`) |
+| `RIP_SOURCE_DIR` | `/downloads` | Backend: the downloads folder as it sees it |
+| `RIP_WORK_DIR` | `<WATCH_DIR>/.wayfinderr` | Backend: folder shared with the MakeMKV runner (jobs, rips in progress) |
+| `RIP_QUIET_MINUTES` | `10` | A download is complete when nothing changed for this long |
+| `RIP_MIN_LENGTH` | `2700` | Seconds: shorter titles are never the film |
+| `RIP_EXISTING` | `false` | Also rip the downloads already there when ripping is first enabled |
+| `RIP_LANGUAGE` | `it` | Language always kept (ISO 639-1), besides the film's original one |
+| `TMDB_API_KEY` | – | themoviedb.org API key (v3) or read access token; without it every rip waits for a choice |
+| `TMDB_LANGUAGE` | `it-IT` | Language of the title used for the file name |
+| `MAKEMKV_KEY` | `BETA` | MakeMKV container: registration key, or `BETA` for the free beta key |
+| `WAYFINDERR_RUNNER` | `1` | MakeMKV container: `0` turns the runner off |
+| `WAYFINDERR_CACHE_MB` | `1024` | MakeMKV container: read cache of a rip |
 
 ---
 
@@ -124,6 +159,7 @@ The [`Docker images`](.github/workflows/docker-publish.yml) workflow builds both
 |---|---|
 | `ghcr.io/tehmaat/wayfinderr-backend` | `latest`, `sha-<commit>`, `1.2.3` / `1.2` for git tags `v1.2.3` |
 | `ghcr.io/tehmaat/wayfinderr-frontend` | same |
+| `ghcr.io/tehmaat/wayfinderr-makemkv` | same (jlesage/makemkv + the rip runner) |
 
 To publish a version: `git tag v1.0.0 && git push --tags`, then set `WAYFINDERR_TAG=1.0.0` in `.env`.
 
@@ -150,6 +186,7 @@ wayfinderr/
 │   ├── src/
 │   └── prisma/           # schema + migrations
 ├── frontend/             # Next.js UI
+├── makemkv/              # wayfinderr-makemkv image: jlesage/makemkv + rip runner
 ├── docs/
 └── scripts/              # setup/start/stop helpers for Docker
 ```
@@ -182,6 +219,13 @@ Served through the frontend (`http://localhost:3000/api/...`). Every route excep
 ### Space
 - `GET /api/space` - All servers' space
 - `POST /api/space/:id/refresh` - Refresh cache
+
+### Rips
+- `GET /api/rips` - Rips and the ripping status (enabled, runner online, TMDB configured)
+- `POST /api/rips/:id/choose` - Rip with the given `titleIndex` and/or `tmdbId`
+- `POST /api/rips/:id/retry` - Scan and choose again
+- `POST /api/rips/:id/skip` - Never rip it (stops a running rip)
+- `GET /api/rips/tmdb/search?query=&year=` - Search a film on TMDB
 
 ---
 
