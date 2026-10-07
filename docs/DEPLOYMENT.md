@@ -6,10 +6,11 @@ Production deployment strategies and best practices.
 
 - [ ] Docker images tested locally
 - [ ] Environment variables configured
+- [ ] Account created (setup code from the backend log) before the app is exposed
 - [ ] Database backups enabled
 - [ ] SSH keys set up for servers
 - [ ] HTTPS certificate obtained
-- [ ] Reverse proxy (nginx) configured
+- [ ] Reverse proxy (Pangolin/Traefik or nginx) pointing at the frontend
 - [ ] Monitoring/alerting set up
 - [ ] Log aggregation configured
 
@@ -29,83 +30,105 @@ cd wayfinderr
 cp .env.example .env
 nano .env  # Edit with production values
 
-# Build images
-docker-compose build
+# Pull the images
+docker compose pull
 
 # Start services
-docker-compose up -d
+docker compose up -d
 
 # Verify
-docker-compose ps
+docker compose ps
 ```
+
+Then open `http://<server>:3000` from the LAN and create the account with the setup code from `docker compose logs wayfinderr-backend` **before** exposing the app.
 
 ### Production Configuration
 
-Edit `docker-compose.yml`:
+The frontend is the only entry point: the browser talks to it alone, and it proxies `/api`, `/health` and the `/ws` WebSocket to the backend over the compose network, by the name `wayfinderr-backend` on port 3001. The backend publishes no port.
+
+That name is compiled into the frontend image at build time (`BACKEND_URL`, default `http://wayfinderr-backend:3001`). To reach the backend at another address, rebuild the image:
+
+```bash
+docker build --build-arg BACKEND_URL=http://my-backend:3001 -t wayfinderr-frontend:local ./frontend
+```
+
+When a reverse proxy on the same host is the only client, bind the frontend to localhost in `docker-compose.yml`:
 
 ```yaml
-version: '3.8'
+services:
+  wayfinderr-frontend:
+    ports:
+      - "127.0.0.1:3000:3000"  # only the reverse proxy reaches it
+```
 
+## Reverse Proxy (HTTPS)
+
+One HTTP entry is enough: point it at the frontend (`http://<frontend>:3000`), never at the backend. WebSockets (`/ws`) go through the same entry. The proxy must:
+
+- pass the original `Host` header (the cross-site check compares it with the page's `Origin`);
+- set `X-Forwarded-For` to the client address (the login limiter counts failures per client);
+- set `X-Forwarded-Proto` (on `https` the session cookie gets the `Secure` flag).
+
+Traefik and Pangolin do all of this by default, WebSockets included. Do not let clients reach port 3000 around the proxy: they could send their own `X-Forwarded-For`. Without a reverse proxy, keep Wayfinderr on the LAN.
+
+### Pangolin
+
+Create an **HTTP** resource, e.g. `wayfinderr.mydomain.it`, with one target: method `http`, address `172.18.0.111` (the frontend), port `3000`. No other setting is needed.
+
+Example compose with fixed addresses on Pangolin's Docker network (`pangolin`, created by Pangolin's own compose). The frontend reaches the backend by its service name, `wayfinderr-backend`:
+
+```yaml
 services:
   wayfinderr-backend:
-    build: ./backend
-    restart: always
-    ports:
-      - "127.0.0.1:3001:3001"  # Bind to localhost only
+    image: ghcr.io/tehmaat/wayfinderr-backend:${WAYFINDERR_TAG:-latest}
+    container_name: wayfinderr-backend
     environment:
-      NODE_ENV: production
-      LOG_LEVEL: info
-      DATABASE_URL: file:./data/wayfinderr.db
+      - NODE_ENV=production
+      - PORT=3001
+      - DATABASE_URL=file:/app/data/wayfinderr.db
+      - WATCH_DIR=/makemkv-output
+      - WATCH_USE_POLLING=${WATCH_USE_POLLING:-false}
+      - MAX_CONCURRENT_UPLOADS=${MAX_CONCURRENT_UPLOADS:-2}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
+      - ${MAKEMKV_OUTPUT_DIR:-./makemkv-output}:/makemkv-output:ro
       - wayfinderr-data:/app/data
-      - makemkv-output:/makemkv-output:ro
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001/api/space"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    depends_on:
-      - makemkv
+    restart: unless-stopped
+    networks:
+      pangolin:
+        ipv4_address: 172.18.0.110
 
   wayfinderr-frontend:
-    build: ./frontend
-    restart: always
-    ports:
-      - "127.0.0.1:3000:3000"  # Bind to localhost only
-    environment:
-      NEXT_PUBLIC_API_URL: https://api.wayfinderr.com
+    image: ghcr.io/tehmaat/wayfinderr-frontend:${WAYFINDERR_TAG:-latest}
+    container_name: wayfinderr-frontend
+    # No ports: only Pangolin reaches it, at 172.18.0.111:3000
     depends_on:
       - wayfinderr-backend
-
-  makemkv:
-    image: jlesage/makemkv:latest
-    restart: always
-    volumes:
-      - makemkv-output:/output
-      - /mnt/bluray:/mnt/video:ro
-    environment:
-      VNC_PASSWORD: change-me
+    # Optional: pin the backend name to its address
+    # extra_hosts:
+    #   - "wayfinderr-backend:172.18.0.110"
+    restart: unless-stopped
+    networks:
+      pangolin:
+        ipv4_address: 172.18.0.111
 
 volumes:
   wayfinderr-data:
-  makemkv-output:
+
+networks:
+  pangolin:
+    external: true
 ```
 
-## HTTPS with Nginx Reverse Proxy
+The fixed addresses must be free and inside the network's subnet (`docker network inspect pangolin`).
 
-### Nginx Configuration
+Create the account before the resource is public: take the setup code from `docker logs wayfinderr-backend` and open the app from the Docker host, e.g. through an SSH tunnel (`ssh -L 3000:172.18.0.111:3000 <docker-host>`, then http://localhost:3000), or keep Pangolin's own authentication on the resource until it is done.
 
-Create `/etc/nginx/sites-available/wayfinderr.conf`:
+### Nginx
+
+Create `/etc/nginx/sites-available/wayfinderr.conf` (with the frontend bound to `127.0.0.1:3000`):
 
 ```nginx
-upstream backend {
-  server 127.0.0.1:3001;
-}
-
-upstream frontend {
-  server 127.0.0.1:3000;
-}
-
 server {
   listen 80;
   server_name wayfinderr.example.com;
@@ -121,42 +144,30 @@ server {
   ssl_protocols TLSv1.2 TLSv1.3;
   ssl_ciphers HIGH:!aNULL:!MD5;
 
-  client_max_body_size 5G;
-
-  # Frontend
+  # Everything goes to the frontend: it proxies /api and /health to the backend
   location / {
-    proxy_pass http://frontend;
+    proxy_pass http://127.0.0.1:3000;
     proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;  # replace, do not append
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 120s;                        # testing a server can take a while
+  }
+
+  # WebSocket (live updates), also through the frontend
+  location = /ws {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-  }
-
-  # API
-  location /api {
-    proxy_pass http://backend;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_read_timeout 300s;
-  }
-
-  # WebSocket
-  location /ws {
-    proxy_pass http://backend;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "Upgrade";
-    proxy_set_header Host $host;
-    proxy_read_timeout 86400;
   }
 }
 ```
+
+The backend pings WebSocket clients every 30 seconds, so the default timeouts keep live updates open.
 
 Enable the site:
 ```bash
@@ -174,6 +185,8 @@ sudo systemctl restart nginx
 ```
 
 ## Database Backups
+
+The database also holds the login account (password hash) and the key that signs sessions: keep backups private. Restoring one restores that account too.
 
 ### Automated Backups
 
@@ -232,8 +245,8 @@ services:
 
 Monitor with:
 ```bash
-# Check services
-curl https://wayfinderr.example.com/api/space
+# Check services (no login needed; goes through the frontend to the backend)
+curl https://wayfinderr.example.com/health
 
 # Check database
 docker-compose exec wayfinderr-backend \
@@ -243,7 +256,7 @@ docker-compose exec wayfinderr-backend \
 ### Uptime Monitoring
 
 Service like UptimeRobot:
-- Monitor: `https://wayfinderr.example.com`
+- Monitor: `https://wayfinderr.example.com/health`
 - Interval: 5 minutes
 - Alert on failure
 
@@ -276,10 +289,14 @@ Service like UptimeRobot:
 .env.*
 ```
 
-2. **Use environment variables:**
+2. **Create the account before exposing the app:**
 ```bash
-# Instead of hardcoding in files
-NEXT_PUBLIC_API_URL=${API_URL}
+# Anyone with the setup code in this log line can create the account
+docker compose logs wayfinderr-backend | grep "setup code"
+# Forgotten password: delete the account, then reopen the page and use the new code from the log
+docker compose exec wayfinderr-backend node dist/cli.js reset-auth
+# (with container_name: wayfinderr-backend, as in the Pangolin example:
+#  docker logs wayfinderr-backend / docker exec wayfinderr-backend ...)
 ```
 
 3. **Rotate credentials regularly:**
@@ -289,7 +306,9 @@ NEXT_PUBLIC_API_URL=${API_URL}
 
 4. **Network security:**
 ```bash
-# Firewall - only allow needed ports
+# Firewall - only allow needed ports. The backend publishes none; behind a
+# reverse proxy bind the frontend to 127.0.0.1 or publish no port at all
+# (ports published by Docker bypass ufw)
 sudo ufw allow 22/tcp
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp

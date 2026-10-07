@@ -15,7 +15,7 @@ docker-compose up -d
 open -a Docker
 ```
 
-### Issue: Port 3000/3001/5800 already in use
+### Issue: Port 3000/5800 already in use (3001 too for a local run)
 
 **Solution:**
 
@@ -55,9 +55,9 @@ docker compose up -d
 
 **Solution:**
 
-1. Check backend is running:
+1. Check the frontend reaches the backend (no login needed):
 ```bash
-curl http://localhost:3001/api/space
+curl http://localhost:3000/health
 ```
 
 2. Check browser console for errors (F12)
@@ -74,7 +74,9 @@ Cmd+Shift+R   # macOS
 docker-compose logs wayfinderr-frontend
 ```
 
-### Issue: "Cannot POST to http://localhost:3001"
+### Issue: "The backend is not reachable right now"
+
+The browser only talks to the frontend, which proxies `/api`, `/health` and `/ws` to the backend at `BACKEND_URL`, compiled into the image (default `http://wayfinderr-backend:3001`). The backend port is not published.
 
 **Solution:**
 
@@ -88,16 +90,66 @@ docker-compose ps | grep wayfinderr-backend
 docker-compose logs wayfinderr-backend
 ```
 
-3. Try direct API call:
+3. Try the proxy and the backend from the frontend container:
 ```bash
-curl http://localhost:3001/api/space
+curl http://localhost:3000/health
+docker-compose exec wayfinderr-frontend wget -qO- http://wayfinderr-backend:3001/health
 ```
 
-4. If firewall issue, check:
+4. If the name does not resolve, both containers must share a Docker network and the backend must be reachable as `wayfinderr-backend` (service or container name, or `extra_hosts` on the frontend). For another address, rebuild the frontend with `--build-arg BACKEND_URL=...`; in a local run set `BACKEND_URL` in `frontend/.env` and restart `npm run dev` (rebuild for `npm start`).
+
+## Login Issues
+
+### Issue: Where is the setup code?
+
+**Solution:**
+
+It is printed in the backend log while no account exists:
 ```bash
-# Check if port 3001 is open
-netstat -an | grep 3001
+docker-compose logs wayfinderr-backend | grep "setup code"
+# or, if the container is named wayfinderr-backend:
+docker logs wayfinderr-backend 2>&1 | grep "setup code"
 ```
+
+- It is logged as a warning: it does not show with `LOG_LEVEL=error`.
+- Each backend start without an account prints a new random code; use the latest one. To fix it, set `WAYFINDERR_SETUP_CODE` for the backend.
+- Treat it as a secret: whoever has it can create the account.
+
+### Issue: Forgotten password
+
+**Solution:**
+
+```bash
+docker-compose exec wayfinderr-backend node dist/cli.js reset-auth
+```
+
+This deletes the account and signs out every session (servers and history are kept). Reopen the page: the setup screen is back, and the log has a new setup code. In a local run: `cd backend && npm run build && npm run reset-auth`.
+
+### Issue: "Too many attempts: try again in N min"
+
+**Solution:**
+
+5 failed logins (or setup codes, or current passwords) in 15 minutes from the same client block it until the oldest failure is 15 minutes old. Wait, or restart the backend (the count is kept in memory).
+
+The client is the address the reverse proxy forwards in `X-Forwarded-For`. Without a reverse proxy the backend only sees the frontend, so every device shares the same count.
+
+### Issue: Signed out on every device
+
+**Solution:**
+
+Expected after **Change password** (signs out every other device) or **Sign out everywhere**. Sessions also end after 30 days. Sign in again.
+
+### Issue: "Cross-site request refused" behind a reverse proxy
+
+**Solution:**
+
+The reverse proxy must pass the original `Host` header: the backend compares it with the page's `Origin` when the browser sends no `Sec-Fetch-Site`. Traefik and Pangolin do by default; in nginx use `proxy_set_header Host $host;`. Point the proxy at the frontend, never at the backend. See [DEPLOYMENT.md](./DEPLOYMENT.md#reverse-proxy-https).
+
+### Issue: No live updates behind a reverse proxy
+
+**Solution:**
+
+The WebSocket is `/ws` on the same address as the page. Traefik and Pangolin need no extra settings. nginx needs `proxy_http_version 1.1` and the `Upgrade`/`Connection` headers for `/ws` (example in [DEPLOYMENT.md](./DEPLOYMENT.md#nginx)).
 
 ## Backend Issues
 

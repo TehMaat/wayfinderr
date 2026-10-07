@@ -34,7 +34,7 @@ cd wayfinderr
 
 Edit `docker-compose.yml` if needed:
 - Verify volume paths for MakeMKV output
-- Check container ports (3000, 3001, 5800)
+- Check container ports (3000, and 5800 for MakeMKV); the backend publishes none
 - Update SSH path if different
 
 ### 3. Build and Start
@@ -51,15 +51,25 @@ docker-compose ps
 ```
 
 **Access Points:**
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:3001
+- Wayfinderr: http://localhost:3000 (the frontend also proxies the API and the WebSocket to the backend)
 - MakeMKV: http://localhost:5800 (optional)
 
 ---
 
 ## First-Time Setup (2 minutes)
 
-### 1. Add First Server
+### 1. Create the Account
+
+1. Open http://localhost:3000: the first visit shows the setup screen
+2. Copy the setup code from the backend log:
+   ```bash
+   docker-compose logs wayfinderr-backend | grep "setup code"
+   ```
+3. Choose a username and a password (at least 8 characters)
+
+Treat the setup code as a secret and create the account before exposing the app. Sessions last 30 days; the account menu at the bottom of the sidebar has Change password, Sign out and Sign out everywhere.
+
+### 2. Add First Server
 
 1. Go to http://localhost:3000/servers
 2. Click "Add New Server"
@@ -73,9 +83,9 @@ docker-compose ps
 4. Click "Save Server"
 5. Click "Test" to verify connection
 
-### 2. Add Second Server
+### 3. Add Second Server
 
-Repeat step 1 with your second server credentials.
+Repeat step 2 with your second server credentials.
 
 ---
 
@@ -211,18 +221,11 @@ SELECT filename, error FROM Upload WHERE status='FAILED';
 ### Health Check
 
 ```bash
-# Backend health
-curl http://localhost:3001/api/space
+# Frontend + backend health (no login needed)
+curl http://localhost:3000/health
 
 # Expected response:
-[
-  {
-    "id": "...",
-    "name": "Server 1",
-    "freeSpaceGB": 1234,
-    "freeSpaceBytes": "1234567890"
-  }
-]
+{"status":"ok","queue":0}
 ```
 
 ---
@@ -249,8 +252,8 @@ docker-compose up -d
 # Check frontend logs
 docker-compose logs wayfinderr-frontend
 
-# Verify backend is running
-curl http://localhost:3001/api/space
+# Verify the frontend reaches the backend
+curl http://localhost:3000/health
 
 # Clear browser cache (Ctrl+Shift+R)
 ```
@@ -266,6 +269,13 @@ ssh -p 22 username@hostname.usbx.me
 
 # Review backend logs
 docker-compose logs wayfinderr-backend | grep -i test
+```
+
+### Forgot the password
+
+```bash
+# Deletes the account; reopen the page and create it again with the new setup code from the log
+docker-compose exec wayfinderr-backend node dist/cli.js reset-auth
 ```
 
 ### Upload doesn't start
@@ -376,8 +386,8 @@ docker-compose up -d
 ### Check Network Connectivity
 
 ```bash
-# Test backend from frontend container
-docker-compose exec wayfinderr-frontend curl http://wayfinderr-backend:3001/api/space
+# Test backend from frontend container (the proxy uses this address)
+docker-compose exec wayfinderr-frontend wget -qO- http://wayfinderr-backend:3001/health
 
 # Test SSH from backend
 docker-compose exec wayfinderr-backend ssh -v user@host
@@ -399,23 +409,24 @@ docker-compose up -d
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                  Docker Compose Network                     │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌──────────────┐      ┌──────────────┐    ┌──────────┐    │
-│  │  Frontend    │      │   Backend    │    │ MakeMKV  │    │
-│  │ Next.js Port│◄────►│Express Port  │◄──►│ Docker   │    │
-│  │   3000       │ REST │   3001       │    │ Port 5800│    │
-│  └──────────────┘      └──────────────┘    └──────────┘    │
-│         ▲                     ▲                              │
-│         └──WebSocket────┬─────┘                             │
-│                         │                                   │
-│                    ┌────────────────┐                       │
-│                    │  SQLite DB     │                       │
-│                    │ Uploads/Servers│                       │
-│                    └────────────────┘                       │
-│                                                              │
+        Browser (http://localhost:3000, or HTTPS via a reverse proxy)
+            │
+┌───────────┼─────────────────────────────────────────────────┐
+│           │             Docker Compose Network              │
+├───────────┼─────────────────────────────────────────────────┤
+│           ▼                                                 │
+│  ┌─────────────────┐  /api   ┌─────────────────┐  ┌───────┐ │
+│  │    Frontend     │  /ws    │     Backend     │  │MakeMKV│ │
+│  │  Next.js Port   │────────►│  Express Port   │◄─┤Docker │ │
+│  │      3000       │  proxy  │ 3001 (internal) │  │ 5800  │ │
+│  └─────────────────┘         └────────┬────────┘  └───────┘ │
+│                                       │                     │
+│                              ┌────────▼───────┐             │
+│                              │  SQLite DB     │             │
+│                              │ Uploads/Servers│             │
+│                              │ Login account  │             │
+│                              └────────────────┘             │
+│                                                             │
 └─────────────────────────────────────────────────────────────┘
                            │
          ┌─────────────────┴────────────────┐

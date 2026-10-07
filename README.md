@@ -17,6 +17,7 @@ Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitl
 - 🔄 **Job Queue** - Concurrent uploads (max 2 global, max 1 per server); unfinished uploads resume after a restart
 - 💾 **Full History** - SQLite-backed persistence with upload tracking
 - 🌐 **Web UI** - Dashboard, server management and upload history
+- 🔐 **Login** - One password-protected account; the browser only talks to the frontend, which proxies the API, so one HTTPS reverse proxy entry is enough
 
 ---
 
@@ -34,7 +35,7 @@ cd backend
 cp .env.example .env        # then set WATCH_DIR to your MakeMKV output folder
 npm install
 npm run db:deploy           # creates the SQLite database
-npm run dev                 # http://localhost:3001
+npm run dev                 # API on http://localhost:3001
 
 # 2. Frontend (second terminal)
 cd frontend
@@ -42,7 +43,9 @@ npm install
 npm run dev                 # http://localhost:3000
 ```
 
-For an always-on install use `npm run build && npm start` in both folders instead of `npm run dev`.
+Open http://localhost:3000. The frontend proxies `/api`, `/health` and the `/ws` WebSocket to the backend on `http://localhost:3001`; to use another address, set `BACKEND_URL` in `frontend/.env` (see `frontend/.env.example`).
+
+For an always-on install use `npm run build && npm start` in both folders instead of `npm run dev`. `BACKEND_URL` is compiled in by `npm run build`: rebuild after changing it.
 
 ### Option B: Docker Compose (prebuilt images)
 
@@ -55,11 +58,32 @@ docker compose up -d
 docker compose logs -f wayfinderr-backend
 ```
 
-To update: `docker compose pull && docker compose up -d`. Data (servers, history) lives in the `wayfinderr-data` volume and survives updates.
+To update: `docker compose pull && docker compose up -d`. Data (servers, history, login account) lives in the `wayfinderr-data` volume and survives updates.
 
-ffprobe is included in the backend image. The UI looks for the backend on the same host, port 3001, so it also works from other devices on the LAN (`http://<pc-ip>:3000`). To also run MakeMKV in Docker (Linux host with an optical drive), use `docker compose --profile makemkv up -d` and uncomment the `devices` section in `docker-compose.yml`.
+Open http://localhost:3000, or `http://<pc-ip>:3000` from other devices on the LAN. The browser only talks to the frontend, which proxies `/api`, `/health` and the `/ws` WebSocket to the backend over the compose network (service name `wayfinderr-backend`); the backend port is not published. To put it on a domain with HTTPS, see [Reverse proxy](./docs/DEPLOYMENT.md#reverse-proxy-https).
+
+ffprobe is included in the backend image. To also run MakeMKV in Docker (Linux host with an optical drive), use `docker compose --profile makemkv up -d` and uncomment the `devices` section in `docker-compose.yml`.
 
 To build from source instead: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
+
+### Create the account
+
+Wayfinderr stays closed until its single account exists.
+
+1. Open http://localhost:3000: the first visit shows the setup screen.
+2. Copy the one-time **setup code** from the backend log: `docker compose logs wayfinderr-backend | grep "setup code"` (`docker logs wayfinderr-backend` if the container has that name; the backend terminal for a local run). To choose the code yourself, set `WAYFINDERR_SETUP_CODE` for the backend.
+3. Choose a username and a password (at least 8 characters).
+
+Anyone with the setup code can create the account: treat that log line as a secret, and create the account before exposing the app outside the LAN.
+
+Sessions last 30 days (HttpOnly cookie). The account menu at the bottom of the sidebar (your username) has **Change password** (signs out every other device), **Sign out** and **Sign out everywhere**. After 5 failed attempts in 15 minutes, a client has to wait before trying again.
+
+**Forgotten password**: delete the account, then reopen the page and create it again with the new setup code from the log (servers and history are kept):
+
+```bash
+docker compose exec wayfinderr-backend node dist/cli.js reset-auth   # or: docker exec wayfinderr-backend node dist/cli.js reset-auth
+# local run: cd backend && npm run build && npm run reset-auth
+```
 
 ### Configure the servers
 
@@ -87,7 +111,8 @@ From now on every new `.mkv` in the watch folder is uploaded automatically. A fi
 | `MAX_CONCURRENT_UPLOADS` | `2` | Max uploads running at the same time |
 | `SSH_PRIVATE_KEY_PATH` | – | SSH key for servers saved without a password |
 | `WAYFINDERR_TAG` | `latest` | Docker image version to run |
-| `NEXT_PUBLIC_API_URL` | same host, port 3001 | Frontend build only: fixed backend URL, if it is not on the same host |
+| `WAYFINDERR_SETUP_CODE` | random | Backend: fixed setup code for creating the account, instead of the one printed in the log |
+| `BACKEND_URL` | `http://wayfinderr-backend:3001` (Docker image), `http://localhost:3001` (local run) | Frontend **build** setting: where the frontend server proxies `/api`, `/health` and `/ws`. Compiled in by `next build` (Docker build arg), so changing it means rebuilding |
 
 ---
 
@@ -133,10 +158,19 @@ wayfinderr/
 
 ## API Endpoints
 
+Served through the frontend (`http://localhost:3000/api/...`). Every route except `/api/auth/*` needs the session cookie; see [docs/API.md](./docs/API.md).
+
+### Auth
+- `GET /api/auth/status` - Account configured? Logged in as?
+- `POST /api/auth/setup` - Create the account (setup code from the log)
+- `POST /api/auth/login` / `POST /api/auth/logout` - Sign in / out
+- `POST /api/auth/change-password` - Change password, sign out other sessions
+- `POST /api/auth/logout-everywhere` - Sign out every session
+
 ### Servers
-- `GET /api/servers` - List all servers
+- `GET /api/servers` - List all servers (secrets are never returned: `hasApiToken`, `hasSshPassword`)
 - `POST /api/servers` - Create server
-- `PUT /api/servers/:id` - Update server (blank password = keep current)
+- `PUT /api/servers/:id` - Update server (blank token or password = keep current)
 - `DELETE /api/servers/:id` - Delete server
 - `POST /api/servers/:id/test` - Test Ultra.cc API + SSH/SFTP
 

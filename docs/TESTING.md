@@ -16,7 +16,7 @@
   - `NODE_ENV=production`
   - `DATABASE_URL=file:./data/wayfinderr.db`
   - `WATCH_DIR=/makemkv-output`
-  - `NEXT_PUBLIC_API_URL=http://localhost:3001`
+  - `BACKEND_URL` (frontend build arg, default `http://wayfinderr-backend:3001`): where the frontend proxies `/api`, `/health` and `/ws`
 
 ---
 
@@ -62,24 +62,16 @@ makemkv                 Up 2 seconds
 ### Step 3: Verify Backend Health
 
 ```bash
-# Check backend logs
+# Check backend logs (the first start prints the setup code)
 docker-compose logs wayfinderr-backend
 
-# Test API endpoint
-curl http://localhost:3001/api/space
+# Health, through the frontend proxy (the backend port is not published)
+curl http://localhost:3000/health
 ```
 
 **Expected Response:**
 ```json
-[
-  {
-    "id": "...",
-    "name": "...",
-    "freeSpaceBytes": "...",
-    "freeSpaceGB": "...",
-    "lastSpaceCheckAt": null
-  }
-]
+{"status":"ok","queue":0}
 ```
 
 ### Step 4: Verify Frontend Health
@@ -93,7 +85,7 @@ docker-compose logs wayfinderr-frontend
 ```
 
 **Expected Behavior:**
-- Dashboard loads
+- First visit: setup screen; after creating the account, the dashboard loads
 - Navigation links work
 - No JavaScript errors in browser console
 
@@ -235,6 +227,25 @@ sqlite> .exit
    - [ ] Upload attempts again
    - [ ] Status updates in real-time
 
+### Test 10: Login
+
+1. First visit: setup screen. A wrong setup code shows an error; the code from `docker-compose logs wayfinderr-backend | grep "setup code"` with a password of at least 8 characters opens the dashboard
+2. Account menu (bottom of the sidebar) → **Sign out** → login screen
+3. After 5 wrong passwords the next attempt shows "Too many attempts: try again in 15 min" (without a reverse proxy every device counts as the same client; restarting the backend clears the count)
+4. Log in in two browsers, **Change password** in one → the other goes back to the login screen; this one stays signed in
+5. **Sign out everywhere** → every browser goes back to the login screen
+6. `docker-compose exec wayfinderr-backend node dist/cli.js reset-auth` → reloading the page shows the setup screen, with a new setup code in the log
+
+**Verification:**
+```bash
+# Without a session the API answers 401
+curl http://localhost:3000/api/servers
+# {"error":"Login required","code":"auth_required"}
+
+# The server API token is never returned (hasApiToken instead)
+curl -b cookies.txt http://localhost:3000/api/servers
+```
+
 ---
 
 ## Error Handling Tests
@@ -365,21 +376,28 @@ docker-compose up -d
 
 ### API Testing with curl
 
+Through the frontend, after logging in with a cookie jar:
+
 ```bash
+# Log in (saves the session cookie)
+curl -c cookies.txt -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "your-password"}' \
+  http://localhost:3000/api/auth/login
+
 # List all servers
-curl http://localhost:3001/api/servers
+curl -b cookies.txt http://localhost:3000/api/servers
 
 # Get space info
-curl http://localhost:3001/api/space
+curl -b cookies.txt http://localhost:3000/api/space
 
 # List uploads
-curl http://localhost:3001/api/uploads?limit=10
+curl -b cookies.txt "http://localhost:3000/api/uploads?limit=10"
 
 # Get upload details
-curl http://localhost:3001/api/uploads/{upload-id}
+curl -b cookies.txt http://localhost:3000/api/uploads/{upload-id}
 
 # Test server
-curl -X POST http://localhost:3001/api/servers/{server-id}/test
+curl -b cookies.txt -X POST http://localhost:3000/api/servers/{server-id}/test
 ```
 
 ---
@@ -433,7 +451,9 @@ docker-compose exec wayfinderr-backend env | grep -E "NODE_ENV|DATABASE_URL|WATC
 - [ ] Docker images build successfully
 - [ ] All services start without errors
 - [ ] Frontend loads at http://localhost:3000
-- [ ] Backend API responds at http://localhost:3001
+- [ ] `http://localhost:3000/health` answers through the proxy
+- [ ] Account setup, login, change password and sign out work
+- [ ] API answers 401 without a session
 - [ ] Server CRUD operations work
 - [ ] Server connectivity test works
 - [ ] File detection works
@@ -452,7 +472,7 @@ docker-compose exec wayfinderr-backend env | grep -E "NODE_ENV|DATABASE_URL|WATC
 When deploying to production:
 
 1. Use strong API tokens and SSH keys
-2. Enable HTTPS for frontend (nginx reverse proxy)
+2. Enable HTTPS with a reverse proxy pointing at the frontend (see DEPLOYMENT.md); create the account first
 3. Set `NODE_ENV=production`
 4. Enable persistent volumes for database
 5. Configure backup strategy for SQLite database
