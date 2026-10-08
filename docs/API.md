@@ -423,7 +423,7 @@ GET /api/rips
 **Response:** 200 OK
 ```json
 {
-  "status": { "enabled": true, "runnerAlive": true, "tmdbConfigured": true, "language": "it", "minLength": 2700 },
+  "status": { "enabled": true, "runnerAlive": true, "tmdbConfigured": true, "language": "it", "minLength": 2700, "exclusions": ["Serie TV/"] },
   "rips": [
     {
       "id": "rip123",
@@ -479,6 +479,19 @@ POST /api/rips/:id/skip
 ```
 
 Retry starts over (scan and automatic choices); not while scanning or ripping. Skip never rips the disc and stops a running rip.
+
+### Exclusions
+
+```
+PUT /api/rips/exclusions
+Content-Type: application/json
+
+{ "patterns": ["Serie TV/", "S0*E"] }
+```
+
+Replaces the exclusion rules (also listed in `status.exclusions`). A disc whose path in the downloads folder contains a rule is not ripped: it is created as `SKIPPED` with the reason `Excluded by the rule “…”`. Case doesn't matter and `*` matches any text. Saving skips the `WAITING`, `QUEUED` and `NEEDS_ATTENTION` rips a new rule matches, and puts back to `WAITING` the rips a rule skipped that no rule matches any more; rips skipped by hand are left alone. Rules are trimmed, blanks and duplicates dropped; at most 100, of 200 characters each.
+
+**Response:** 200 OK: `{ "exclusions": ["Serie TV/", "S0*E"], "skipped": 2, "restored": 0 }`. 400 when `patterns` is not an array of strings or is too long.
 
 ### Search TMDB
 

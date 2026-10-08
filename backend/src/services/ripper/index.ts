@@ -6,6 +6,7 @@ import { config } from '../../config/index.js';
 import logger from '../../config/logger.js';
 import { db } from '../database.js';
 import { findDiscs, isDownloadComplete, makemkvSource, SourceType } from './downloads.js';
+import { EXCLUDED_PREFIX, excludedReason, matchExclusion, parseExclusions } from './exclusions.js';
 import { describeExit, DiscTitle, languageCodes, parseInfo, parseProgress, parseRipResult, selectionRule } from './makemkv.js';
 import { parseDiscLabel, parseReleaseName } from './releaseName.js';
 import {
@@ -33,7 +34,7 @@ import { getMovie, matchMovie, TmdbMovie, tmdbConfigured } from './tmdb.js';
  *
  * When the film or its title can't be told for sure, the rip stops in
  * NEEDS_ATTENTION and waits for a choice in the UI. FAILED can be retried,
- * SKIPPED is never ripped.
+ * SKIPPED is never ripped (by hand, or by an exclusion rule).
  */
 
 export const RIP_STATUSES = ['WAITING', 'QUEUED', 'SCANNING', 'RIPPING', 'DONE', 'NEEDS_ATTENTION', 'FAILED', 'SKIPPED'];
@@ -43,6 +44,9 @@ const DISCOVER_MS = 60_000;
 const LOG_TAIL_BYTES = 64 * 1024;
 const SPACE_MARGIN_BYTES = 2 * 1024 ** 3;
 const INITIALIZED_KEY = 'rip_initialized';
+const EXCLUSIONS_KEY = 'rip_exclusions';
+// Not started yet: a new exclusion rule skips them
+const EXCLUDABLE = ['WAITING', 'QUEUED', 'NEEDS_ATTENTION'];
 
 const keptLanguages = () => languageCodes(config.RIP.LANGUAGE);
 
@@ -62,6 +66,14 @@ class Ripper extends EventEmitter {
   private timer: NodeJS.Timeout | null = null;
   private busy = false;
   private lastDiscover = 0;
+  // The rip loop and the exclusion rules change the same rips: one at a time
+  private lock: Promise<unknown> = Promise.resolve();
+
+  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.lock.then(fn);
+    this.lock = run.catch(() => undefined);
+    return run;
+  }
 
   start() {
     if (!config.RIP.ENABLED) {
@@ -94,11 +106,13 @@ class Ripper extends EventEmitter {
     if (this.busy) return;
     this.busy = true;
     try {
-      if (Date.now() - this.lastDiscover >= DISCOVER_MS) {
-        this.lastDiscover = Date.now();
-        await this.discover();
-      }
-      await this.advance();
+      await this.exclusive(async () => {
+        if (Date.now() - this.lastDiscover >= DISCOVER_MS) {
+          this.lastDiscover = Date.now();
+          await this.discover();
+        }
+        await this.advance();
+      });
     } catch (error) {
       logger.error(error, 'Rip loop failed');
     } finally {
@@ -112,16 +126,21 @@ class Ripper extends EventEmitter {
     const known = new Map((await db.getRips()).map((rip) => [rip.sourcePath, rip]));
 
     // The first time, the downloads already there are only listed (RIP_EXISTING to rip them)
-    const initialized = (await db.getSettings([INITIALIZED_KEY]))[INITIALIZED_KEY];
+    const settings = await db.getSettings([INITIALIZED_KEY, EXCLUSIONS_KEY]);
+    const initialized = settings[INITIALIZED_KEY];
+    const exclusions = parseExclusions(settings[EXCLUSIONS_KEY]);
     for (const disc of discs) {
       if (known.has(disc.path)) continue;
+      const rule = matchExclusion(exclusions, disc.path);
+      const skipped =
+        !initialized && !config.RIP.RIP_EXISTING
+          ? 'Already in the downloads when ripping was turned on'
+          : rule && excludedReason(rule);
       const rip = await db.createRip({
         sourcePath: disc.path,
         sourceType: disc.type,
         downloadName: disc.downloadName,
-        ...(!initialized && !config.RIP.RIP_EXISTING
-          ? { status: 'SKIPPED', reason: 'Already in the downloads when ripping was turned on' }
-          : {}),
+        ...(skipped ? { status: 'SKIPPED', reason: skipped } : {}),
       });
       logger.info({ ripId: rip.id, source: disc.path, status: rip.status }, 'Disc found in the downloads');
       this.changed(rip);
@@ -404,6 +423,46 @@ class Ripper extends EventEmitter {
     return this.update(id, { status: 'SKIPPED', reason: 'Skipped', jobId: null, progress: 0 });
   }
 
+  async exclusions() {
+    return parseExclusions((await db.getSettings([EXCLUSIONS_KEY]))[EXCLUSIONS_KEY]);
+  }
+
+  /**
+   * Saves the exclusion rules (already normalized, see normalizeExclusions).
+   * A new rule skips the discs not started yet that it matches; the discs a
+   * rule skipped go back to the queue when no rule matches them any more.
+   * Discs ripped or skipped by hand are left alone.
+   */
+  async setExclusions(patterns: string[]) {
+    return this.exclusive(async () => {
+      const previous = new Set((await this.exclusions()).map((p) => p.toLowerCase()));
+      const added = patterns.filter((p) => !previous.has(p.toLowerCase()));
+      await db.setSettings({ [EXCLUSIONS_KEY]: JSON.stringify(patterns) });
+
+      let skipped = 0;
+      let restored = 0;
+      for (const rip of await db.getRipsByStatus([...EXCLUDABLE, 'SKIPPED'])) {
+        if (rip.status !== 'SKIPPED') {
+          const rule = matchExclusion(added, rip.sourcePath);
+          if (!rule) continue;
+          await this.update(rip.id, { status: 'SKIPPED', reason: excludedReason(rule) });
+          skipped++;
+        } else if (rip.reason?.startsWith(EXCLUDED_PREFIX)) {
+          const rule = matchExclusion(patterns, rip.sourcePath);
+          if (!rule) {
+            // Back to the start: the next discovery checks it is still there and complete
+            await this.update(rip.id, { status: 'WAITING', reason: null });
+            restored++;
+          } else if (rip.reason !== excludedReason(rule)) {
+            await this.update(rip.id, { reason: excludedReason(rule) });
+          }
+        }
+      }
+      logger.info({ exclusions: patterns, skipped, restored }, 'Rip exclusions saved');
+      return { exclusions: patterns, skipped, restored };
+    });
+  }
+
   async status() {
     return {
       enabled: config.RIP.ENABLED,
@@ -411,6 +470,7 @@ class Ripper extends EventEmitter {
       tmdbConfigured: tmdbConfigured(),
       language: config.RIP.LANGUAGE,
       minLength: config.RIP.MIN_LENGTH,
+      exclusions: await this.exclusions(),
     };
   }
 }

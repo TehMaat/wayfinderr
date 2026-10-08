@@ -2,6 +2,7 @@ import { Request, Response, Router } from 'express';
 import { Rip } from '@prisma/client';
 import { db } from '../services/database.js';
 import { ripper } from '../services/ripper/index.js';
+import { normalizeExclusions } from '../services/ripper/exclusions.js';
 import { parseReleaseName } from '../services/ripper/releaseName.js';
 import { searchMovies } from '../services/ripper/tmdb.js';
 import logger from '../config/logger.js';
@@ -49,6 +50,23 @@ router.get('/tmdb/search', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error(error, 'TMDB search failed');
     res.status(502).json({ error: error instanceof Error ? error.message : 'TMDB search failed' });
+  }
+});
+
+// PUT the exclusion rules: discs whose path contains one are not ripped
+router.put('/exclusions', async (req: Request, res: Response) => {
+  let patterns: string[];
+  try {
+    patterns = normalizeExclusions(req.body?.patterns);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+    return;
+  }
+  try {
+    res.json(await ripper.setExclusions(patterns));
+  } catch (error) {
+    logger.error(error, 'Failed to save the rip exclusions');
+    res.status(500).json({ error: 'Failed to save the rip exclusions' });
   }
 });
 

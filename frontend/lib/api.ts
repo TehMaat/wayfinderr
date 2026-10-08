@@ -89,6 +89,8 @@ export const ripsApi = {
     apiClient.post<Rip>(`/api/rips/${id}/choose`, choice),
   retryRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/retry`),
   skipRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/skip`),
+  setExclusions: (patterns: string[]) =>
+    apiClient.put<{ exclusions: string[]; skipped: number; restored: number }>('/api/rips/exclusions', { patterns }),
   searchTmdb: (query: string, year?: number | null) =>
     apiClient.get<TmdbMovie[]>('/api/rips/tmdb/search', { params: { query, year: year || undefined } }),
 };

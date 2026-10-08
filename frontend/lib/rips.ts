@@ -20,6 +20,19 @@ export const ripName = (rip: Pick<Rip, 'title' | 'year' | 'downloadName'>) =>
 
 export const tmdbUrl = (tmdbId: number) => `https://www.themoviedb.org/movie/${tmdbId}`;
 
+// Exclusion rules: same matching as the backend (services/ripper/exclusions.ts)
+export const EXCLUDED_PREFIX = 'Excluded by the rule ';
+// Not started yet: a new rule skips them
+export const EXCLUDABLE: RipStatus[] = ['WAITING', 'QUEUED', 'NEEDS_ATTENTION'];
+
+const escapeRegExp = (text: string) => text.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+const exclusionRegExp = (pattern: string) =>
+  new RegExp(pattern.replace(/\\/g, '/').split('*').map(escapeRegExp).join('.*'), 'i');
+
+/** The first rule matching the disc path (relative to the downloads folder), or null */
+export const matchExclusion = (patterns: string[], sourcePath: string): string | null =>
+  patterns.find((pattern) => exclusionRegExp(pattern).test(sourcePath)) ?? null;
+
 // ISO 639-1 -> the ISO 639-2 codes MakeMKV may report (same table as the backend)
 const LANGUAGES: Record<string, string[]> = {
   ar: ['ara'], bg: ['bul'], bn: ['ben'], bs: ['bos'], ca: ['cat'], cn: ['chi', 'zho', 'yue'],
