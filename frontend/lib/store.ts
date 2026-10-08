@@ -146,6 +146,7 @@ export interface RipperStatus {
   tmdbConfigured: boolean;
   language: string; // ISO 639-1, kept with the film's original language
   minLength: number; // seconds
+  exclusions: string[]; // discs whose path contains one are not ripped
 }
 
 interface Transfer {

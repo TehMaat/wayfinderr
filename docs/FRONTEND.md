@@ -187,6 +187,7 @@ All components follow the existing design system:
 ### Rips API
 - `GET /api/rips`, `GET /api/rips/:id` - Rips and the ripping status
 - `POST /api/rips/:id/choose`, `POST /api/rips/:id/retry`, `POST /api/rips/:id/skip`
+- `PUT /api/rips/exclusions` - Rules for the discs that are never ripped
 - `GET /api/rips/tmdb/search?query=&year=` - Search a film on TMDB
 
 ### System API

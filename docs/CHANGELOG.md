@@ -10,7 +10,9 @@ All notable changes to this project will be documented in this file.
 - Failed login limit: 5 per 15 minutes per client
 - `node dist/cli.js reset-auth` (`npm run reset-auth`) for a forgotten password
 - Dashboard "This machine" card: free/used space of the disks holding the watch folder and the database, one bar per disk when they are on different filesystems (with device, filesystem type and network/host-share detection)
+- "This machine" card: refresh button to recheck the disk space right away (it is otherwise refreshed every minute)
 - `GET /api/system/disks` endpoint
+- Rip exclusions, edited from the Rips page: discs whose path in the downloads contains a rule (`*` wildcard, case-insensitive) are skipped instead of ripped; `PUT /api/rips/exclusions`
 - Automatic ripping of film discs (ISO, BDMV, VIDEO_TS) from the downloads folder: `RIP_*` and `TMDB_*` variables, Rips page, `wayfinderr-makemkv` image (jlesage/makemkv plus the rip runner)
 - `DELETE_AFTER_UPLOAD`: delete the local file once it is on the server
 - Stop a queued or running upload (`POST /api/uploads/:id/cancel`, `CANCELLED` status, `upload-cancelled` WebSocket event, Stop button): the partial file on the server is deleted

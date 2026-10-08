@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Clapperboard, Cpu, Disc3, FolderSearch, Languages, RefreshCw, Timer } from 'lucide-react';
+import { Clapperboard, Cpu, Disc3, FolderSearch, Languages, ListX, RefreshCw, Timer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -9,6 +9,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
 import { RipChooseDialog } from '@/components/rip-choose-dialog';
+import { RipExclusionsDialog } from '@/components/rip-exclusions-dialog';
 import { RipTable } from '@/components/rip-table';
 import { languageName, matchesRipFilter, RIP_FILTERS, type RipFilter } from '@/lib/rips';
 import { useAppStore, type Rip, type RipperStatus } from '@/lib/store';
@@ -87,6 +88,7 @@ export default function RipsPage() {
   const [choosingId, setChoosingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [exclusionsOpen, setExclusionsOpen] = useState(false);
 
   // /rips?filter=attention (dashboard callout) opens that list
   useEffect(() => {
@@ -131,11 +133,24 @@ export default function RipsPage() {
         title="Rips"
         description="Film discs (ISO, Blu-ray, DVD) downloaded by qBittorrent are ripped with MakeMKV into the watch folder."
         actions={
-          <Tooltip content="Refresh">
-            <Button variant="ghost" size="icon" onClick={refresh} aria-label="Refresh">
-              <RefreshCw className={cn(refreshing && 'animate-spin')} />
-            </Button>
-          </Tooltip>
+          <>
+            {status && (
+              <Tooltip content="Discs in the downloads that are never ripped">
+                <Button variant="outline" size="sm" onClick={() => setExclusionsOpen(true)}>
+                  <ListX />
+                  Exclusions
+                  {status.exclusions.length > 0 && (
+                    <span className="text-xs tabular text-muted-foreground">{status.exclusions.length}</span>
+                  )}
+                </Button>
+              </Tooltip>
+            )}
+            <Tooltip content="Refresh">
+              <Button variant="ghost" size="icon" onClick={refresh} aria-label="Refresh">
+                <RefreshCw className={cn(refreshing && 'animate-spin')} />
+              </Button>
+            </Tooltip>
+          </>
         }
       />
 
@@ -218,6 +233,7 @@ export default function RipsPage() {
       )}
 
       <RipChooseDialog rip={choosing} open={dialogOpen && Boolean(choosing)} onOpenChange={setDialogOpen} />
+      <RipExclusionsDialog open={exclusionsOpen} onOpenChange={setExclusionsOpen} />
     </div>
   );
 }
