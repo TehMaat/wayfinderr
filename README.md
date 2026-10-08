@@ -153,7 +153,7 @@ The rips run one at a time inside the MakeMKV container; Wayfinderr only exchang
 
 ## Docker images
 
-The [`Docker images`](.github/workflows/docker-publish.yml) workflow builds both images on every push to `main` and publishes them to GitHub Container Registry:
+The [`Docker images`](.github/workflows/docker-publish.yml) workflow builds the images on every push to `main` and publishes them to GitHub Container Registry. Every tag is multi-platform, `linux/amd64` and `linux/arm64` (Raspberry Pi 4/5, ARM NAS): Docker pulls the one for your machine.
 
 | Image | Tags |
 |---|---|

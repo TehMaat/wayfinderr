@@ -5,6 +5,9 @@ name: Docker images
 #   ghcr.io/<owner>/wayfinderr-frontend
 #   ghcr.io/<owner>/wayfinderr-makemkv   (jlesage/makemkv + the rip runner)
 # Tags: latest (main), sha-<commit>, and 1.2.3 / 1.2 for git tags like v1.2.3.
+# Every tag is multi-platform (linux/amd64 and linux/arm64): each platform is
+# built on a native runner and pushed by digest, then the merge job joins the
+# digests under the tags.
 
 on:
   push:
@@ -18,13 +21,28 @@ permissions:
   contents: read
   packages: write
 
+env:
+  TAGS: |
+    type=raw,value=latest,enable={{is_default_branch}}
+    type=sha
+    type=semver,pattern={{version}}
+    type=semver,pattern={{major}}.{{minor}}
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: build ${{ matrix.service }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         service: [backend, frontend, makemkv]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          # Free for public repositories
+          - arch: arm64
+            runner: ubuntu-24.04-arm
 
     steps:
       - uses: actions/checkout@v4
@@ -42,26 +60,111 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Tags and labels
+      - name: Labels
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+          tags: ${{ env.TAGS }}
 
-      - name: Build and push
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: ./${{ matrix.service }}
-          # Add linux/arm64 here for a Raspberry Pi / ARM NAS (slower build)
-          platforms: linux/amd64
-          # Pull requests only check that the image builds
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          platforms: linux/${{ matrix.arch }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.service }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          # No tags here: the merge job tags the multi-platform image.
+          # Pull requests only check that the image builds
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
+          cache-from: type=gha,scope=${{ matrix.service }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-${{ matrix.arch }}
+
+      - name: Save the digest
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+
+      - name: Upload the digest
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.service }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          overwrite: true
+          # As long as a run can be re-run (the merge needs every platform's digest)
+          retention-days: 30
+
+  merge:
+    name: publish ${{ matrix.service }}
+    needs: build
+    # Also when another image failed: each image is published if both its platforms built
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [backend, frontend, makemkv]
+
+    steps:
+      - name: Image name (registry names must be lowercase)
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/wayfinderr-${{ matrix.service }}" >> "$GITHUB_ENV"
+
+      - name: Download the digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ matrix.service }}-*
+          merge-multiple: true
+
+      - name: Check that every platform was built
+        run: |
+          count=$(find "$RUNNER_TEMP/digests" -type f 2>/dev/null | wc -l)
+          # One per arch in the build matrix
+          if [ "$count" -ne 2 ]; then
+            echo "::error::${{ matrix.service }}: $count of 2 platforms built, not publishing"
+            exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tags and annotations
+        id: meta
+        uses: docker/metadata-action@v5
+        env:
+          # Description and source shown on the package page
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: index
+        with:
+          images: ${{ env.IMAGE }}
+          tags: ${{ env.TAGS }}
+
+      - name: Tag the multi-platform image
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          META_TAGS: ${{ steps.meta.outputs.tags }}
+          META_ANNOTATIONS: ${{ steps.meta.outputs.annotations }}
+        run: |
+          args=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && args+=(--tag "$tag")
+          done <<< "$META_TAGS"
+          while IFS= read -r annotation; do
+            [ -n "$annotation" ] && args+=(--annotation "$annotation")
+          done <<< "$META_ANNOTATIONS"
+          for digest in *; do
+            args+=("$IMAGE@sha256:$digest")
+          done
+          docker buildx imagetools create "${args[@]}"
+
+      - name: Inspect
+        run: docker buildx imagetools inspect "$IMAGE:${{ steps.meta.outputs.version }}"
