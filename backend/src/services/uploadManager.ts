@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { createReadStream, readFileSync, statSync } from 'fs';
+import { readFileSync, statSync } from 'fs';
 import path from 'path';
 import { Client as SSHClient, ConnectConfig, SFTPWrapper } from 'ssh2';
 import logger from '../config/logger.js';
@@ -16,6 +16,12 @@ export interface UploadOptions {
 
 // Emit progress at most this often (DB writes + WebSocket messages)
 const PROGRESS_INTERVAL_MS = 1000;
+
+// SFTP writes kept in flight, like OpenSSH sftp/scp (-R 64 -B 32768).
+// One write at a time (as sftp.createWriteStream does) waits a full round
+// trip per chunk: 64 KiB every ~30 ms caps the upload at ~2 MiB/s.
+const SFTP_CONCURRENCY = 64;
+const SFTP_CHUNK_SIZE = 32 * 1024;
 
 const sftpCall = <T = void>(fn: (cb: (err: Error | null | undefined, res?: T) => void) => void) =>
   new Promise<T>((resolve, reject) => {
@@ -50,54 +56,37 @@ export class UploadManager extends EventEmitter {
     const tempPath = path.posix.join(remoteDir, `.${filename}.part`);
 
     const ssh = await this.connect(server);
+    // If the connection drops mid-transfer, ssh2's fastPut waits forever for
+    // the reply to its handle CLOSE: fail the transfer when the socket closes
+    const connectionClosed = new Promise<never>((_, reject) => {
+      ssh.once('close', () => reject(new Error('SSH connection closed')));
+    });
+    connectionClosed.catch(() => undefined);
     try {
       const sftp = await sftpCall<SFTPWrapper>((cb) => ssh.sftp(cb));
 
       await this.ensureRemoteDir(sftp, remoteDir);
 
-      await new Promise<void>((resolve, reject) => {
-        const readStream = createReadStream(filepath);
-        const writeStream = sftp.createWriteStream(tempPath);
-        let uploadedBytes = 0n;
-        let lastEmit = 0;
-        let settled = false;
-
-        const fail = (error: Error) => {
-          if (settled) return;
-          settled = true;
-          readStream.destroy();
-          writeStream.destroy();
-          reject(error);
-        };
-
-        readStream.on('data', (chunk) => {
-          uploadedBytes += BigInt(chunk.length);
-          const now = Date.now();
-          if (now - lastEmit >= PROGRESS_INTERVAL_MS) {
-            lastEmit = now;
-            const progress = fileSize > 0 ? Math.floor((Number(uploadedBytes) / fileSize) * 100) : 100;
-            onProgress(progress, uploadedBytes);
-          }
-        });
-
-        readStream.on('error', (error) => {
-          logger.error({ uploadId, error }, 'Read stream error');
-          fail(error);
-        });
-
-        writeStream.on('error', (error: Error) => {
-          logger.error({ uploadId, error }, 'Write stream error');
-          fail(error);
-        });
-
-        writeStream.on('close', () => {
-          if (settled) return;
-          settled = true;
-          resolve();
-        });
-
-        readStream.pipe(writeStream);
-      });
+      let lastEmit = 0;
+      const transfer = sftpCall((cb) =>
+        sftp.fastPut(
+          filepath,
+          tempPath,
+          {
+            concurrency: SFTP_CONCURRENCY,
+            chunkSize: SFTP_CHUNK_SIZE,
+            step: (transferred) => {
+              const now = Date.now();
+              if (now - lastEmit < PROGRESS_INTERVAL_MS) return;
+              lastEmit = now;
+              const progress = fileSize > 0 ? Math.floor((transferred / fileSize) * 100) : 100;
+              onProgress(progress, BigInt(transferred));
+            },
+          },
+          cb
+        )
+      );
+      await Promise.race([transfer, connectionClosed]);
 
       // Verify the size, then move the file into place
       const stats = await sftpCall<{ size: number }>((cb) => sftp.stat(tempPath, cb));
