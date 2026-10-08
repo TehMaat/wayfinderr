@@ -98,7 +98,7 @@ docker compose exec wayfinderr-backend node dist/cli.js reset-auth   # or: docke
 3. Click **Test**: it checks the API and the SSH/SFTP login
 4. Repeat for the second server
 
-From now on every new `.mkv` in the watch folder is uploaded automatically. A file is picked up once its size has been stable for 30 seconds. With `DELETE_AFTER_UPLOAD=true` the local file is deleted once it is on the server.
+From now on every new `.mkv` in the watch folder, subfolders included, is uploaded automatically. A file is picked up once its size has been stable for 30 seconds. The folder is also rescanned every 30 seconds, so files the watcher misses (it can happen on Docker Desktop and network shares) are still picked up, within a minute or two. With `DELETE_AFTER_UPLOAD=true` the local file is deleted once it is on the server.
 
 ### Automatic ripping (optional)
 
