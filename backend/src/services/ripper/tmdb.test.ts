@@ -65,3 +65,42 @@ test('no exact title: ask, with the candidates', async () => {
   assert.equal(match.movie, null);
   assert.equal(match.candidates.length, 1);
 });
+
+test('apostrophes and possessives: however the release name writes them', async () => {
+  const { matchMovie } = await import('./tmdb.js');
+  respondWith([movie(95610, "Bridget Jones's Baby", "Bridget Jones's Baby", 2016), movie(634, 'Il diario di Bridget Jones', "Bridget Jones's Diary", 2001)]);
+  for (const title of ['Bridget Jones Baby', 'Bridget Joness Baby', 'Bridget Jones s Baby', "Bridget Jones's Baby", 'Bridget Jones’s Baby']) {
+    assert.equal((await matchMovie({ title, year: 2016 })).movie?.id, 95610, title);
+  }
+  respondWith([movie(406, "L'odio", 'La Haine', 1995, 'fr')]);
+  for (const title of ['L Odio', 'LOdio', 'L’Odio']) {
+    assert.equal((await matchMovie({ title, year: 1995 })).movie?.id, 406, title);
+  }
+});
+
+test('signs and spaces ignored: hyphens, dots, colons, &, superscripts', async () => {
+  const { matchMovie } = await import('./tmdb.js');
+  const cases: [Movie, string][] = [
+    [movie(557, 'Spider-Man', 'Spider-Man', 2002), 'Spiderman'],
+    [movie(2152, 'S.W.A.T. - Squadra speciale anticrimine', 'S.W.A.T.', 2003), 'SWAT'],
+    [movie(11, 'Guerre stellari', 'Star Wars: Episode IV - A New Hope', 1977), 'Star Wars Episode IV A New Hope'],
+    [movie(13804, 'Fast & Furious - Solo parti originali', 'Fast & Furious', 2009), 'Fast and Furious'],
+    [movie(13804, 'Fast & Furious - Solo parti originali', 'Fast & Furious', 2009), 'Fast Furious'],
+    [movie(394117, 'Stanlio & Ollio', 'Stan & Ollie', 2018), 'Stanlio e Ollio'],
+    [movie(454, 'Romeo + Giulietta di William Shakespeare', "William Shakespeare's Romeo + Juliet", 1996), 'William Shakespeares Romeo and Juliet'],
+    [movie(8077, 'Alien³', 'Alien³', 1992), 'Alien 3'],
+  ];
+  for (const [film, title] of cases) {
+    respondWith([film]);
+    assert.equal((await matchMovie({ title, year: Number(film.release_date.slice(0, 4)) })).movie?.id, film.id, title);
+  }
+});
+
+test('normalizeTitle keeps only letters and digits', async () => {
+  const { normalizeTitle } = await import('./tmdb.js');
+  assert.equal(normalizeTitle("L'Odio"), 'lodio');
+  assert.equal(normalizeTitle('Amélie'), 'amelie');
+  assert.equal(normalizeTitle('Æon Flux'), 'aeonflux');
+  assert.equal(normalizeTitle('Der Untergang™'), 'deruntergang');
+  assert.equal(normalizeTitle('8½'), '812');
+});
