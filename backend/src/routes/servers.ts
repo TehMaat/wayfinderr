@@ -7,10 +7,11 @@ import logger from '../config/logger.js';
 
 const router = Router();
 
-// Never send the SSH password back to the browser
-const toPublic = ({ sshPassword, ...server }: Server) => ({
+// Never send the secrets back to the browser
+const toPublic = ({ sshPassword, apiToken, ...server }: Server) => ({
   ...server,
   hasSshPassword: Boolean(sshPassword),
+  hasApiToken: Boolean(apiToken),
 });
 
 const STRING_FIELDS = [

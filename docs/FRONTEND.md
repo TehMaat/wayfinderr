@@ -6,8 +6,10 @@ This document outlines the complete enhancements made to the frontend implementa
 ## New Files Created
 
 ### 1. **lib/api.ts** - API Client Utilities
-- Centralized axios client with base URL configuration
+- Centralized axios client with relative URLs: the browser only talks to the Next.js server, which proxies `/api`, `/health` and `/ws` to the backend (rewrites in `next.config.js`, `BACKEND_URL` compiled in at build time)
+- A 401 `auth_required` / `auth_setup_required` brings back the login / setup screen
 - API methods grouped by domain:
+  - `authApi`: status, setup, login, logout, change password, sign out everywhere
   - `serversApi`: CRUD operations for servers, test, refresh space
   - `uploadsApi`: List uploads, get details, retry failed uploads
   - `spaceApi`: Get space information for all/single servers
@@ -104,12 +106,21 @@ interface Server {
 }
 ```
 
+## Login
+
+- **components/auth-gate.tsx** wraps the app (`app/layout.tsx`): loading, "backend not reachable", setup (setup code from the backend log, username, password of at least 8 characters) and login screens, until there is a valid session
+- **components/account-menu.tsx**, at the bottom of the sidebar: change password (signs out other devices), sign out, sign out everywhere
+- **lib/auth.ts**: Zustand auth store
+- The session is an HttpOnly cookie: the page never reads it, the browser sends it with every same-origin request
+- The edit server dialog leaves the API token blank: the API never returns it (`hasApiToken`), and a blank token keeps the saved one
+
 ## WebSocket Integration
 
-The frontend maintains real-time connectivity via WebSocket (lib/useWebSocket.ts):
+The frontend maintains real-time connectivity via WebSocket (lib/useRealtime.ts) on `/ws` of the page's own host (`ws://` or `wss://`):
 - Listens for events: `upload-detected`, `upload-queued`, `progress`, `upload-completed`, `upload-failed`, `upload-skipped`, `upload-cancelled`
 - Updates store automatically on events
 - Implements reconnection logic
+- Close code 4401 (password changed or signed out everywhere): the page checks its session and shows the login screen if it has ended
 - All pages subscribe to real-time updates
 
 ## Error Handling
@@ -151,6 +162,10 @@ All components follow the existing design system:
 
 ## API Endpoints Used
 
+### Auth API
+- `GET /api/auth/status`, `POST /api/auth/setup`, `POST /api/auth/login`, `POST /api/auth/logout`
+- `POST /api/auth/change-password`, `POST /api/auth/logout-everywhere`
+
 ### Servers API
 - `GET /api/servers` - List all servers
 - `POST /api/servers` - Create new server
@@ -183,11 +198,11 @@ All components follow the existing design system:
    ```
 
 3. Test endpoints:
-   - Frontend: http://localhost:3000
-   - Backend: http://localhost:3001
+   - Frontend (also proxies the API): http://localhost:3000
    - MakeMKV: http://localhost:5800
 
 4. Verify:
+   - Create the account with the setup code from the backend log
    - Add test servers in UI
    - Test connectivity to Ultra.cc servers
    - Monitor upload history

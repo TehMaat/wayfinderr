@@ -33,6 +33,18 @@ export function formatDuration(seconds: number | null | undefined): string {
   return `${sec}s`;
 }
 
+/** Running time, seconds -> "2:14" (h:mm) */
+export function formatRuntime(seconds: number | null | undefined): string {
+  if (!seconds || !Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const m = Math.round(seconds / 60);
+  return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+}
+
+/** Last segment of a path, either separator */
+export function basename(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
 /** "2026-10-04 16:31" in local time */
 export function formatDate(value: string | Date | null | undefined): string {
   if (!value) return '–';

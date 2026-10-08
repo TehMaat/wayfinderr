@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { serversApi, spaceApi, uploadsApi } from './api';
+import { ripsApi, serversApi, spaceApi, uploadsApi } from './api';
 
 export type UploadStatus = 'PENDING' | 'QUEUED' | 'UPLOADING' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'CANCELLED';
 
@@ -30,7 +30,7 @@ export interface Server {
   id: string;
   name: string;
   apiEndpoint: string;
-  apiToken: string;
+  hasApiToken: boolean;
   sshHost: string;
   sshPort: number;
   sshUsername: string;
@@ -55,6 +55,74 @@ export interface Stats {
   queueSize: number;
 }
 
+export type RipStatus = 'WAITING' | 'QUEUED' | 'SCANNING' | 'RIPPING' | 'DONE' | 'NEEDS_ATTENTION' | 'FAILED' | 'SKIPPED';
+
+export interface DiscStream {
+  type: 'video' | 'audio' | 'subtitle';
+  lang?: string; // ISO 639-2 (ita, eng)
+  langName?: string;
+  codec?: string;
+  channels?: number;
+  forced: boolean;
+  commentary: boolean;
+}
+
+export interface DiscTitle {
+  index: number;
+  name?: string;
+  durationSec: number;
+  sizeBytes: number;
+  chapters: number;
+  segmentsMap?: string;
+  sourceFile?: string;
+  outputFileName?: string;
+  angle?: string;
+  streams: DiscStream[];
+}
+
+export interface TmdbMovie {
+  id: number;
+  title: string;
+  originalTitle: string;
+  originalLanguage: string;
+  year: number | null;
+}
+
+export interface Rip {
+  id: string;
+  sourcePath: string;
+  sourceType: 'ISO' | 'BDMV' | 'DVD';
+  downloadName: string;
+  status: RipStatus;
+  reason: string | null;
+  discName: string | null;
+  titles: DiscTitle[] | null; // null until the disc is scanned
+  titleIndex: number | null;
+  tmdbId: number | null;
+  title: string | null; // localized (Italian) title
+  originalTitle: string | null;
+  originalLanguage: string | null; // ISO 639-1
+  year: number | null;
+  jobId: string | null;
+  progress: number;
+  outputFile: string | null; // path in the watch folder, same as the upload's
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  upload: { id: string; status: UploadStatus; progress: number } | null;
+  suggestion: { title: string; year: number | null }; // parsed from the download name
+}
+
+/** Ripping setup on the backend */
+export interface RipperStatus {
+  enabled: boolean;
+  runnerAlive: boolean;
+  tmdbConfigured: boolean;
+  language: string; // ISO 639-1, kept with the film's original language
+  minLength: number; // seconds
+}
+
 interface Transfer {
   bytes: number;
   time: number;
@@ -77,6 +145,9 @@ interface AppState {
   connected: boolean;
   transfers: Record<string, Transfer>;
   filters: Filters;
+  rips: Rip[];
+  ripsLoaded: boolean;
+  ripStatus: RipperStatus | null;
 
   loadUploads: () => Promise<void>;
   loadServers: () => Promise<void>;
@@ -88,6 +159,10 @@ interface AppState {
   applyProgress: (id: string, progress: number, bytes: number) => void;
   setConnected: (connected: boolean) => void;
   setFilters: (filters: Partial<Filters>) => void;
+  loadRips: () => Promise<void>;
+  refreshRip: (id: string) => Promise<void>;
+  removeRip: (id: string) => void;
+  applyRipProgress: (id: string, progress: number) => void;
 }
 
 const UPLOADS_LIMIT = 500;
@@ -102,6 +177,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   connected: false,
   transfers: {},
   filters: { status: 'ALL', serverId: 'ALL', search: '' },
+  rips: [],
+  ripsLoaded: false,
+  ripStatus: null,
 
   loadUploads: async () => {
     const { data } = await uploadsApi.listUploads({ limit: UPLOADS_LIMIT });
@@ -151,7 +229,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadAll: async () => {
-    await Promise.allSettled([get().loadUploads(), get().loadServers(), get().loadStats()]);
+    await Promise.allSettled([get().loadUploads(), get().loadServers(), get().loadStats(), get().loadRips()]);
   },
 
   refreshUpload: async (id) => {
@@ -195,6 +273,40 @@ export const useAppStore = create<AppState>((set, get) => ({
   setConnected: (connected) => set({ connected }),
 
   setFilters: (filters) => set((state) => ({ filters: { ...state.filters, ...filters } })),
+
+  // A backend without ripping (or with it broken) leaves the list as it is
+  loadRips: async () => {
+    try {
+      const { data } = await ripsApi.listRips();
+      set({ rips: data.rips ?? [], ripStatus: data.status ?? null, ripsLoaded: true });
+    } catch {
+      set({ ripsLoaded: true });
+    }
+  },
+
+  refreshRip: async (id) => {
+    try {
+      const { data } = await ripsApi.getRip(id);
+      set((state) => {
+        const exists = state.rips.some((r) => r.id === id);
+        return { rips: exists ? state.rips.map((r) => (r.id === id ? data : r)) : [data, ...state.rips] };
+      });
+    } catch (err) {
+      if ((err as { response?: { status?: number } })?.response?.status === 404) get().removeRip(id);
+    }
+  },
+
+  removeRip: (id) => set((state) => ({ rips: state.rips.filter((r) => r.id !== id) })),
+
+  // A late progress event must not bring back a rip that has already ended
+  applyRipProgress: (id, progress) =>
+    set((state) => ({
+      rips: state.rips.map((r) =>
+        r.id === id && (r.status === 'RIPPING' || r.status === 'QUEUED' || r.status === 'SCANNING')
+          ? { ...r, status: 'RIPPING', progress }
+          : r
+      ),
+    })),
 }));
 
 /** Total speed of the running transfers */
