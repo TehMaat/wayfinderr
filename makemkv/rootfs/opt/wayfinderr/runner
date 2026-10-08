@@ -117,6 +117,10 @@ run_job() {
     rm -rf "$home"
     finish "$id" "$code"
     log "Job $id: done (exit code $code)"
+    if [ "$code" -ne 0 ]; then
+        # The backend deletes the job's log: keep its end in the container log
+        tail -n 5 "$JOBS/$id.log" 2>/dev/null | sed "s/^/Job $id: | /"
+    fi
 }
 
 mkdir -p "$JOBS" "$RIPS"

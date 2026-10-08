@@ -204,6 +204,15 @@ export const parseProgress = (output: string): number | null => {
   return Number.isFinite(total) ? Math.min(100, Math.floor((total / max) * 100)) : null;
 };
 
+const SIGNALS: Record<number, string> = { 4: 'illegal instruction', 6: 'abort', 7: 'bus error', 9: 'killed', 11: 'segmentation fault' };
+
+/** Why makemkvcon failed, from its exit code alone: above 128 it was killed by a signal. */
+export const describeExit = (exitCode: number): string => {
+  if (exitCode <= 128 || exitCode > 128 + 64) return `makemkvcon exited with code ${exitCode}`;
+  const signal = SIGNALS[exitCode - 128] ?? `signal ${exitCode - 128}`;
+  return `makemkvcon crashed (${signal}, exit code ${exitCode})`;
+};
+
 /**
  * Outcome of an `mkv` run. The exit code alone is not enough: makemkvcon can
  * exit 0 after a partial failure, so a rip only succeeds with 5036 ("Copy
@@ -217,7 +226,7 @@ export const parseRipResult = (output: string, exitCode: number): { ok: boolean;
   const error =
     failed?.text ||
     [...messages].reverse().find((m) => isError(m.flags))?.text ||
-    (exitCode !== 0 ? `makemkvcon exited with code ${exitCode}` : 'MakeMKV did not report a completed copy');
+    (exitCode !== 0 ? describeExit(exitCode) : 'MakeMKV did not report a completed copy');
   return { ok: false, error };
 };
 

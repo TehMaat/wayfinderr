@@ -6,7 +6,7 @@ import { config } from '../../config/index.js';
 import logger from '../../config/logger.js';
 import { db } from '../database.js';
 import { findDiscs, isDownloadComplete, makemkvSource, SourceType } from './downloads.js';
-import { DiscTitle, languageCodes, parseInfo, parseProgress, parseRipResult, selectionRule } from './makemkv.js';
+import { describeExit, DiscTitle, languageCodes, parseInfo, parseProgress, parseRipResult, selectionRule } from './makemkv.js';
 import { parseDiscLabel, parseReleaseName } from './releaseName.js';
 import {
   cancelJob,
@@ -201,7 +201,7 @@ class Ripper extends EventEmitter {
       await this.update(rip.id, {
         status: 'FAILED',
         jobId: null,
-        reason: info.errors[0] || `MakeMKV could not read the disc (exit code ${exitCode})`,
+        reason: info.errors[0] || `MakeMKV could not read the disc: ${describeExit(exitCode)}`,
       });
       return;
     }

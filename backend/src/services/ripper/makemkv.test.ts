@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  describeExit,
   languageCodes,
   parseDuration,
   parseInfo,
@@ -114,4 +115,11 @@ test('selectionRule keeps the given languages, the first one first', () => {
 test('selectionRule keeps every language when the original one is unknown', () => {
   const rule = selectionRule([['ita']], true);
   assert.equal(rule, '-sel:all,+sel:all,-sel:(havemulti|havecore),-sel:mvcvideo,=100:all,-10:ita');
+});
+
+test('describeExit names the signal that killed makemkvcon', () => {
+  assert.equal(describeExit(139), 'makemkvcon crashed (segmentation fault, exit code 139)');
+  assert.equal(describeExit(1), 'makemkvcon exited with code 1');
+  assert.match(describeExit(143), /signal 15, exit code 143/);
+  assert.equal(describeExit(253), 'makemkvcon exited with code 253');
 });
