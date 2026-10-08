@@ -72,7 +72,7 @@ To build from source instead: `docker compose -f docker-compose.yml -f docker-co
 3. Click **Test**: it checks the API and the SSH/SFTP login
 4. Repeat for the second server
 
-From now on every new `.mkv` in the watch folder is uploaded automatically. A file is picked up once its size has been stable for 30 seconds.
+From now on every new `.mkv` in the watch folder, subfolders included, is uploaded automatically. A file is picked up once its size has been stable for 30 seconds. The folder is also rescanned every 30 seconds, so files the watcher misses (it can happen on Docker Desktop and network shares) are still picked up, within a minute or two.
 
 ---
 
