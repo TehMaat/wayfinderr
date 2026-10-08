@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 - An upload fails (and is retried) when the local file changed while it was sent
 - A rip never takes the name of a file uploaded before: with `DELETE_AFTER_UPLOAD` it would have replaced that film on the server
 - Unfinished uploads are resumed once after a restart (PENDING ones were queued twice)
+- The TMDB match ignores every sign and space in the title, however the download name writes it: apostrophes and a possessive 's with or without the s ("Bridget.Jones.Baby" is *Bridget Jones's Baby*), `&`/`+` as "and", "e" or left out, hyphens, dots, colons, superscripts ("Alien 3" is *Alien³*)
 
 ## [1.0.0] - 2026-10-04
 

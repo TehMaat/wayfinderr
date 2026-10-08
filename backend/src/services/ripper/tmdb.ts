@@ -71,25 +71,44 @@ export const searchMovies = async (query: string, year?: number | null): Promise
 export const getMovie = async (id: number): Promise<TmdbMovie> =>
   toMovie(await request<ApiMovie>(`/movie/${id}`, { language: config.RIP.TMDB_LANGUAGE }));
 
-/** Lower case, no accents, punctuation or extra spaces: "L'Odio" -> "l odio". */
+// Letters that have no accent to strip, as release names write them
+const LETTERS: Record<string, string> = { ß: 'ss', æ: 'ae', œ: 'oe', ø: 'o', ł: 'l', đ: 'd', ð: 'd', þ: 'th', ı: 'i' };
+
+/**
+ * Only the letters and digits of a title, lower case and without accents: release
+ * names drop, keep or replace with a dot any sign, space included.
+ * "L'Odio" -> "lodio", "Spider-Man" -> "spiderman", "S.W.A.T." -> "swat", "Alien³" -> "alien3".
+ */
 export const normalizeTitle = (title: string) =>
   title
-    .normalize('NFD')
+    .replace(/\p{So}/gu, ' ') // ™, ©, ★...: NFKD would turn some into letters
+    .normalize('NFKD') // accents apart, "³" -> "3", "ﬁ" -> "fi"
     .replace(/\p{M}/gu, '')
     .toLowerCase()
-    .replace(/&/g, ' and ')
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim();
+    .replace(/[ßæœøłđðþı]/g, (letter) => LETTERS[letter])
+    .replace(/[^\p{L}\p{N}]+/gu, '');
+
+// "&" or "+" written as a word or left out: "Fast & Furious", "Fast.and.Furious", "Stanlio.e.Ollio", "Fast.Furious"
+const CONJUNCTION = /\s*[&+]\s*/g;
+// A possessive 's, with or without the s: "Bridget Jones's Baby", "Bridget.Joness.Baby", "Bridget.Jones.Baby"
+const POSSESSIVE = /(?<=\p{L})['‘’`´ʼ]s(?![\p{L}\p{N}])/gu;
+
+/** Every way a release name can write the title, normalized. */
+const titleKeys = (title: string) => {
+  const forms = [' and ', ' e ', ' '].map((word) => title.replace(CONJUNCTION, word));
+  return forms.flatMap((form) => [form, form.replace(POSSESSIVE, '')]).map(normalizeTitle).filter(Boolean);
+};
 
 const sameTitle = (movie: TmdbMovie, title: string) => {
-  const wanted = normalizeTitle(title);
-  return normalizeTitle(movie.title) === wanted || normalizeTitle(movie.originalTitle) === wanted;
+  const wanted = new Set(titleKeys(title));
+  return [movie.title, movie.originalTitle].some((t) => titleKeys(t).some((key) => wanted.has(key)));
 };
 
 /**
  * Conservative match: automatic only when exactly one film has the same title
- * (localized or original) and, when the name has a year, a release year within
- * one year of it. Anything else is left to the user, with the candidates.
+ * (localized or original, signs and spaces apart) and, when the name has a year,
+ * a release year within one year of it. Anything else is left to the user, with
+ * the candidates.
  */
 export const matchMovie = async (name: ParsedName): Promise<TmdbMatch> => {
   if (!name.title) return { movie: null, candidates: [], reason: 'No title in the download name' };
