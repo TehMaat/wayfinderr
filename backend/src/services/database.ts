@@ -160,6 +160,11 @@ export class DatabaseService {
     return this.prisma.rip.delete({ where: { id } });
   }
 
+  // The server copy of an upload has the same file name
+  async isUploadFileNameUsed(filename: string): Promise<boolean> {
+    return (await this.prisma.upload.count({ where: { filename } })) > 0;
+  }
+
   async getUploadByPath(filepath: string): Promise<Upload | null> {
     return this.prisma.upload.findFirst({ where: { filepath }, orderBy: { createdAt: 'desc' } });
   }

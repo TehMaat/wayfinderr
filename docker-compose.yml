@@ -23,6 +23,10 @@ services:
       - RIP_SOURCE_DIR=/downloads
       - RIP_EXISTING=${RIP_EXISTING:-false}
       - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - TMDB_LANGUAGE=${TMDB_LANGUAGE:-it-IT}
+      - RIP_QUIET_MINUTES=${RIP_QUIET_MINUTES:-10}
+      - RIP_MIN_LENGTH=${RIP_MIN_LENGTH:-2700}
+      - RIP_LANGUAGE=${RIP_LANGUAGE:-it}
     volumes:
       # Folder where MakeMKV saves the .mkv files (set MAKEMKV_OUTPUT_DIR in .env).
       # Writable: rips are moved in, uploaded files deleted (DELETE_AFTER_UPLOAD)
@@ -54,6 +58,8 @@ services:
     environment:
       # Purchased key, or BETA for the free beta key
       - MAKEMKV_KEY=${MAKEMKV_KEY:-BETA}
+      - WAYFINDERR_RUNNER=${WAYFINDERR_RUNNER:-1}
+      - WAYFINDERR_CACHE_MB=${WAYFINDERR_CACHE_MB:-1024}
     volumes:
       - makemkv-config:/config
       - ${MAKEMKV_OUTPUT_DIR:-./makemkv-output}:/output

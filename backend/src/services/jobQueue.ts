@@ -41,6 +41,10 @@ export class JobQueue extends EventEmitter {
    * Adds the upload to the queue and returns immediately.
    */
   async enqueueUpload(job: UploadJob): Promise<void> {
+    if (this.jobs.has(job.uploadId)) {
+      logger.warn({ uploadId: job.uploadId }, 'Upload already queued');
+      return;
+    }
     logger.info({ uploadId: job.uploadId }, 'Adding upload to queue');
 
     await db.updateUpload(job.uploadId, { status: 'QUEUED' });
@@ -87,12 +91,14 @@ export class JobQueue extends EventEmitter {
    * Re-enqueues uploads left unfinished by a previous run (crash, restart).
    */
   async resumePending(): Promise<void> {
+    // Read all of them first: enqueueing turns a PENDING upload into QUEUED
+    const uploads = [];
     for (const status of ['PENDING', 'QUEUED', 'UPLOADING']) {
-      const uploads = await db.getUploadsByStatus(status);
-      for (const upload of uploads) {
-        logger.info({ uploadId: upload.id, status }, 'Resuming unfinished upload');
-        await this.enqueueUpload({ uploadId: upload.id, filepath: upload.filepath });
-      }
+      uploads.push(...(await db.getUploadsByStatus(status)));
+    }
+    for (const upload of uploads) {
+      logger.info({ uploadId: upload.id, status: upload.status }, 'Resuming unfinished upload');
+      await this.enqueueUpload({ uploadId: upload.id, filepath: upload.filepath });
     }
   }
 

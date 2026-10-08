@@ -215,11 +215,15 @@ Served through the frontend (`http://localhost:3000/api/...`). Every route excep
 ### Uploads
 - `GET /api/uploads?limit=50` - List uploads
 - `GET /api/uploads/:id` - Get upload details
-- `POST /api/uploads/:id/retry` - Re-queue a failed or skipped upload
+- `POST /api/uploads/:id/retry` - Re-queue a failed, skipped or stopped upload
+- `POST /api/uploads/:id/cancel` - Stop a queued or running upload (the partial file on the server is deleted)
 
 ### Space
 - `GET /api/space` - All servers' space
 - `POST /api/space/:id/refresh` - Refresh cache
+
+### System
+- `GET /api/system/disks` - Free/used space of the disks holding the watch folder and the database
 
 ### Rips
 - `GET /api/rips` - Rips and the ripping status (enabled, runner online, TMDB configured)

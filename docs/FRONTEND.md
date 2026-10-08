@@ -184,6 +184,14 @@ All components follow the existing design system:
 - `GET /api/space/:id` - Get specific server space
 - `POST /api/space/:id/refresh` - Refresh space cache
 
+### Rips API
+- `GET /api/rips`, `GET /api/rips/:id` - Rips and the ripping status
+- `POST /api/rips/:id/choose`, `POST /api/rips/:id/retry`, `POST /api/rips/:id/skip`
+- `GET /api/rips/tmdb/search?query=&year=` - Search a film on TMDB
+
+### System API
+- `GET /api/system/disks` - Disks holding the watch folder and the database
+
 ## Next Steps / Testing
 
 ### Phase 4 - Docker & Testing:

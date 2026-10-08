@@ -325,8 +325,12 @@ class Ripper extends EventEmitter {
     // Not identified on TMDB: named after the download ("Film Test (2001)")
     const film = rip.title || rip.originalTitle ? { title: rip.title || rip.originalTitle, year: rip.year } : parseReleaseName(rip.downloadName);
     const base = safeFileName(`${film.title || rip.downloadName}${film.year ? ` (${film.year})` : ''}`);
+    // The name must be new on the server too: with DELETE_AFTER_UPLOAD an earlier
+    // film with this name is gone from the folder, and the upload would replace it
+    const taken = async (file: string) =>
+      (await access(file).then(() => true, () => false)) || (await db.isUploadFileNameUsed(path.basename(file)));
     let target = path.join(config.WATCH_DIR, `${base}.mkv`);
-    for (let n = 2; await access(target).then(() => true, () => false); n++) {
+    for (let n = 2; await taken(target); n++) {
       target = path.join(config.WATCH_DIR, `${base} (${n}).mkv`);
     }
     await rename(files[0], target);

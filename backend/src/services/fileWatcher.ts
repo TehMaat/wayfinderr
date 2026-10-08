@@ -199,8 +199,10 @@ export class FileWatcher extends EventEmitter {
             size: stats.size,
             mtimeMs: stats.mtimeMs,
           });
-        } catch {
-          // Removed while scanning
+        } catch (error) {
+          // Removed while scanning. Any other error: the file may still be
+          // there, so this scan must not forget it
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') complete = false;
         }
       }
     }
