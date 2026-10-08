@@ -115,7 +115,7 @@ For each disc Wayfinderr:
 5. rips it keeping video, audio and subtitles in Italian and in the film's original language (Italian first);
 6. moves it to the watch folder as `Title (Year).mkv`, with the Italian TMDB title: the upload follows.
 
-It never guesses: when a disc has more than one long title (several films or cuts), many look-alike playlists, no Italian track, more discs in the same download, an unsure TMDB match, or there is not enough space, the rip stops on **Rips** → *Needs a choice*: pick the title and/or the film there and it goes on. Downloads already in the folder the first time are listed as skipped (*Rip anyway* from the page, or `RIP_EXISTING=true`).
+It never guesses: when a disc has more than one long title (several films or cuts), many look-alike playlists, no Italian track, more discs in the same download, an unsure TMDB match, or there is not enough space, the rip stops on **Rips** → *Needs attention*: *Choose…* the title and/or the film there and it goes on. A film TMDB doesn't know can be ripped all the same: it keeps every language and is named after the download. Downloads already in the folder the first time are listed as skipped (*Rip anyway* from the page, or `RIP_EXISTING=true`).
 
 The rips run one at a time inside the MakeMKV container; Wayfinderr only exchanges small job files with it in `<watch folder>/.wayfinderr`. Set the MakeMKV container's `USER_ID`/`GROUP_ID` to the owner of the watch folder: at start it takes ownership of `/output` if it cannot write there.
 

@@ -151,8 +151,12 @@ class Ripper extends EventEmitter {
     const [next] = await db.getRipsByStatus(['QUEUED']);
     if (!next || !(await runnerAlive())) return;
 
-    if (next.titles && next.titleIndex !== null && next.tmdbId !== null) {
-      await this.startRip(next); // chosen in the UI: the disc was scanned already
+    // Only a choice in the UI queues a scanned disc: with its title it is ripped
+    // as it is, with just the film the title is picked again
+    if (next.titles && next.titleIndex !== null) {
+      await this.startRip(next);
+    } else if (next.titles) {
+      await this.decide(next, JSON.parse(next.titles), next.discName ?? undefined);
     } else {
       const jobId = await submitJob({ action: 'info', source: sourceOf(next), minLength: config.RIP.MIN_LENGTH });
       await this.update(next.id, { status: 'SCANNING', jobId, startedAt: new Date(), progress: 0, reason: null });
@@ -217,7 +221,7 @@ class Ripper extends EventEmitter {
     if (rip.tmdbId !== null) {
       movie = { id: rip.tmdbId, title: rip.title ?? '', originalTitle: rip.originalTitle ?? '', originalLanguage: rip.originalLanguage ?? '', year: rip.year };
     } else if (!tmdbConfigured()) {
-      problems.push('TMDB_API_KEY is not set: choose the film');
+      problems.push('TMDB_API_KEY is not set: confirm the title to rip');
     } else {
       const names = [...new Set([rip.downloadName, path.basename(rip.sourcePath)])].map(parseReleaseName);
       if (discName) names.push(parseDiscLabel(discName));
@@ -283,13 +287,15 @@ class Ripper extends EventEmitter {
       return;
     }
 
-    const languages = [keptLanguages(), languageCodes(rip.originalLanguage)].filter((codes) => codes.length > 0);
+    // Film not identified (ripped by hand): its language is unknown, keep them all
+    const original = languageCodes(rip.originalLanguage);
+    const languages = [keptLanguages(), original].filter((codes) => codes.length > 0);
     const jobId = await submitJob({
       action: 'mkv',
       source: sourceOf(rip),
       minLength: config.RIP.MIN_LENGTH,
       title: title.index,
-      selection: selectionRule(languages),
+      selection: selectionRule(languages, original.length === 0),
     });
     await this.update(rip.id, {
       status: 'RIPPING',
@@ -316,7 +322,9 @@ class Ripper extends EventEmitter {
     }
 
     // Same filesystem: the watcher sees the complete file appear at once
-    const base = safeFileName(`${rip.title || rip.originalTitle || rip.downloadName}${rip.year ? ` (${rip.year})` : ''}`);
+    // Not identified on TMDB: named after the download ("Film Test (2001)")
+    const film = rip.title || rip.originalTitle ? { title: rip.title || rip.originalTitle, year: rip.year } : parseReleaseName(rip.downloadName);
+    const base = safeFileName(`${film.title || rip.downloadName}${film.year ? ` (${film.year})` : ''}`);
     let target = path.join(config.WATCH_DIR, `${base}.mkv`);
     for (let n = 2; await access(target).then(() => true, () => false); n++) {
       target = path.join(config.WATCH_DIR, `${base} (${n}).mkv`);

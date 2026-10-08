@@ -1,18 +1,25 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { useAppStore } from './store';
+import { useAppStore, type RipStatus } from './store';
 import { checkSession } from './api';
 import { useAuthStore } from './auth';
 import { getWsUrl } from './config';
+import { ripName } from './rips';
 
 const RECONNECT_DELAY_MS = 3000;
 const SESSION_REVOKED = 4401; // close code sent by the backend
 
 /**
  * Single WebSocket connection for the whole app (mounted once in the app shell).
- * Status events refetch the affected upload; progress events update it in place.
+ * Status events refetch the affected upload or rip; progress events update it in place.
  */
 export const useRealtime = () => {
+  // The toasts outlive renders: keep the latest router for their actions
+  const router = useRouter();
+  const routerRef = useRef(router);
+  routerRef.current = router;
+
   useEffect(() => {
     const wsUrl = getWsUrl();
     let ws: WebSocket | null = null;
@@ -33,6 +40,32 @@ export const useRealtime = () => {
 
     const nameOf = (uploadId: string) =>
       useAppStore.getState().uploads.find((u) => u.id === uploadId)?.filename ?? 'File';
+
+    // Toast on a rip's change of status (the same status sent again is not news)
+    const onRipUpdated = async (ripId: string, status: RipStatus | 'DELETED') => {
+      const store = useAppStore.getState();
+      if (status === 'DELETED') {
+        store.removeRip(ripId);
+        return;
+      }
+      const previous = store.rips.find((r) => r.id === ripId)?.status;
+      await store.refreshRip(ripId);
+      if (previous === status) return;
+
+      const rip = useAppStore.getState().rips.find((r) => r.id === ripId);
+      const name = rip ? ripName(rip) : 'Disc';
+      if (status === 'NEEDS_ATTENTION') {
+        toast.warning('Rip needs a choice', {
+          description: name,
+          duration: 15_000,
+          action: { label: 'Choose', onClick: () => routerRef.current.push('/rips') },
+        });
+      } else if (status === 'DONE') {
+        toast.success('Rip completed', { description: name });
+      } else if (status === 'FAILED') {
+        toast.error('Rip failed', { description: rip?.reason ? `${name}: ${rip.reason}` : name });
+      }
+    };
 
     const connect = () => {
       ws = new WebSocket(wsUrl);
@@ -85,6 +118,14 @@ export const useRealtime = () => {
             await store.refreshUpload(uploadId);
             toast.warning('Skipped: no Italian audio or subtitles', { description: nameOf(uploadId) });
             scheduleStats();
+            break;
+
+          case 'rip-progress':
+            store.applyRipProgress(message.ripId as string, message.progress as number);
+            break;
+
+          case 'rip-updated':
+            await onRipUpdated(message.ripId as string, message.status as RipStatus | 'DELETED');
             break;
         }
       };

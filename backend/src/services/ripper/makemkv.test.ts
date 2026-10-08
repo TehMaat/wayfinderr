@@ -110,3 +110,8 @@ test('selectionRule keeps the given languages, the first one first', () => {
   assert.match(rule, /\+sel:\(ita\|eng\|nolang\|single\)/);
   assert.match(rule, /-10:ita$/);
 });
+
+test('selectionRule keeps every language when the original one is unknown', () => {
+  const rule = selectionRule([['ita']], true);
+  assert.equal(rule, '-sel:all,+sel:all,-sel:(havemulti|havecore),-sel:mvcvideo,=100:all,-10:ita');
+});

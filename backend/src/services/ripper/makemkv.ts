@@ -254,14 +254,15 @@ export const hasLanguage = (title: DiscTitle, type: DiscStream['type'], codes: s
  * video, audio and subtitles in the kept languages (codes of the first one get
  * priority, so they come first and are the default tracks), without lossy
  * cores of lossless tracks; if no track has one of those languages, the only
- * track of its kind is kept anyway.
+ * track of its kind is kept anyway. With `keepAll` (original language unknown)
+ * every language is kept, the first one still first.
  */
-export const selectionRule = (languages: string[][]): string => {
+export const selectionRule = (languages: string[][], keepAll = false): string => {
   const codes = [...new Set(languages.flat())];
   const first = languages[0] ?? [];
   return [
     '-sel:all',
-    `+sel:(${[...codes, 'nolang', 'single'].join('|')})`,
+    keepAll ? '+sel:all' : `+sel:(${[...codes, 'nolang', 'single'].join('|')})`,
     '-sel:(havemulti|havecore)',
     '-sel:mvcvideo',
     '=100:all',

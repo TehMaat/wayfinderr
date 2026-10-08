@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { useAuthStore } from './auth';
+import type { Rip, RipperStatus, TmdbMovie } from './store';
 
 // Same-origin requests: the frontend server proxies /api to the backend.
 // The session is an HttpOnly cookie the browser sends on its own.
@@ -76,6 +77,18 @@ export const uploadsApi = {
   getUpload: (id: string) => apiClient.get(`/api/uploads/${id}`),
   retryUpload: (id: string) => apiClient.post(`/api/uploads/${id}/retry`),
   deleteUpload: (id: string) => apiClient.delete(`/api/uploads/${id}`),
+};
+
+// Rips API (film discs ripped with MakeMKV)
+export const ripsApi = {
+  listRips: () => apiClient.get<{ status: RipperStatus; rips: Rip[] }>('/api/rips'),
+  getRip: (id: string) => apiClient.get<Rip>(`/api/rips/${id}`),
+  chooseRip: (id: string, choice: { titleIndex?: number; tmdbId?: number }) =>
+    apiClient.post<Rip>(`/api/rips/${id}/choose`, choice),
+  retryRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/retry`),
+  skipRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/skip`),
+  searchTmdb: (query: string, year?: number | null) =>
+    apiClient.get<TmdbMovie[]>('/api/rips/tmdb/search', { params: { query, year: year || undefined } }),
 };
 
 // Space API
