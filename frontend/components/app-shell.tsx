@@ -22,6 +22,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     // Free space also changes outside Wayfinderr: refresh it periodically
     const timer = setInterval(() => {
       useAppStore.getState().loadSpace().catch(() => undefined);
+      useAppStore.getState().loadDisks().catch(() => undefined);
     }, SPACE_REFRESH_MS);
     return () => clearInterval(timer);
   }, []);

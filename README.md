@@ -14,6 +14,7 @@ Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitl
 - 🔍 **Media Verification** - Detects Italian audio/subtitle tracks with ffprobe
 - 📤 **Reliable Transfers** - SFTP upload to a temporary `.part` file, size check, then rename; automatic retry with backoff
 - 📊 **Real-Time Monitoring** - WebSocket-driven live dashboard
+- 💽 **Local Disk Space** - Free/used space of the disks holding the watch folder and the database, one bar per disk when they are on different disks
 - 🔄 **Job Queue** - Concurrent uploads (max 2 global, max 1 per server); unfinished uploads resume after a restart
 - 💾 **Full History** - SQLite-backed persistence with upload tracking
 - 🌐 **Web UI** - Dashboard, server management and upload history
@@ -57,7 +58,7 @@ docker compose logs -f wayfinderr-backend
 
 To update: `docker compose pull && docker compose up -d`. Data (servers, history) lives in the `wayfinderr-data` volume and survives updates.
 
-ffprobe is included in the backend image. The UI looks for the backend on the same host, port 3001, so it also works from other devices on the LAN (`http://<pc-ip>:3000`). To also run MakeMKV in Docker (Linux host with an optical drive), use `docker compose --profile makemkv up -d` and uncomment the `devices` section in `docker-compose.yml`.
+ffprobe is included in the backend image. The dashboard's **This machine** card shows the disks as the container sees them: the watch folder is the host folder you mounted, the database lives in the `wayfinderr-data` volume (with Docker Desktop on Windows/macOS that is the Docker VM disk, not a Windows/macOS drive). The UI looks for the backend on the same host, port 3001, so it also works from other devices on the LAN (`http://<pc-ip>:3000`). To also run MakeMKV in Docker (Linux host with an optical drive), use `docker compose --profile makemkv up -d` and uncomment the `devices` section in `docker-compose.yml`.
 
 To build from source instead: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
 

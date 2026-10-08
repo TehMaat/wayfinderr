@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Dashboard "This machine" card: free/used space of the disks holding the watch folder and the database, one bar per disk when they are on different filesystems (with device, filesystem type and network/host-share detection)
+- `GET /api/system/disks` endpoint
+
 ## [1.0.0] - 2026-10-04
 
 ### Added - Phase 1: Backend Foundation

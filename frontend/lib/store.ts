@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { serversApi, spaceApi, uploadsApi } from './api';
+import { serversApi, spaceApi, systemApi, uploadsApi } from './api';
 
 export type UploadStatus = 'PENDING' | 'QUEUED' | 'UPLOADING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
 
@@ -47,6 +47,31 @@ export interface Server {
   totalSpaceBytes?: string;
 }
 
+export interface LocalFolder {
+  key: 'watch' | 'data';
+  label: string;
+  path: string;
+}
+
+/** A filesystem on the backend machine holding one or more of its folders */
+export interface LocalDisk {
+  id: string;
+  mountPoint: string;
+  device: string | null;
+  fsType: string | null;
+  kind: 'disk' | 'network' | 'shared' | 'memory' | 'other';
+  totalBytes: string;
+  freeBytes: string;
+  usedBytes: string;
+  folders: LocalFolder[];
+}
+
+export interface LocalDiskReport {
+  sameDisk: boolean;
+  disks: LocalDisk[];
+  missing: (LocalFolder & { error: string })[];
+}
+
 export interface Stats {
   total: number;
   byStatus: Partial<Record<UploadStatus, number>>;
@@ -74,6 +99,8 @@ interface AppState {
   serversLoaded: boolean;
   spaceLoaded: boolean;
   stats: Stats | null;
+  disks: LocalDiskReport | null;
+  disksLoaded: boolean;
   connected: boolean;
   transfers: Record<string, Transfer>;
   filters: Filters;
@@ -82,6 +109,7 @@ interface AppState {
   loadServers: () => Promise<void>;
   loadSpace: () => Promise<void>;
   loadStats: () => Promise<void>;
+  loadDisks: () => Promise<void>;
   loadAll: () => Promise<void>;
   refreshUpload: (id: string) => Promise<void>;
   removeUpload: (id: string) => void;
@@ -99,6 +127,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   serversLoaded: false,
   spaceLoaded: false,
   stats: null,
+  disks: null,
+  disksLoaded: false,
   connected: false,
   transfers: {},
   filters: { status: 'ALL', serverId: 'ALL', search: '' },
@@ -150,8 +180,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ stats: data });
   },
 
+  loadDisks: async () => {
+    try {
+      const { data } = await systemApi.getDisks();
+      set({ disks: data });
+    } finally {
+      set({ disksLoaded: true });
+    }
+  },
+
   loadAll: async () => {
-    await Promise.allSettled([get().loadUploads(), get().loadServers(), get().loadStats()]);
+    await Promise.allSettled([get().loadUploads(), get().loadServers(), get().loadStats(), get().loadDisks()]);
   },
 
   refreshUpload: async (id) => {

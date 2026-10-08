@@ -166,6 +166,52 @@ Bypass cache and fetch fresh space info.
 }
 ```
 
+## System API
+
+### Local Disks
+
+```
+GET /api/system/disks
+```
+
+Free/used space of the machine running the backend, for the filesystems that hold the watch folder and the database folder. Folders on the same filesystem are grouped into one entry, so `sameDisk: true` means they share a disk. `freeBytes` is the space that can still be written (on Linux it excludes the blocks reserved for root).
+
+`kind` is `disk` (block device: local disk, VPS block storage), `network` (NFS, SMB, sshfs, UNC path), `shared` (host folder seen from a VM or Docker Desktop: 9p, virtiofs...), `memory` (tmpfs) or `other` (e.g. overlay). `device` and `fsType` are only known on Linux. In Docker the paths are the ones inside the container.
+
+**Response:** 200 OK
+```json
+{
+  "sameDisk": false,
+  "disks": [
+    {
+      "id": "/dev/sdb1",
+      "mountPoint": "/makemkv-output",
+      "device": "/dev/sdb1",
+      "fsType": "ext4",
+      "kind": "disk",
+      "totalBytes": "1000204886016",
+      "freeBytes": "612345678848",
+      "usedBytes": "387859207168",
+      "folders": [{ "key": "watch", "label": "Watch folder", "path": "/makemkv-output" }]
+    },
+    {
+      "id": "/dev/sda1",
+      "mountPoint": "/app/data",
+      "device": "/dev/sda1",
+      "fsType": "ext4",
+      "kind": "disk",
+      "totalBytes": "250059350016",
+      "freeBytes": "180123456512",
+      "usedBytes": "69935893504",
+      "folders": [{ "key": "data", "label": "Database", "path": "/app/data" }]
+    }
+  ],
+  "missing": []
+}
+```
+
+A folder that does not exist (or cannot be read) is listed in `missing` with an `error` instead.
+
 ## Uploads API
 
 ### List Uploads

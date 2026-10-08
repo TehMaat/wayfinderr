@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/empty-state';
+import { LocalDisksCard } from '@/components/local-disks-card';
 import { PageHeader } from '@/components/page-header';
 import { StatusBadge } from '@/components/status-badge';
 import { StorageBar } from '@/components/storage-bar';
@@ -169,60 +170,64 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <div className="space-y-1.5">
-              <CardTitle>Storage</CardTitle>
-              <CardDescription>Free space on each server</CardDescription>
-            </div>
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/servers">
-                Manage
-                <ArrowRight />
-              </Link>
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {!serversLoaded ? (
-              <Skeleton className="h-10 w-full" />
-            ) : servers.length === 0 ? (
-              <EmptyState
-                icon={HardDrive}
-                title="No servers"
-                description="Add your Ultra.cc servers to start uploading."
-                action={
-                  <Button size="sm" asChild>
-                    <Link href="/servers?add=1">
-                      <Plus />
-                      Add server
-                    </Link>
-                  </Button>
-                }
-                className="py-6"
-              />
-            ) : (
-              servers.map((server) => (
-                <div key={server.id} className="space-y-1.5">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="flex items-center gap-2 font-medium">
-                      <ServerIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                      {server.name}
-                    </span>
-                    <span
-                      className={cn(
-                        'text-[11px]',
-                        server.reachable === false ? 'text-destructive' : 'text-muted-foreground'
-                      )}
-                    >
-                      {server.reachable === false ? 'unreachable' : timeAgo(server.lastSpaceCheckAt)}
-                    </span>
+        <div className="min-w-0 space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="space-y-1.5">
+                <CardTitle>Storage</CardTitle>
+                <CardDescription>Free space on each server</CardDescription>
+              </div>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/servers">
+                  Manage
+                  <ArrowRight />
+                </Link>
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!serversLoaded ? (
+                <Skeleton className="h-10 w-full" />
+              ) : servers.length === 0 ? (
+                <EmptyState
+                  icon={HardDrive}
+                  title="No servers"
+                  description="Add your Ultra.cc servers to start uploading."
+                  action={
+                    <Button size="sm" asChild>
+                      <Link href="/servers?add=1">
+                        <Plus />
+                        Add server
+                      </Link>
+                    </Button>
+                  }
+                  className="py-6"
+                />
+              ) : (
+                servers.map((server) => (
+                  <div key={server.id} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-2 font-medium">
+                        <ServerIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                        {server.name}
+                      </span>
+                      <span
+                        className={cn(
+                          'text-[11px]',
+                          server.reachable === false ? 'text-destructive' : 'text-muted-foreground'
+                        )}
+                      >
+                        {server.reachable === false ? 'unreachable' : timeAgo(server.lastSpaceCheckAt)}
+                      </span>
+                    </div>
+                    <StorageBar server={server} />
                   </div>
-                  <StorageBar server={server} />
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          <LocalDisksCard />
+        </div>
       </div>
 
       <Card>
