@@ -72,3 +72,45 @@ model Upload {
   @@index([status])
   @@index([serverId])
 }
+
+// Key/value app settings: the login account and the session signing secret
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// A film disc (ISO, BDMV or VIDEO_TS folder) found in the downloads folder,
+// ripped to MKV by the MakeMKV container (see services/ripper)
+model Rip {
+  id               String    @id @default(cuid())
+  sourcePath       String    @unique // relative to RIP_SOURCE_DIR
+  sourceType       String    // ISO | BDMV | DVD
+  downloadName     String    // top-level entry of the downloads folder
+
+  status           String    @default("WAITING") // WAITING | QUEUED | SCANNING | RIPPING | DONE | NEEDS_ATTENTION | FAILED | SKIPPED
+  reason           String?   // why it needs attention, failed or was skipped
+
+  // Disc scan (makemkvcon info): JSON array of the titles, see ripper/makemkv.ts
+  discName         String?
+  titles           String?
+  titleIndex       Int?      // title to rip (chosen automatically or by the user)
+
+  // TMDB match
+  tmdbId           Int?
+  title            String?   // in TMDB_LANGUAGE (used for the file name)
+  originalTitle    String?
+  originalLanguage String?   // ISO 639-1, from TMDB
+  year             Int?
+
+  jobId            String?   // current runner job
+  progress         Int       @default(0) // 0-100
+  outputFile       String?   // final .mkv path, in the watch folder
+
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([status])
+}

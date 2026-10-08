@@ -3,10 +3,10 @@
 #   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 services:
+  # Not published: the frontend proxies /api and /ws to it over the compose network,
+  # by this service name (wayfinderr-backend)
   wayfinderr-backend:
     image: ${WAYFINDERR_REGISTRY:-ghcr.io/tehmaat}/wayfinderr-backend:${WAYFINDERR_TAG:-latest}
-    ports:
-      - "3001:3001"
     environment:
       - NODE_ENV=production
       - PORT=3001
@@ -15,9 +15,24 @@ services:
       - WATCH_USE_POLLING=${WATCH_USE_POLLING:-false}
       - MAX_CONCURRENT_UPLOADS=${MAX_CONCURRENT_UPLOADS:-2}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      # Optional: fixed code for creating the account (otherwise printed in the log)
+      - WAYFINDERR_SETUP_CODE=${WAYFINDERR_SETUP_CODE:-}
+      - DELETE_AFTER_UPLOAD=${DELETE_AFTER_UPLOAD:-false}
+      # Automatic ripping of film discs from the downloads folder (needs the makemkv service)
+      - RIP_ENABLED=${RIP_ENABLED:-false}
+      - RIP_SOURCE_DIR=/downloads
+      - RIP_EXISTING=${RIP_EXISTING:-false}
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - TMDB_LANGUAGE=${TMDB_LANGUAGE:-it-IT}
+      - RIP_QUIET_MINUTES=${RIP_QUIET_MINUTES:-10}
+      - RIP_MIN_LENGTH=${RIP_MIN_LENGTH:-2700}
+      - RIP_LANGUAGE=${RIP_LANGUAGE:-it}
     volumes:
-      # Folder where MakeMKV saves the .mkv files (set MAKEMKV_OUTPUT_DIR in .env)
-      - ${MAKEMKV_OUTPUT_DIR:-./makemkv-output}:/makemkv-output:ro
+      # Folder where MakeMKV saves the .mkv files (set MAKEMKV_OUTPUT_DIR in .env).
+      # Writable: rips are moved in, uploaded files deleted (DELETE_AFTER_UPLOAD)
+      - ${MAKEMKV_OUTPUT_DIR:-./makemkv-output}:/makemkv-output
+      # Downloads with the discs to rip (ISO, BDMV, VIDEO_TS), read only
+      - ${DOWNLOADS_DIR:-./downloads}:/downloads:ro
       - wayfinderr-data:/app/data
     restart: unless-stopped
     networks:
@@ -33,16 +48,22 @@ services:
     networks:
       - wayfinderr
 
-  # Optional: MakeMKV in Docker (Linux host with an optical drive).
-  # Start it with: docker compose --profile makemkv up -d
+  # Optional: MakeMKV in Docker (jlesage/makemkv plus the runner that does the
+  # automatic rips). Start it with: docker compose --profile makemkv up -d
   makemkv:
-    image: jlesage/makemkv:latest
+    image: ${WAYFINDERR_REGISTRY:-ghcr.io/tehmaat}/wayfinderr-makemkv:${WAYFINDERR_TAG:-latest}
     profiles: ["makemkv"]
     ports:
       - "5800:5800"
+    environment:
+      # Purchased key, or BETA for the free beta key
+      - MAKEMKV_KEY=${MAKEMKV_KEY:-BETA}
+      - WAYFINDERR_RUNNER=${WAYFINDERR_RUNNER:-1}
+      - WAYFINDERR_CACHE_MB=${WAYFINDERR_CACHE_MB:-1024}
     volumes:
       - makemkv-config:/config
       - ${MAKEMKV_OUTPUT_DIR:-./makemkv-output}:/output
+      - ${DOWNLOADS_DIR:-./downloads}:/storage:ro
     # devices:
     #   - /dev/sr0:/dev/sr0
     #   - /dev/sg0:/dev/sg0

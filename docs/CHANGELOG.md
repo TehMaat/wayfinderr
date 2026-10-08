@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Login: one account created on a setup screen with a one-time setup code from the backend log (or `WAYFINDERR_SETUP_CODE`); scrypt password hashes; 30-day sessions in an HttpOnly cookie
+- Account menu: change password (signs out other devices), sign out, sign out everywhere
+- Failed login limit: 5 per 15 minutes per client
+- `node dist/cli.js reset-auth` (`npm run reset-auth`) for a forgotten password
+- Dashboard "This machine" card: free/used space of the disks holding the watch folder and the database, one bar per disk when they are on different filesystems (with device, filesystem type and network/host-share detection)
+- `GET /api/system/disks` endpoint
+- Automatic ripping of film discs (ISO, BDMV, VIDEO_TS) from the downloads folder: `RIP_*` and `TMDB_*` variables, Rips page, `wayfinderr-makemkv` image (jlesage/makemkv plus the rip runner)
+- `DELETE_AFTER_UPLOAD`: delete the local file once it is on the server
+- Stop a queued or running upload (`POST /api/uploads/:id/cancel`, `CANCELLED` status, `upload-cancelled` WebSocket event, Stop button): the partial file on the server is deleted
+- The watch folder, subfolders included, is also rescanned every 30 seconds for files the watcher misses
+- Docker images for linux/arm64 too
+
+### Changed
+- The browser only talks to the frontend, which proxies `/api`, `/health` and the `/ws` WebSocket to the backend; the backend port is no longer published. `BACKEND_URL` (frontend build arg, default `http://wayfinderr-backend:3001`) replaces `NEXT_PUBLIC_API_URL`
+- WebSocket only on `/ws` (session cookie required, same site only)
+- `/api/servers` returns `hasApiToken` instead of the API token; a blank token on edit keeps the saved one
+- Unsafe cross-site requests are refused (403 `cross_site_request`); error responses use fixed messages
+- Uploads keep 64 SFTP writes of 32 KiB in flight, like OpenSSH: no longer capped at chunk size / round trip time (~2 MiB/s)
+
+### Fixed
+- An upload no longer hangs forever when the SSH connection drops: the attempt fails and is retried
+- An upload fails (and is retried) when the local file changed while it was sent
+- A rip never takes the name of a file uploaded before: with `DELETE_AFTER_UPLOAD` it would have replaced that film on the server
+- Unfinished uploads are resumed once after a restart (PENDING ones were queued twice)
+
 ## [1.0.0] - 2026-10-04
 
 ### Added - Phase 1: Backend Foundation
@@ -64,7 +92,7 @@ All notable changes to this project will be documented in this file.
 ## Future Releases
 
 ### [1.1.0] - Planned
-- [ ] User authentication (JWT/OAuth)
+- [x] User authentication (username/password, see Unreleased)
 - [ ] Email/webhook notifications
 - [ ] Advanced analytics and charts
 - [ ] Multi-language support (i18n)

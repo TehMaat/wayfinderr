@@ -1,5 +1,5 @@
 import { toast } from 'sonner';
-import { serversApi, uploadsApi } from './api';
+import { ripsApi, serversApi, uploadsApi } from './api';
 import { useAppStore } from './store';
 import { errorMessage } from './utils';
 
@@ -37,6 +37,26 @@ export async function deleteUpload(id: string): Promise<boolean> {
   } catch (err) {
     toast.error('Delete failed', { description: errorMessage(err) });
     return false;
+  }
+}
+
+export async function retryRip(id: string) {
+  try {
+    await ripsApi.retryRip(id);
+    await useAppStore.getState().refreshRip(id);
+    toast.success('Rip queued again', { description: 'The disc is scanned again' });
+  } catch (err) {
+    toast.error('Retry failed', { description: errorMessage(err) });
+  }
+}
+
+export async function skipRip(id: string) {
+  try {
+    await ripsApi.skipRip(id);
+    await useAppStore.getState().refreshRip(id);
+    toast.success('Rip skipped');
+  } catch (err) {
+    toast.error('Skip failed', { description: errorMessage(err) });
   }
 }
 

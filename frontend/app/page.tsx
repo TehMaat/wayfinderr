@@ -7,6 +7,7 @@ import {
   ArrowUpFromLine,
   CheckCircle2,
   Clock,
+  Disc3,
   FolderInput,
   HardDrive,
   Plus,
@@ -20,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/empty-state';
+import { LocalDisksCard } from '@/components/local-disks-card';
 import { PageHeader } from '@/components/page-header';
 import { StatusBadge } from '@/components/status-badge';
 import { StorageBar } from '@/components/storage-bar';
@@ -118,6 +120,7 @@ export default function Dashboard() {
   const serversLoaded = useAppStore((s) => s.serversLoaded);
   const stats = useAppStore((s) => s.stats);
   const speed = useAppStore(selectTotalSpeed);
+  const ripsToChoose = useAppStore((s) => s.rips.filter((r) => r.status === 'NEEDS_ATTENTION').length);
 
   const active = uploads
     .filter((u) => u.status === 'UPLOADING' || u.status === 'QUEUED' || u.status === 'PENDING')
@@ -128,6 +131,24 @@ export default function Dashboard() {
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
       <PageHeader title="Dashboard" description="MakeMKV rips are sent to the server with the most free space." />
+
+      {ripsToChoose > 0 && (
+        <Link
+          href="/rips?filter=attention"
+          className="flex items-center gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 transition-colors hover:bg-warning/15"
+        >
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-warning/15 text-warning">
+            <Disc3 className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-warning">
+              {ripsToChoose === 1 ? '1 rip needs a choice' : `${ripsToChoose} rips need a choice`}
+            </p>
+            <p className="truncate text-xs text-muted-foreground">Pick the title on the disc or the film, and the rip goes on.</p>
+          </div>
+          <ArrowRight className="h-4 w-4 shrink-0 text-warning" />
+        </Link>
+      )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
@@ -193,60 +214,64 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <div className="space-y-1.5">
-              <CardTitle>Storage</CardTitle>
-              <CardDescription>Free space on each server</CardDescription>
-            </div>
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/servers">
-                Manage
-                <ArrowRight />
-              </Link>
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {!serversLoaded ? (
-              <Skeleton className="h-10 w-full" />
-            ) : servers.length === 0 ? (
-              <EmptyState
-                icon={HardDrive}
-                title="No servers"
-                description="Add your Ultra.cc servers to start uploading."
-                action={
-                  <Button size="sm" asChild>
-                    <Link href="/servers?add=1">
-                      <Plus />
-                      Add server
-                    </Link>
-                  </Button>
-                }
-                className="py-6"
-              />
-            ) : (
-              servers.map((server) => (
-                <div key={server.id} className="space-y-1.5">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="flex items-center gap-2 font-medium">
-                      <ServerIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                      {server.name}
-                    </span>
-                    <span
-                      className={cn(
-                        'text-[11px]',
-                        server.reachable === false ? 'text-destructive' : 'text-muted-foreground'
-                      )}
-                    >
-                      {server.reachable === false ? 'unreachable' : timeAgo(server.lastSpaceCheckAt)}
-                    </span>
+        <div className="min-w-0 space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="space-y-1.5">
+                <CardTitle>Storage</CardTitle>
+                <CardDescription>Free space on each server</CardDescription>
+              </div>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/servers">
+                  Manage
+                  <ArrowRight />
+                </Link>
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!serversLoaded ? (
+                <Skeleton className="h-10 w-full" />
+              ) : servers.length === 0 ? (
+                <EmptyState
+                  icon={HardDrive}
+                  title="No servers"
+                  description="Add your Ultra.cc servers to start uploading."
+                  action={
+                    <Button size="sm" asChild>
+                      <Link href="/servers?add=1">
+                        <Plus />
+                        Add server
+                      </Link>
+                    </Button>
+                  }
+                  className="py-6"
+                />
+              ) : (
+                servers.map((server) => (
+                  <div key={server.id} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-2 font-medium">
+                        <ServerIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                        {server.name}
+                      </span>
+                      <span
+                        className={cn(
+                          'text-[11px]',
+                          server.reachable === false ? 'text-destructive' : 'text-muted-foreground'
+                        )}
+                      >
+                        {server.reachable === false ? 'unreachable' : timeAgo(server.lastSpaceCheckAt)}
+                      </span>
+                    </div>
+                    <StorageBar server={server} />
                   </div>
-                  <StorageBar server={server} />
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          <LocalDisksCard />
+        </div>
       </div>
 
       <Card>

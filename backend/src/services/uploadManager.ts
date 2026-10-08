@@ -46,7 +46,8 @@ export class UploadManager extends EventEmitter {
       'Starting file upload'
     );
 
-    const fileSize = statSync(filepath).size;
+    const local = statSync(filepath);
+    const fileSize = local.size;
     const filename = path.basename(filepath);
 
     await db.updateUpload(uploadId, {
@@ -112,6 +113,13 @@ export class UploadManager extends EventEmitter {
           );
         }
         throw error;
+      }
+
+      // Still being written (a pause longer than the watcher's stability check):
+      // what was sent is not the whole file, and DELETE_AFTER_UPLOAD would delete it
+      const after = statSync(filepath);
+      if (after.size !== local.size || after.mtimeMs !== local.mtimeMs) {
+        throw new Error('The file changed during the upload');
       }
 
       // Verify the size, then move the file into place
