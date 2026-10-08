@@ -177,7 +177,7 @@ GET /api/uploads?limit=50&offset=0&status=COMPLETED
 **Query Parameters:**
 - `limit`: Max results (default 50)
 - `offset`: Pagination offset (default 0)
-- `status`: Filter by status (PENDING, QUEUED, UPLOADING, COMPLETED, FAILED, SKIPPED)
+- `status`: Filter by status (PENDING, QUEUED, UPLOADING, COMPLETED, FAILED, SKIPPED, CANCELLED)
 - `serverId`: Filter by server
 
 **Response:**
@@ -241,7 +241,7 @@ GET /api/uploads/:id
 POST /api/uploads/:id/retry
 ```
 
-Re-enqueue a failed upload for retry.
+Re-enqueue a failed, skipped or stopped upload.
 
 **Response:** 200 OK
 ```json
@@ -250,6 +250,23 @@ Re-enqueue a failed upload for retry.
   "message": "Upload queued for retry"
 }
 ```
+
+### Stop Upload
+
+```
+POST /api/uploads/:id/cancel
+```
+
+Stop a `QUEUED` or `UPLOADING` upload. A queued upload is removed from the queue;
+a running transfer is interrupted and the partial `.<filename>.part` file on the
+server is deleted. The upload becomes `CANCELLED` and can be started again with
+`/retry`.
+
+The request waits for the transfer to stop (up to 10 seconds) and returns the
+upload. Its `status` is `CANCELLED`, or `COMPLETED` if the transfer finished
+before it could be stopped.
+
+**Response:** 200 OK (the upload), 409 if the upload is not queued or uploading
 
 ## WebSocket
 
@@ -338,6 +355,15 @@ Upload skipped (no Italian content).
 }
 ```
 
+#### upload-cancelled
+Upload stopped by the user.
+```json
+{
+  "type": "upload-cancelled",
+  "uploadId": "upload123"
+}
+```
+
 ## Error Responses
 
 ### 400 Bad Request
@@ -416,6 +442,9 @@ curl http://localhost:3001/api/uploads?limit=10
 
 # Retry upload
 curl -X POST http://localhost:3001/api/uploads/upload123/retry
+
+# Stop upload
+curl -X POST http://localhost:3001/api/uploads/upload123/cancel
 ```
 
 ### JavaScript/Fetch

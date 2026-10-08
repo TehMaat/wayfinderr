@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import { readFileSync, statSync } from 'fs';
 import path from 'path';
+import { setTimeout as sleep } from 'timers/promises';
 import { Client as SSHClient, ConnectConfig, SFTPWrapper } from 'ssh2';
 import logger from '../config/logger.js';
 import { config } from '../config/index.js';
@@ -11,6 +12,8 @@ export interface UploadOptions {
   uploadId: string;
   filepath: string;
   server: Server;
+  // Aborted when the user stops the upload
+  signal?: AbortSignal;
   onProgress: (progress: number, bytes: bigint) => void;
 }
 
@@ -23,6 +26,9 @@ const PROGRESS_INTERVAL_MS = 1000;
 const SFTP_CONCURRENCY = 64;
 const SFTP_CHUNK_SIZE = 32 * 1024;
 
+// Max wait for the removal of the partial file when an upload is stopped
+const CLEANUP_TIMEOUT_MS = 5000;
+
 const sftpCall = <T = void>(fn: (cb: (err: Error | null | undefined, res?: T) => void) => void) =>
   new Promise<T>((resolve, reject) => {
     fn((err, res) => (err ? reject(err) : resolve(res as T)));
@@ -32,7 +38,8 @@ export class UploadManager extends EventEmitter {
   private activeConnections: Set<SSHClient> = new Set();
 
   async uploadFile(options: UploadOptions): Promise<boolean> {
-    const { uploadId, filepath, server, onProgress } = options;
+    const { uploadId, filepath, server, signal, onProgress } = options;
+    signal?.throwIfAborted();
 
     logger.info(
       { uploadId, serverId: server.id, filepath },
@@ -56,16 +63,20 @@ export class UploadManager extends EventEmitter {
     const tempPath = path.posix.join(remoteDir, `.${filename}.part`);
 
     const ssh = await this.connect(server);
-    // If the connection drops mid-transfer, ssh2's fastPut waits forever for
-    // the reply to its handle CLOSE: fail the transfer when the socket closes
-    const connectionClosed = new Promise<never>((_, reject) => {
-      ssh.once('close', () => reject(new Error('SSH connection closed')));
-    });
-    connectionClosed.catch(() => undefined);
+    // Ends the transfer on a stop or a dropped connection. On a drop, ssh2's
+    // fastPut would wait forever for the reply to its handle CLOSE
+    let interrupt!: (error: Error) => void;
+    const interrupted = new Promise<never>((_, reject) => (interrupt = reject));
+    interrupted.catch(() => undefined);
+    const onAbort = () => interrupt(new Error('Upload stopped'));
+    ssh.once('close', () => interrupt(new Error('SSH connection closed')));
+    signal?.addEventListener('abort', onAbort, { once: true });
     try {
+      signal?.throwIfAborted();
       const sftp = await sftpCall<SFTPWrapper>((cb) => ssh.sftp(cb));
 
       await this.ensureRemoteDir(sftp, remoteDir);
+      signal?.throwIfAborted();
 
       let lastEmit = 0;
       const transfer = sftpCall((cb) =>
@@ -76,6 +87,7 @@ export class UploadManager extends EventEmitter {
             concurrency: SFTP_CONCURRENCY,
             chunkSize: SFTP_CHUNK_SIZE,
             step: (transferred) => {
+              if (signal?.aborted) return;
               const now = Date.now();
               if (now - lastEmit < PROGRESS_INTERVAL_MS) return;
               lastEmit = now;
@@ -86,7 +98,21 @@ export class UploadManager extends EventEmitter {
           cb
         )
       );
-      await Promise.race([transfer, connectionClosed]);
+      try {
+        await Promise.race([transfer, interrupted]);
+      } catch (error) {
+        if (signal?.aborted) {
+          // Writes still in flight go to the unlinked file, freed when the
+          // connection closes
+          await Promise.race([
+            sftpCall((cb) => sftp.unlink(tempPath, cb)),
+            sleep(CLEANUP_TIMEOUT_MS),
+          ]).catch((err) =>
+            logger.warn({ uploadId, tempPath, error: (err as Error).message }, 'Could not remove partial file')
+          );
+        }
+        throw error;
+      }
 
       // Verify the size, then move the file into place
       const stats = await sftpCall<{ size: number }>((cb) => sftp.stat(tempPath, cb));
@@ -100,12 +126,13 @@ export class UploadManager extends EventEmitter {
       logger.info({ uploadId, remotePath }, 'Upload completed');
       return true;
     } finally {
+      signal?.removeEventListener('abort', onAbort);
       ssh.end();
     }
   }
 
   async uploadWithRetry(options: UploadOptions): Promise<boolean> {
-    const { uploadId, server } = options;
+    const { uploadId, server, signal } = options;
 
     let lastError: Error | null = null;
     const maxRetries = server.maxRetries || 3;
@@ -132,6 +159,7 @@ export class UploadManager extends EventEmitter {
           return true;
         }
       } catch (error) {
+        if (signal?.aborted) throw error;
         lastError = error as Error;
         logger.warn(
           { uploadId, attempt: attempt + 1, error: lastError.message },
@@ -141,7 +169,7 @@ export class UploadManager extends EventEmitter {
         if (attempt < maxRetries - 1) {
           const delay = this.calculateBackoff(attempt, backoffStrategy);
           logger.info({ uploadId, delay }, `Retrying after ${delay}ms`);
-          await new Promise((resolve) => setTimeout(resolve, delay));
+          await sleep(delay, undefined, { signal });
         }
       }
     }

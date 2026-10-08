@@ -86,7 +86,7 @@ interface Upload {
   id: string;
   filename: string;
   size: bigint;
-  status: 'PENDING' | 'QUEUED' | 'UPLOADING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
+  status: 'PENDING' | 'QUEUED' | 'UPLOADING' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'CANCELLED';
   progress: number;
   hasItalianAudio: boolean;
   hasItalianSubtitles: boolean;
@@ -107,7 +107,7 @@ interface Server {
 ## WebSocket Integration
 
 The frontend maintains real-time connectivity via WebSocket (lib/useWebSocket.ts):
-- Listens for events: `upload-detected`, `upload-queued`, `progress`, `upload-completed`, `upload-failed`, `upload-skipped`
+- Listens for events: `upload-detected`, `upload-queued`, `progress`, `upload-completed`, `upload-failed`, `upload-skipped`, `upload-cancelled`
 - Updates store automatically on events
 - Implements reconnection logic
 - All pages subscribe to real-time updates
@@ -162,6 +162,7 @@ All components follow the existing design system:
 - `GET /api/uploads?limit=50` - List uploads
 - `GET /api/uploads/:id` - Get upload details
 - `POST /api/uploads/:id/retry` - Retry failed upload
+- `POST /api/uploads/:id/cancel` - Stop a queued or running upload
 
 ### Space API
 - `GET /api/space` - Get all servers' space info

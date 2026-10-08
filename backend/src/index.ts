@@ -105,6 +105,13 @@ jobQueue.on('upload-skipped', ({ uploadId }) => {
   });
 });
 
+jobQueue.on('upload-cancelled', ({ uploadId }) => {
+  broadcast({
+    type: 'upload-cancelled',
+    uploadId,
+  });
+});
+
 // File watcher event handler
 fileWatcher.on('file-detected', async (event) => {
   let uploadId: string | null = null;

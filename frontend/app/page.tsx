@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight,
@@ -10,6 +11,7 @@ import {
   HardDrive,
   Plus,
   Server as ServerIcon,
+  Square,
   XCircle,
   type LucideIcon,
 } from 'lucide-react';
@@ -21,7 +23,9 @@ import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
 import { StatusBadge } from '@/components/status-badge';
 import { StorageBar } from '@/components/storage-bar';
+import { StopUploadDialog, canStop } from '@/components/upload-actions';
 import { UploadTable } from '@/components/upload-table';
+import { Tooltip } from '@/components/ui/tooltip';
 import { selectTotalSpeed, useAppStore, type Upload } from '@/lib/store';
 import { cn, formatBytes, formatDuration, formatSpeed, timeAgo } from '@/lib/utils';
 
@@ -62,12 +66,31 @@ function ActiveTransfer({ upload }: { upload: Upload }) {
   const remaining = Number(upload.size) - Number(upload.progressBytes);
   const eta = transfer?.speed ? remaining / transfer.speed : null;
   const uploading = upload.status === 'UPLOADING';
+  const [stopOpen, setStopOpen] = useState(false);
 
+  // The filename link covers the whole row (after:inset-0); the stop button sits above it
   return (
-    <Link href={`/uploads/${upload.id}`} className="block space-y-2 rounded-md p-2 -mx-2 transition-colors hover:bg-accent/50">
+    <div className="relative space-y-2 rounded-md p-2 -mx-2 transition-colors hover:bg-accent/50">
       <div className="flex items-center justify-between gap-3">
-        <p className="truncate text-sm font-medium">{upload.filename}</p>
-        <StatusBadge status={upload.status} />
+        <Link href={`/uploads/${upload.id}`} className="truncate text-sm font-medium after:absolute after:inset-0">
+          {upload.filename}
+        </Link>
+        <div className="flex shrink-0 items-center gap-1">
+          <StatusBadge status={upload.status} />
+          {canStop(upload) && (
+            <Tooltip content="Stop">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="relative h-6 w-6 text-muted-foreground hover:text-foreground [&_svg]:size-3.5"
+                aria-label="Stop"
+                onClick={() => setStopOpen(true)}
+              >
+                <Square className="fill-current" />
+              </Button>
+            </Tooltip>
+          )}
+        </div>
       </div>
       <Progress value={uploading ? upload.progress : 0} animated={uploading} className="h-2" />
       <div className="flex items-center justify-between text-xs text-muted-foreground tabular">
@@ -83,7 +106,8 @@ function ActiveTransfer({ upload }: { upload: Upload }) {
           </span>
         )}
       </div>
-    </Link>
+      <StopUploadDialog upload={upload} open={stopOpen} onOpenChange={setStopOpen} />
+    </div>
   );
 }
 
