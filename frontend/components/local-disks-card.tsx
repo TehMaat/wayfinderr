@@ -7,12 +7,16 @@ import {
   HardDrive,
   MemoryStick,
   Network,
+  RefreshCw,
   TriangleAlert,
   type LucideIcon,
 } from 'lucide-react';
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tooltip } from '@/components/ui/tooltip';
 import { UsageBar } from '@/components/storage-bar';
 import { useAppStore, type LocalDisk, type LocalFolder } from '@/lib/store';
 import { cn } from '@/lib/utils';
@@ -75,6 +79,14 @@ export function LocalDisksCard() {
   const report = useAppStore((s) => s.disks);
   const loaded = useAppStore((s) => s.disksLoaded);
   const folderCount = report?.disks.reduce((n, disk) => n + disk.folders.length, 0) ?? 0;
+  const [refreshing, setRefreshing] = useState(false);
+
+  // The app shell also refreshes it every minute
+  const refresh = async () => {
+    setRefreshing(true);
+    await useAppStore.getState().loadDisks().catch(() => undefined);
+    setRefreshing(false);
+  };
 
   return (
     <Card>
@@ -83,8 +95,22 @@ export function LocalDisksCard() {
           <CardTitle>This machine</CardTitle>
           <CardDescription>Disks holding the watch folder and database</CardDescription>
         </div>
-        {report && report.disks.length > 1 && <Badge variant="info">{report.disks.length} disks</Badge>}
-        {report && report.disks.length === 1 && folderCount > 1 && <Badge variant="success">Same disk</Badge>}
+        <div className="flex shrink-0 items-center gap-1">
+          {report && report.disks.length > 1 && <Badge variant="info">{report.disks.length} disks</Badge>}
+          {report && report.disks.length === 1 && folderCount > 1 && <Badge variant="success">Same disk</Badge>}
+          <Tooltip content="Recheck disk space">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={refresh}
+              disabled={refreshing}
+              aria-label="Recheck disk space"
+            >
+              <RefreshCw className={cn(refreshing && 'animate-spin')} />
+            </Button>
+          </Tooltip>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {!loaded ? (
