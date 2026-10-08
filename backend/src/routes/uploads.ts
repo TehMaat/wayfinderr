@@ -53,7 +53,7 @@ router.post('/:id/retry', async (req: Request, res: Response) => {
       return;
     }
 
-    if (upload.status !== 'FAILED' && upload.status !== 'SKIPPED') {
+    if (upload.status !== 'FAILED' && upload.status !== 'SKIPPED' && upload.status !== 'CANCELLED') {
       res.status(409).json({ error: `Upload is ${upload.status}, cannot retry` });
       return;
     }
@@ -71,6 +71,30 @@ router.post('/:id/retry', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error(error, 'Failed to retry upload');
     res.status(500).json({ error: 'Failed to retry upload' });
+  }
+});
+
+// POST stop a queued or running upload (the partial remote file is removed)
+router.post('/:id/cancel', async (req: Request, res: Response) => {
+  try {
+    const upload = await db.getUploadById(req.params.id);
+    if (!upload) {
+      res.status(404).json({ error: 'Upload not found' });
+      return;
+    }
+
+    if (upload.status !== 'QUEUED' && upload.status !== 'UPLOADING') {
+      res.status(409).json({ error: `Upload is ${upload.status}, cannot stop` });
+      return;
+    }
+
+    await jobQueue.cancelUpload(upload.id);
+
+    // CANCELLED, or COMPLETED if the transfer finished before it could be stopped
+    res.json(await db.getUploadById(upload.id));
+  } catch (error) {
+    logger.error(error, 'Failed to stop upload');
+    res.status(500).json({ error: 'Failed to stop upload' });
   }
 });
 

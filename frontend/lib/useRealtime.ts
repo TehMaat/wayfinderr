@@ -78,6 +78,11 @@ export const useRealtime = () => {
             break;
           }
 
+          case 'upload-cancelled':
+            await store.refreshUpload(uploadId);
+            scheduleStats(true);
+            break;
+
           case 'upload-skipped':
             await store.refreshUpload(uploadId);
             toast.warning('Skipped: no Italian audio or subtitles', { description: nameOf(uploadId) });

@@ -22,6 +22,7 @@ function ProgressCell({ upload }: { upload: Upload }) {
         indicatorClassName={cn(
           upload.status === 'COMPLETED' && 'bg-success',
           upload.status === 'FAILED' && 'bg-destructive',
+          upload.status === 'CANCELLED' && 'bg-muted-foreground/40',
           upload.status === 'SKIPPED' && 'bg-warning/60'
         )}
       />

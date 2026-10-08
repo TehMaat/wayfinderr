@@ -14,6 +14,19 @@ export async function retryUpload(id: string) {
   }
 }
 
+export async function stopUpload(id: string) {
+  try {
+    const { data } = await uploadsApi.cancelUpload(id);
+    await useAppStore.getState().refreshUpload(id);
+    useAppStore.getState().loadStats().catch(() => undefined);
+    if (data.status === 'CANCELLED') toast.success('Upload stopped');
+    else if (data.status === 'COMPLETED') toast.info('The upload finished before it could be stopped');
+    else toast.info('Stopping the upload…');
+  } catch (err) {
+    toast.error('Stop failed', { description: errorMessage(err) });
+  }
+}
+
 export async function deleteUpload(id: string): Promise<boolean> {
   try {
     await uploadsApi.deleteUpload(id);

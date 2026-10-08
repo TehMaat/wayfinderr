@@ -53,7 +53,7 @@ model Upload {
   serverId             String?
   server               Server?  @relation(fields: [serverId], references: [id], onDelete: SetNull)
 
-  status               String   @default("PENDING")  // PENDING | QUEUED | UPLOADING | COMPLETED | FAILED | SKIPPED
+  status               String   @default("PENDING")  // PENDING | QUEUED | UPLOADING | COMPLETED | FAILED | SKIPPED | CANCELLED
   progress             Int      @default(0)          // 0-100
   progressBytes        BigInt   @default(0)          // Bytes uploaded
 

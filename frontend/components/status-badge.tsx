@@ -1,6 +1,7 @@
 import {
   CheckCircle2,
   CircleDashed,
+  CircleStop,
   Clock,
   Loader2,
   SkipForward,
@@ -20,6 +21,7 @@ export const STATUS_META: Record<
   PENDING: { label: 'Analyzing', icon: CircleDashed, variant: 'secondary', color: 'text-muted-foreground' },
   COMPLETED: { label: 'Completed', icon: CheckCircle2, variant: 'success', color: 'text-success' },
   FAILED: { label: 'Failed', icon: XCircle, variant: 'destructive', color: 'text-destructive' },
+  CANCELLED: { label: 'Stopped', icon: CircleStop, variant: 'secondary', color: 'text-muted-foreground' },
   SKIPPED: { label: 'Skipped', icon: SkipForward, variant: 'warning', color: 'text-warning' },
 };
 

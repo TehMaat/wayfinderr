@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowLeft, AudioLines, Captions, FileVideo, RotateCcw, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, AudioLines, Captions, FileVideo, RotateCcw, Square, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { StatusBadge } from '@/components/status-badge';
-import { canDelete, canRetry } from '@/components/upload-actions';
+import { StopUploadDialog, canDelete, canRetry, canStop } from '@/components/upload-actions';
 import { deleteUpload, retryUpload } from '@/lib/actions';
 import { useAppStore } from '@/lib/store';
 import { cn, formatBytes, formatDate, formatDuration, formatSpeed } from '@/lib/utils';
@@ -74,6 +74,7 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
   const transfer = useAppStore((s) => s.transfers[params.id]);
   const [loading, setLoading] = useState(!upload);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [stopOpen, setStopOpen] = useState(false);
 
   // Uploads older than the loaded list are fetched on demand
   useEffect(() => {
@@ -149,6 +150,12 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
             <Button size="sm" onClick={() => retryUpload(upload.id)}>
               <RotateCcw />
               Retry
+            </Button>
+          )}
+          {canStop(upload) && (
+            <Button size="sm" variant="outline" onClick={() => setStopOpen(true)}>
+              <Square className="fill-current" />
+              Stop
             </Button>
           )}
           {canDelete(upload) && (
@@ -233,6 +240,8 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
       ) : (
         <p className="text-sm text-muted-foreground">Media info not available.</p>
       )}
+
+      <StopUploadDialog upload={upload} open={stopOpen} onOpenChange={setStopOpen} />
 
       <ConfirmDialog
         open={confirmOpen}

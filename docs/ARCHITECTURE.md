@@ -196,7 +196,7 @@ model Upload {
   serverId        String
   server          Server    @relation(fields: [serverId], references: [id], onDelete: Cascade)
   
-  status          String    # PENDING|QUEUED|UPLOADING|COMPLETED|FAILED|SKIPPED
+  status          String    # PENDING|QUEUED|UPLOADING|COMPLETED|FAILED|SKIPPED|CANCELLED
   progress        Int       @default(0)
   progressBytes   BigInt    @default(0)
   

@@ -28,6 +28,8 @@ export const uploadsApi = {
   getStats: () => apiClient.get('/api/uploads/stats'),
   getUpload: (id: string) => apiClient.get(`/api/uploads/${id}`),
   retryUpload: (id: string) => apiClient.post(`/api/uploads/${id}/retry`),
+  // The backend waits for the running transfer to stop (up to 10 s)
+  cancelUpload: (id: string) => apiClient.post(`/api/uploads/${id}/cancel`, null, { timeout: 30000 }),
   deleteUpload: (id: string) => apiClient.delete(`/api/uploads/${id}`),
 };
 
