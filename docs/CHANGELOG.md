@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file.
 - Account menu: change password (signs out other devices), sign out, sign out everywhere
 - Failed login limit: 5 per 15 minutes per client
 - `node dist/cli.js reset-auth` (`npm run reset-auth`) for a forgotten password
+- Dashboard "This machine" card: free/used space of the disks holding the watch folder and the database, one bar per disk when they are on different filesystems (with device, filesystem type and network/host-share detection)
+- `GET /api/system/disks` endpoint
 
 ### Changed
 - The browser only talks to the frontend, which proxies `/api`, `/health` and the `/ws` WebSocket to the backend; the backend port is no longer published. `BACKEND_URL` (frontend build arg, default `http://wayfinderr-backend:3001`) replaces `NEXT_PUBLIC_API_URL`

@@ -40,6 +40,34 @@ export interface SelectedServer {
   freeSpaceBytes: bigint;
 }
 
+// Local disk types (the machine Wayfinderr runs on)
+export interface LocalFolder {
+  key: 'watch' | 'data';
+  label: string;
+  path: string;
+}
+
+// disk: block device; network: NFS/SMB/sshfs; shared: host folder seen from a VM or Docker Desktop
+export type LocalDiskKind = 'disk' | 'network' | 'shared' | 'memory' | 'other';
+
+export interface LocalDisk {
+  id: string;
+  mountPoint: string;
+  device: string | null;
+  fsType: string | null;
+  kind: LocalDiskKind;
+  totalBytes: bigint;
+  freeBytes: bigint;
+  usedBytes: bigint;
+  folders: LocalFolder[];
+}
+
+export interface LocalDiskReport {
+  sameDisk: boolean;
+  disks: LocalDisk[];
+  missing: (LocalFolder & { error: string })[];
+}
+
 // Config types
 export interface Config {
   NODE_ENV: 'development' | 'production';

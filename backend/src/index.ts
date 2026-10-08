@@ -18,6 +18,7 @@ import uploadRoutes from './routes/uploads.js';
 import spaceRoutes from './routes/space.js';
 import ripRoutes from './routes/rips.js';
 import { ripper } from './services/ripper/index.js';
+import systemRoutes from './routes/system.js';
 
 // Prisma returns BigInt for sizes: serialize them as strings in JSON responses
 (BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function () {
@@ -50,6 +51,7 @@ app.use('/api/servers', serverRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/space', spaceRoutes);
 app.use('/api/rips', ripRoutes);
+app.use('/api/system', systemRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

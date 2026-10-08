@@ -99,4 +99,9 @@ export const spaceApi = {
   getServerSpace: (id: string) => apiClient.get(`/api/space/${id}`),
 };
 
+// System API (the machine the backend runs on)
+export const systemApi = {
+  getDisks: () => apiClient.get('/api/system/disks'),
+};
+
 export default apiClient;
