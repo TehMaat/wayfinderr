@@ -156,6 +156,12 @@ export class DatabaseService {
     return this.prisma.rip.update({ where: { id }, data });
   }
 
+  /** Updates the rip only if it still matches `where` (null otherwise): it may have changed meanwhile. */
+  async updateRipIf(id: string, where: Prisma.RipWhereInput, data: Prisma.RipUpdateManyMutationInput): Promise<Rip | null> {
+    const { count } = await this.prisma.rip.updateMany({ where: { ...where, id }, data });
+    return count ? this.prisma.rip.findUnique({ where: { id } }) : null;
+  }
+
   async deleteRip(id: string): Promise<Rip> {
     return this.prisma.rip.delete({ where: { id } });
   }
