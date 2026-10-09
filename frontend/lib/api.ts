@@ -29,6 +29,24 @@ export const uploadsApi = {
   getUpload: (id: string) => apiClient.get(`/api/uploads/${id}`),
   retryUpload: (id: string) => apiClient.post(`/api/uploads/${id}/retry`),
   deleteUpload: (id: string) => apiClient.delete(`/api/uploads/${id}`),
+  checkTorrent: (id: string) => apiClient.post(`/api/uploads/${id}/torrent/check`, null, { timeout: 120000 }),
+  removeTorrent: (id: string) => apiClient.post(`/api/uploads/${id}/torrent/remove`, null, { timeout: 45000 }),
+};
+
+// Download clients API (qBittorrent)
+export const clientsApi = {
+  listClients: () => apiClient.get('/api/clients'),
+  createClient: (data: Record<string, unknown>) => apiClient.post('/api/clients', data),
+  updateClient: (id: string, data: Record<string, unknown>) => apiClient.put(`/api/clients/${id}`, data),
+  deleteClient: (id: string) => apiClient.delete(`/api/clients/${id}`),
+  testClient: (id: string) => apiClient.post(`/api/clients/${id}/test`, null, { timeout: 45000 }),
+};
+
+// Settings API (TMDB key)
+export const settingsApi = {
+  getSettings: () => apiClient.get('/api/settings'),
+  updateSettings: (data: { tmdbApiKey: string | null }) => apiClient.put('/api/settings', data),
+  testTmdb: () => apiClient.post('/api/settings/tmdb/test'),
 };
 
 // Space API

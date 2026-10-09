@@ -1,7 +1,9 @@
 import { create } from 'zustand';
-import { serversApi, spaceApi, uploadsApi } from './api';
+import { clientsApi, serversApi, settingsApi, spaceApi, uploadsApi } from './api';
 
 export type UploadStatus = 'PENDING' | 'QUEUED' | 'UPLOADING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
+
+export type TorrentStatus = 'NO_MATCH' | 'REVIEW' | 'WAITING' | 'REMOVED' | 'ERROR';
 
 export const UPLOAD_STATUSES: UploadStatus[] = ['UPLOADING', 'QUEUED', 'PENDING', 'COMPLETED', 'FAILED', 'SKIPPED'];
 
@@ -22,8 +24,34 @@ export interface Upload {
   startedAt: string | null;
   completedAt: string | null;
   error: string | null;
+  // Source torrent cleanup (null until checked)
+  torrentStatus: TorrentStatus | null;
+  torrentClientId: string | null;
+  torrentHash: string | null;
+  torrentName: string | null;
+  torrentScore: number | null;
+  torrentMessage: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TorrentClient {
+  id: string;
+  name: string;
+  url: string;
+  username: string | null;
+  category: string | null;
+  hasPassword: boolean;
+  hasApiKey: boolean;
+  enabled: boolean;
+  autoRemove: boolean;
+  deleteFiles: boolean;
+  createdAt: string;
+}
+
+export interface Settings {
+  hasTmdbApiKey: boolean;
+  tmdbFromEnv: boolean;
 }
 
 export interface Server {
@@ -72,6 +100,9 @@ interface AppState {
   uploadsLoaded: boolean;
   servers: Server[];
   serversLoaded: boolean;
+  clients: TorrentClient[];
+  clientsLoaded: boolean;
+  settings: Settings | null;
   spaceLoaded: boolean;
   stats: Stats | null;
   connected: boolean;
@@ -81,6 +112,8 @@ interface AppState {
   loadUploads: () => Promise<void>;
   loadServers: () => Promise<void>;
   loadSpace: () => Promise<void>;
+  loadClients: () => Promise<void>;
+  loadSettings: () => Promise<void>;
   loadStats: () => Promise<void>;
   loadAll: () => Promise<void>;
   refreshUpload: (id: string) => Promise<void>;
@@ -97,6 +130,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   uploadsLoaded: false,
   servers: [],
   serversLoaded: false,
+  clients: [],
+  clientsLoaded: false,
+  settings: null,
   spaceLoaded: false,
   stats: null,
   connected: false,
@@ -145,13 +181,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
+  loadClients: async () => {
+    const { data } = await clientsApi.listClients();
+    set({ clients: data, clientsLoaded: true });
+  },
+
+  loadSettings: async () => {
+    const { data } = await settingsApi.getSettings();
+    set({ settings: data });
+  },
+
   loadStats: async () => {
     const { data } = await uploadsApi.getStats();
     set({ stats: data });
   },
 
   loadAll: async () => {
-    await Promise.allSettled([get().loadUploads(), get().loadServers(), get().loadStats()]);
+    await Promise.allSettled([get().loadUploads(), get().loadServers(), get().loadStats(), get().loadClients(), get().loadSettings()]);
   },
 
   refreshUpload: async (id) => {

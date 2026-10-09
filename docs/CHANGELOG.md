@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added - Torrent cleanup
+- **Clients** page: qBittorrent WebUI clients (login, API key or auth bypass; category filter; automatic or manual removal; keep or delete the downloaded files) with a connection test
+- After an upload completes, the source torrent is matched by name: MKV file and folder names against the torrent name, its content folder and, with a TMDB key, all its TMDB titles (original, translations, alternative titles), so Italian disc names match English release names
+- Automatic removal only for a certain (95+), unambiguous match, after a 5-minute delay and only when no other file of the same disc is still uploading and no MKV is being written; otherwise the upload shows the suggested torrent with a "Remove torrent now" button
+- TMDB key in the UI (or `TMDB_API_KEY`), pending removals resume after a restart
+- `torrent-updated` WebSocket event; `extra_hosts: host.docker.internal` in Docker Compose
+
 ## [1.0.0] - 2026-10-04
 
 ### Added - Phase 1: Backend Foundation

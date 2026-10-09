@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma, Upload, Server } from '@prisma/client';
+import { PrismaClient, Prisma, Upload, Server, TorrentClient } from '@prisma/client';
 import logger from '../config/logger.js';
 
 export class DatabaseService {
@@ -133,6 +133,58 @@ export class DatabaseService {
     }
 
     return { total, byStatus, byServer, completedBytes: completed._sum.size ?? 0n };
+  }
+
+  async getUploadsByTorrentStatus(torrentStatus: string): Promise<Upload[]> {
+    return this.prisma.upload.findMany({ where: { torrentStatus } });
+  }
+
+  /** Marks every upload waiting on this torrent at once (a disc often gives several MKVs) */
+  async updateUploadsByTorrentHash(
+    torrentHash: string,
+    fromStatuses: string[],
+    data: Prisma.UploadUncheckedUpdateManyInput
+  ): Promise<string[]> {
+    const uploads = await this.prisma.upload.findMany({
+      where: { torrentHash, torrentStatus: { in: fromStatuses } },
+      select: { id: true },
+    });
+    await this.prisma.upload.updateMany({ where: { id: { in: uploads.map((u) => u.id) } }, data });
+    return uploads.map((u) => u.id);
+  }
+
+  // Torrent client queries
+  async getTorrentClients(): Promise<TorrentClient[]> {
+    return this.prisma.torrentClient.findMany({ orderBy: { createdAt: 'asc' } });
+  }
+
+  async getTorrentClientById(id: string): Promise<TorrentClient | null> {
+    return this.prisma.torrentClient.findUnique({ where: { id } });
+  }
+
+  async createTorrentClient(data: Prisma.TorrentClientCreateInput): Promise<TorrentClient> {
+    return this.prisma.torrentClient.create({ data });
+  }
+
+  async updateTorrentClient(id: string, data: Prisma.TorrentClientUpdateInput): Promise<TorrentClient> {
+    return this.prisma.torrentClient.update({ where: { id }, data });
+  }
+
+  async deleteTorrentClient(id: string): Promise<TorrentClient> {
+    return this.prisma.torrentClient.delete({ where: { id } });
+  }
+
+  // Settings
+  async getSetting(key: string): Promise<string | null> {
+    return (await this.prisma.setting.findUnique({ where: { key } }))?.value ?? null;
+  }
+
+  async setSetting(key: string, value: string | null): Promise<void> {
+    if (value === null) {
+      await this.prisma.setting.deleteMany({ where: { key } });
+    } else {
+      await this.prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
+    }
   }
 
   async disconnect(): Promise<void> {

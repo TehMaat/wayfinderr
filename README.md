@@ -2,7 +2,7 @@
 
 Automated MKV file transfer system with intelligent server selection and real-time monitoring.
 
-Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitles, and uploads it via SFTP to the server with the most free space, with automatic retry.
+Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitles, and uploads it via SFTP to the server with the most free space, with automatic retry. Once uploaded, it can remove the source torrent from qBittorrent.
 
 **Stack**: Node.js 20 • Express • Prisma + SQLite • Next.js 14 • WebSocket • Docker Compose (optional)
 
@@ -15,6 +15,7 @@ Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitl
 - 📤 **Reliable Transfers** - SFTP upload to a temporary `.part` file, size check, then rename; automatic retry with backoff
 - 📊 **Real-Time Monitoring** - WebSocket-driven live dashboard
 - 🔄 **Job Queue** - Concurrent uploads (max 2 global, max 1 per server); unfinished uploads resume after a restart
+- 🧲 **Torrent Cleanup** - After the upload, finds the torrent the MKV was ripped from (names + TMDB titles in every language) and removes it from qBittorrent
 - 💾 **Full History** - SQLite-backed persistence with upload tracking
 - 🌐 **Web UI** - Dashboard, server management and upload history
 
@@ -74,6 +75,22 @@ To build from source instead: `docker compose -f docker-compose.yml -f docker-co
 
 From now on every new `.mkv` in the watch folder is uploaded automatically. A file is picked up once its size has been stable for 30 seconds.
 
+### Remove the source torrent (optional)
+
+If the discs come from qBittorrent (ISO/BDMV torrents), Wayfinderr can remove each torrent once its MKV is uploaded.
+
+1. In qBittorrent enable the WebUI (Tools → Options → WebUI). Optional: put the disc torrents in a category such as `rip`
+2. Open **Clients** → **Add client**: URL (`http://localhost:8080`; from Docker `http://host.docker.internal:8080`), username/password (or an API key on qBittorrent 5.2+, or blank if the WebUI skips login for this host), category, and whether to keep or delete the downloaded files
+3. Paste a free [TMDB API key](https://www.themoviedb.org/settings/api) in the TMDB card, so that `IL_PADRINO_t00.mkv` matches `The.Godfather.1972.1080p.BluRay`
+4. Click **Test connection**
+
+How a torrent is matched and removed:
+
+- The MKV name and its folders inside the watch folder (`_t00`, `DISC_1`, release tags and the leading article are ignored) are compared with every finished torrent's name, content folder and TMDB titles. Generic names such as `title_t00.mkv` never match: rename the file or rip into a folder named after the movie
+- **Automatic** only when the match is certain (same title, score 95+) and no other torrent comes close. A partial match (`Blade Runner` vs `Blade Runner 2049`) or two torrents of the same movie only show a suggestion and a **Remove torrent now** button on the upload page
+- The removal waits 5 minutes, then until no other MKV of the same disc is still queued or uploading and no MKV in the watch folder has been written in the last 2 minutes (MakeMKV may still be ripping the other titles from that ISO)
+- Only finished torrents are ever considered. Note that removing a torrent stops seeding: on private trackers check your ratio rules, or leave **When matched** on "Only suggest"
+
 ---
 
 ## Configuration
@@ -86,6 +103,7 @@ From now on every new `.mkv` in the watch folder is uploaded automatically. A fi
 | `DATABASE_URL` | `file:../data/wayfinderr.db` | SQLite file, relative to `backend/prisma/` |
 | `MAX_CONCURRENT_UPLOADS` | `2` | Max uploads running at the same time |
 | `SSH_PRIVATE_KEY_PATH` | – | SSH key for servers saved without a password |
+| `TMDB_API_KEY` | – | TMDB key for torrent matching (a key saved in the UI wins) |
 | `WAYFINDERR_TAG` | `latest` | Docker image version to run |
 | `NEXT_PUBLIC_API_URL` | same host, port 3001 | Frontend build only: fixed backend URL, if it is not on the same host |
 
@@ -144,6 +162,16 @@ wayfinderr/
 - `GET /api/uploads?limit=50` - List uploads
 - `GET /api/uploads/:id` - Get upload details
 - `POST /api/uploads/:id/retry` - Re-queue a failed or skipped upload
+- `POST /api/uploads/:id/torrent/check` - Match the upload to its source torrent again
+- `POST /api/uploads/:id/torrent/remove` - Remove the matched torrent now
+
+### Clients (qBittorrent)
+- `GET /api/clients` / `POST /api/clients` / `PUT /api/clients/:id` / `DELETE /api/clients/:id`
+- `POST /api/clients/:id/test` - Login + version + finished torrents in scope
+
+### Settings
+- `GET /api/settings` / `PUT /api/settings` - TMDB key (never returned)
+- `POST /api/settings/tmdb/test` - Check the TMDB key
 
 ### Space
 - `GET /api/space` - All servers' space

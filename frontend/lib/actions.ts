@@ -1,5 +1,5 @@
 import { toast } from 'sonner';
-import { serversApi, uploadsApi } from './api';
+import { clientsApi, serversApi, uploadsApi } from './api';
 import { useAppStore } from './store';
 import { errorMessage } from './utils';
 
@@ -58,5 +58,52 @@ export async function deleteServer(id: string): Promise<boolean> {
   } catch (err) {
     toast.error('Delete failed', { description: errorMessage(err) });
     return false;
+  }
+}
+
+export async function testClient(id: string) {
+  const name = useAppStore.getState().clients.find((c) => c.id === id)?.name ?? 'Client';
+  const pending = toast.loading(`Testing ${name}…`, { description: 'qBittorrent WebUI login' });
+  try {
+    const { data } = await clientsApi.testClient(id);
+    toast.success(`${name} is working`, {
+      id: pending,
+      description: `qBittorrent ${data.version} · ${data.completedTorrents} finished torrents in scope`,
+    });
+  } catch (err) {
+    toast.error(`${name} test failed`, { id: pending, description: errorMessage(err) });
+  }
+}
+
+export async function deleteClient(id: string): Promise<boolean> {
+  try {
+    await clientsApi.deleteClient(id);
+    await useAppStore.getState().loadClients();
+    toast.success('Client removed');
+    return true;
+  } catch (err) {
+    toast.error('Delete failed', { description: errorMessage(err) });
+    return false;
+  }
+}
+
+export async function checkTorrent(id: string) {
+  const pending = toast.loading('Looking for the torrent…');
+  try {
+    await uploadsApi.checkTorrent(id);
+    await useAppStore.getState().refreshUpload(id);
+    toast.dismiss(pending);
+  } catch (err) {
+    toast.error('Torrent check failed', { id: pending, description: errorMessage(err) });
+  }
+}
+
+export async function removeTorrent(id: string) {
+  try {
+    await uploadsApi.removeTorrent(id);
+    await useAppStore.getState().refreshUpload(id);
+    toast.success('Torrent removed from the client');
+  } catch (err) {
+    toast.error('Could not remove the torrent', { description: errorMessage(err) });
   }
 }

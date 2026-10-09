@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../services/database.js';
 import { jobQueue } from '../services/jobQueue.js';
+import { torrentCleanup } from '../services/torrentCleanup.js';
+import { describeError } from '../services/qbittorrent.js';
 import logger from '../config/logger.js';
 
 const router = Router();
@@ -71,6 +73,25 @@ router.post('/:id/retry', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error(error, 'Failed to retry upload');
     res.status(500).json({ error: 'Failed to retry upload' });
+  }
+});
+
+// POST match the upload to its torrent again (e.g. after adding a client or the TMDB key)
+router.post('/:id/torrent/check', async (req: Request, res: Response) => {
+  try {
+    res.json(await torrentCleanup.recheck(req.params.id));
+  } catch (error) {
+    res.status(409).json({ error: describeError(error) });
+  }
+});
+
+// POST remove the matched torrent from the client now
+router.post('/:id/torrent/remove', async (req: Request, res: Response) => {
+  try {
+    res.json(await torrentCleanup.removeNow(req.params.id));
+  } catch (error) {
+    logger.warn({ uploadId: req.params.id, error: describeError(error) }, 'Manual torrent removal failed');
+    res.status(502).json({ error: describeError(error) });
   }
 });
 

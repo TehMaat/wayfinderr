@@ -17,6 +17,7 @@ export const loadConfig = (): Config => {
     LOG_LEVEL: process.env.LOG_LEVEL || 'info',
     MAX_CONCURRENT_UPLOADS: parseInt(process.env.MAX_CONCURRENT_UPLOADS || '2', 10),
     SSH_PRIVATE_KEY_PATH: process.env.SSH_PRIVATE_KEY_PATH || undefined,
+    TMDB_API_KEY: process.env.TMDB_API_KEY || undefined,
   };
 };
 

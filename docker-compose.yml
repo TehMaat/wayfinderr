@@ -15,6 +15,11 @@ services:
       - WATCH_USE_POLLING=${WATCH_USE_POLLING:-false}
       - MAX_CONCURRENT_UPLOADS=${MAX_CONCURRENT_UPLOADS:-2}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+    # Lets the backend reach qBittorrent on this machine as http://host.docker.internal:8080
+    # (built into Docker Desktop, needed on Linux)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # Folder where MakeMKV saves the .mkv files (set MAKEMKV_OUTPUT_DIR in .env)
       - ${MAKEMKV_OUTPUT_DIR:-./makemkv-output}:/makemkv-output:ro

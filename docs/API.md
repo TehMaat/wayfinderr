@@ -251,6 +251,80 @@ Re-enqueue a failed upload for retry.
 }
 ```
 
+### Match Upload to its Torrent
+
+```
+POST /api/uploads/:id/torrent/check
+```
+
+Looks for the source torrent again (e.g. after adding a client or the TMDB key). Only for `COMPLETED` uploads. Returns the updated upload; see `torrentStatus` below.
+
+### Remove the Matched Torrent
+
+```
+POST /api/uploads/:id/torrent/remove
+```
+
+Removes the matched torrent from its client now (the "Remove torrent now" button). Uses the client's `deleteFiles` setting. Returns the updated upload, `502` if qBittorrent refuses.
+
+**Torrent fields on an upload:**
+
+| Field | Meaning |
+|---|---|
+| `torrentStatus` | `null` not checked · `NO_MATCH` · `REVIEW` match found, remove by hand · `WAITING` removal scheduled · `REMOVED` · `ERROR` |
+| `torrentClientId`, `torrentHash`, `torrentName` | The matched torrent |
+| `torrentScore` | Name match, 0-100 (automatic removal needs 95+) |
+| `torrentMessage` | Why it was or was not removed |
+
+## Clients API (qBittorrent)
+
+### List / Create / Update / Delete
+
+```
+GET    /api/clients
+POST   /api/clients
+PUT    /api/clients/:id
+DELETE /api/clients/:id
+```
+
+**Body:**
+```json
+{
+  "name": "qBittorrent",
+  "url": "http://localhost:8080",
+  "username": "admin",
+  "password": "secret",
+  "apiKey": "",
+  "category": "rip",
+  "enabled": true,
+  "autoRemove": true,
+  "deleteFiles": false
+}
+```
+
+`username` blank = no login (WebUI auth bypass for this host). `apiKey` (qBittorrent 5.2+) replaces username/password. On update a blank `password`/`apiKey` keeps the stored one; send `"clearPassword": true` / `"clearApiKey": true` to remove it. Responses never include the secrets, only `hasPassword` / `hasApiKey`.
+
+### Test Client
+
+```
+POST /api/clients/:id/test
+```
+
+**Response:** 200 OK
+```json
+{ "ok": true, "version": "v5.0.4", "completedTorrents": 12 }
+```
+
+## Settings API
+
+```
+GET  /api/settings              -> { "hasTmdbApiKey": true, "tmdbFromEnv": false }
+PUT  /api/settings              { "tmdbApiKey": "..." } saves (checked against TMDB first), null removes
+POST /api/settings/tmdb/test    -> { "ok": true }
+```
+
+The TMDB key can be a v3 "API Key" or a v4 "API Read Access Token". A key saved in the UI wins over the `TMDB_API_KEY` environment variable.
+
 ## WebSocket
 
 ### Connect
@@ -335,6 +409,16 @@ Upload skipped (no Italian content).
     "uploadId": "upload123",
     "reason": "No Italian audio or subtitles"
   }
+}
+```
+
+#### torrent-updated
+The source torrent of an upload was matched, scheduled, removed, or could not be removed.
+```json
+{
+  "type": "torrent-updated",
+  "uploadId": "upload123",
+  "torrentStatus": "REMOVED"
 }
 ```
 

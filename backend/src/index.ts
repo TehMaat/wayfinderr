@@ -10,9 +10,12 @@ import { fileWatcher } from './services/fileWatcher.js';
 import { mediaInfoParser } from './services/mediaInfo.js';
 import { jobQueue } from './services/jobQueue.js';
 import { uploadManager } from './services/uploadManager.js';
+import { torrentCleanup } from './services/torrentCleanup.js';
 import serverRoutes from './routes/servers.js';
 import uploadRoutes from './routes/uploads.js';
 import spaceRoutes from './routes/space.js';
+import clientRoutes from './routes/clients.js';
+import settingsRoutes from './routes/settings.js';
 
 // Prisma returns BigInt for sizes: serialize them as strings in JSON responses
 (BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function () {
@@ -37,6 +40,8 @@ app.use((req, res, next) => {
 app.use('/api/servers', serverRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/space', spaceRoutes);
+app.use('/api/clients', clientRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -88,6 +93,18 @@ jobQueue.on('upload-completed', ({ uploadId }) => {
   broadcast({
     type: 'upload-completed',
     uploadId,
+  });
+  // Uploaded: the source torrent can go
+  torrentCleanup
+    .handleUploadCompleted(uploadId)
+    .catch((error) => logger.error({ uploadId, error }, 'Torrent cleanup failed'));
+});
+
+torrentCleanup.on('torrent-updated', ({ uploadId, torrentStatus }) => {
+  broadcast({
+    type: 'torrent-updated',
+    uploadId,
+    torrentStatus,
   });
 });
 
@@ -188,6 +205,9 @@ const shutdown = async (signal: string) => {
     // Close SSH connections
     uploadManager.close();
 
+    // Drop pending torrent removals (resumed at the next start)
+    torrentCleanup.stop();
+
     // Close database
     await db.disconnect();
 
@@ -216,6 +236,7 @@ const startServer = async () => {
   try {
     // Resume uploads left unfinished by a previous run
     await jobQueue.resumePending();
+    await torrentCleanup.resumePending();
 
     // Start file watcher
     fileWatcher.start();

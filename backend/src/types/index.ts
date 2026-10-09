@@ -50,4 +50,5 @@ export interface Config {
   LOG_LEVEL: string;
   MAX_CONCURRENT_UPLOADS: number;
   SSH_PRIVATE_KEY_PATH?: string;
+  TMDB_API_KEY?: string;
 }
