@@ -60,7 +60,9 @@ import { getMovie, matchMovie, TmdbMovie, tmdbConfigured } from './tmdb.js';
  * When the film or its title can't be told for sure, the rip stops in
  * NEEDS_ATTENTION and waits for a choice in the UI (so does an archive without
  * the space to unpack it). FAILED can be retried, SKIPPED is never ripped (by
- * hand, by an exclusion rule, or an archive without exactly one film).
+ * hand, by an exclusion rule, or an archive without exactly one film). A
+ * SKIPPED rip can be removed from the list: it is hidden, not deleted, so the
+ * downloads scan doesn't list it again.
  */
 
 export const RIP_STATUSES = [
@@ -747,10 +749,16 @@ class Ripper extends EventEmitter {
 
   // --- Actions from the UI ---
 
+  /** A rip in the list (one removed from it is not found either). */
+  private async visibleRip(id: string) {
+    const rip = await db.getRipById(id);
+    if (!rip || rip.hidden) throw new Error('Rip not found');
+    return rip;
+  }
+
   /** Rips the given title as the given film (either may be kept as is). */
   async choose(id: string, choice: { titleIndex?: number; tmdbId?: number }) {
-    const rip = await db.getRipById(id);
-    if (!rip) throw new Error('Rip not found');
+    const rip = await this.visibleRip(id);
     if (!['NEEDS_ATTENTION', 'FAILED', 'SKIPPED'].includes(rip.status)) throw new Error(`Rip is ${rip.status}`);
     const titles: DiscTitle[] = JSON.parse(rip.titles ?? '[]');
     if (choice.titleIndex !== undefined && !titles.some((t) => t.index === choice.titleIndex)) {
@@ -767,8 +775,7 @@ class Ripper extends EventEmitter {
 
   /** Starts over: scan and automatic choices again (an archive not unpacked yet is listed again). */
   async retry(id: string) {
-    const rip = await db.getRipById(id);
-    if (!rip) throw new Error('Rip not found');
+    const rip = await this.visibleRip(id);
     if (['UNPACKING', 'SCANNING', 'RIPPING'].includes(rip.status)) throw new Error('Rip in progress');
     return this.update(id, {
       status: 'QUEUED',
@@ -788,8 +795,7 @@ class Ripper extends EventEmitter {
   /** Never rips it (stops it if running, deletes what was unpacked of its archive). */
   async skip(id: string) {
     return this.exclusive(async () => {
-      const rip = await db.getRipById(id);
-      if (!rip) throw new Error('Rip not found');
+      const rip = await this.visibleRip(id);
       if (rip.jobId) {
         await cancelJob(rip.jobId);
         // The runner leaves an .exit file; the job's files are removed with it
@@ -800,6 +806,31 @@ class Ripper extends EventEmitter {
     });
   }
 
+  /** Removes a skipped rip from the list. */
+  async remove(id: string) {
+    return this.exclusive(async () => {
+      const rip = await this.visibleRip(id);
+      if (rip.status !== 'SKIPPED') throw new Error(`Rip is ${rip.status}`);
+      await this.hide(rip);
+    });
+  }
+
+  /** Removes every skipped rip from the list. */
+  async removeSkipped() {
+    return this.exclusive(async () => {
+      const rips = await db.getRipsByStatus(['SKIPPED'], true);
+      for (const rip of rips) await this.hide(rip);
+      logger.info({ removed: rips.length }, 'Skipped rips removed from the list');
+      return { removed: rips.length };
+    });
+  }
+
+  private async hide(rip: Rip) {
+    await this.discardUnpacked(rip);
+    await db.updateRip(rip.id, { hidden: true });
+    this.emit('rip-updated', { ripId: rip.id, status: 'DELETED' });
+  }
+
   async exclusions() {
     return parseExclusions((await db.getSettings([EXCLUSIONS_KEY]))[EXCLUSIONS_KEY]);
   }
@@ -808,7 +839,7 @@ class Ripper extends EventEmitter {
    * Saves the exclusion rules (already normalized, see normalizeExclusions).
    * A new rule skips the discs not started yet that it matches; the discs a
    * rule skipped go back to the queue when no rule matches them any more.
-   * Discs ripped or skipped by hand are left alone.
+   * Discs ripped or skipped by hand, or removed from the list, are left alone.
    */
   async setExclusions(patterns: string[]) {
     return this.exclusive(async () => {
@@ -818,7 +849,7 @@ class Ripper extends EventEmitter {
 
       let skipped = 0;
       let restored = 0;
-      for (const rip of await db.getRipsByStatus([...EXCLUDABLE, 'SKIPPED'])) {
+      for (const rip of await db.getRipsByStatus([...EXCLUDABLE, 'SKIPPED'], true)) {
         if (rip.status !== 'SKIPPED') {
           const rule = matchExclusion(added, rip.sourcePath);
           if (!rule) continue;

@@ -89,6 +89,8 @@ export const ripsApi = {
     apiClient.post<Rip>(`/api/rips/${id}/choose`, choice),
   retryRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/retry`),
   skipRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/skip`),
+  removeRip: (id: string) => apiClient.delete(`/api/rips/${id}`),
+  clearSkippedRips: () => apiClient.post<{ removed: number }>('/api/rips/clear-skipped'),
   setExclusions: (patterns: string[]) =>
     apiClient.put<{ exclusions: string[]; skipped: number; restored: number }>('/api/rips/exclusions', { patterns }),
   searchTmdb: (query: string, year?: number | null) =>

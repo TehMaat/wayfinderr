@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Rips page: remove skipped rips from the list, one at a time ("Remove from list" in its menu) or all at once ("Clear skipped" in the Skipped tab); they stay known (`hidden` rip field), so the downloads scan doesn't list them again. `DELETE /api/rips/:id`, `POST /api/rips/clear-skipped`
 - RAR archives in the downloads (`.rar`, `.partN.rar`, `.rNN` volumes) are listed once downloaded and, when they hold one film, unpacked with unrar on the disk with more free space left afterwards, the downloads one or the watch folder one (a disc next to the watch folder counts twice, for its rip): a disc inside is ripped, an `.mkv` is named like a rip and uploaded (from the downloads disk directly, deleted once on the server). `UNPACKING` rip status, `contentType`/`contentPath`/`unpackBytes`/`unpackedTo` rip fields, `status.unpack` in `GET /api/rips`, `UNRAR_PATH`; unrar in the backend image; the backend mounts `<downloads>/.wayfinderr` writable. Archives already in the downloads are listed as skipped
 - The MakeMKV runner reads discs from the work folder too (`root=work` in a job): update the `wayfinderr-makemkv` image with the backend
 - "This machine" card: the downloads disk too, with ripping on

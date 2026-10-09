@@ -91,6 +91,7 @@ model Rip {
 
   status           String    @default("WAITING") // WAITING | QUEUED | UNPACKING | SCANNING | RIPPING | DONE | NEEDS_ATTENTION | FAILED | SKIPPED
   reason           String?   // why it needs attention, failed or was skipped
+  hidden           Boolean   @default(false) // a skipped rip removed from the list: kept so the downloads scan doesn't list it again
 
   // RAR archive (see ripper/archive.ts): the film inside, and where it is unpacked
   contentType      String?   // ISO | BDMV | DVD | MKV

@@ -495,6 +495,15 @@ POST /api/rips/:id/skip
 
 Retry starts over (scan and automatic choices; an archive not unpacked yet is listed and unpacked again); not while unpacking, scanning or ripping. Skip never rips the disc, stops a running rip or unpacking, and deletes what was unpacked of an archive.
 
+### Remove skipped rips from the list
+
+```
+DELETE /api/rips/:id
+POST /api/rips/clear-skipped
+```
+
+Removes one `SKIPPED` rip (204; 409 in any other status), or every one (`{ "removed": 3 }`), from the list. The files in the downloads are not touched: the rips are hidden, not deleted, so the downloads scan doesn't list those discs again. A removed rip is no longer returned by `GET /api/rips` (404 on `GET /api/rips/:id`), and the exclusion rules leave it alone.
+
 ### Exclusions
 
 ```
