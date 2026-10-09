@@ -333,7 +333,7 @@ docker compose pull
 docker compose up -d
 ```
 
-`docker compose up -d` or `restart` alone keep running the images already downloaded. With images built from source (`docker-compose.build.yml`), `git pull` and then `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
+`docker compose up -d` or `restart` alone keep running the images already downloaded. With the MakeMKV service add `--profile makemkv` to both commands (or set `COMPOSE_PROFILES=makemkv` in `.env`), or its image is not updated. With images built from source (`docker-compose.build.yml`), `git pull` and then `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build` (with `--profile makemkv` too, if used).
 
 ### Update Dependencies
 

@@ -60,7 +60,7 @@ docker compose up -d
 docker compose logs -f wayfinderr-backend
 ```
 
-To update: `docker compose pull && docker compose up -d`. Data (servers, history, login account) lives in the `wayfinderr-data` volume and survives updates.
+To update: `docker compose pull && docker compose up -d` (with `--profile makemkv` on both if you run the MakeMKV service, or `COMPOSE_PROFILES=makemkv` in `.env`). Data (servers, history, login account) lives in the `wayfinderr-data` volume and survives updates.
 
 Open http://localhost:3000, or `http://<pc-ip>:3000` from other devices on the LAN. The browser only talks to the frontend, which proxies `/api`, `/health` and the `/ws` WebSocket to the backend over the compose network (service name `wayfinderr-backend`); the backend port is not published. To put it on a domain with HTTPS, see [Reverse proxy](./docs/DEPLOYMENT.md#reverse-proxy-https).
 
@@ -116,7 +116,7 @@ For each disc Wayfinderr:
 5. rips it keeping video, audio and subtitles in Italian and in the film's original language (Italian first);
 6. moves it to the watch folder as `Title (Year).mkv`, with the Italian TMDB title: the upload follows.
 
-It never guesses: when a disc has more than one long title (several films or cuts), many look-alike playlists, no Italian track, more discs in the same download, an unsure TMDB match, or there is not enough space, the rip stops on **Rips** → *Needs attention*: *Choose…* the title and/or the film there and it goes on. A film TMDB doesn't know can be ripped all the same: it keeps every language and is named after the download. When the backend starts, the rips still waiting for their film are looked up on TMDB again, so an update that recognizes more titles also applies to them. Downloads already in the folder the first time are listed as skipped (*Rip anyway* from the page, or `RIP_EXISTING=true`).
+It never guesses: when a disc has more than one long title (several films or cuts), many look-alike playlists, no Italian track, more discs in the same download, an unsure TMDB match, or there is not enough space, the rip stops on **Rips** → *Needs attention*: *Choose…* the title and/or the film there and it goes on. A film TMDB doesn't know can be ripped all the same: it keeps every language and is named after the download. When the backend starts, the rips still waiting for their film are looked up on TMDB again (and again 10 minutes later if TMDB does not answer), so an update that recognizes more titles also applies to them: the ones identified go on by themselves, or wait only for the title choice. Downloads already in the folder the first time are listed as skipped (*Rip anyway* from the page, or `RIP_EXISTING=true`).
 
 To keep some discs from being ripped (TV series, extras discs...), add rules in **Rips** → *Exclusions*: a disc whose path in the downloads contains one of them (`Serie TV/`, `S0*E`; `*` matches any text, case doesn't matter) is listed as skipped. The dialog shows which discs each rule matches. A new rule also skips the discs not ripped yet; removing it puts back in the queue the discs it skipped.
 

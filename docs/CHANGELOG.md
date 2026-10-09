@@ -31,10 +31,10 @@ All notable changes to this project will be documented in this file.
 - An upload fails (and is retried) when the local file changed while it was sent
 - A rip never takes the name of a file uploaded before: with `DELETE_AFTER_UPLOAD` it would have replaced that film on the server
 - Unfinished uploads are resumed once after a restart (PENDING ones were queued twice)
-- Rips waiting for their film are looked up on TMDB again when the backend starts: after an update (or a TMDB key added later) the ones now identified go on by themselves, with their scan, without a rescan
-- TMDB match: apostrophe look-alikes (′ ＇ ʼ ‛...) and ordinal signs (º ª) in TMDB titles, the same words preferred over the same letters ("I.T." is not "It" when TMDB has both), the film found past the first ten search results
+- Rips waiting for their film are looked up on TMDB again when the backend starts (retried after 10 minutes when TMDB does not answer): after an update, or a TMDB key added later, the ones now identified go on by themselves with their scan, without a rescan, or wait only for the title; the others get an up-to-date reason. A Skip or a choice made meanwhile is never overwritten
+- TMDB match: apostrophe look-alikes (′ ＇ ʼ ‛...) and ordinal signs (º ª) in TMDB titles, ordinals and "$" spelled out or left out (`La 25a ora` and `La 25 ora` for *La 25ª ora*, `Cash` for *Ca$h*), the release year first and then the same words over the same letters ("I.T." is not "It"; it asks when the two disagree), the film found past the first ten search results
 - Release names: tags joined by signs (`[ITA-ENG]`, `ITA/ENG`, `[SUB-ITA]`, `-ITA-`, `Director’s Cut`), dashes left at the end and brackets glued to words (`Il Padrino(1972)[BDRip]`) and years between dashes (`-1972-`) no longer end up in the title or hide the year
-- `docs/DEPLOYMENT.md` update steps: `docker compose pull`, since `docker-compose build` builds nothing with the published images
+- `docs/DEPLOYMENT.md` update steps: `docker compose pull`, since `docker-compose build` builds nothing with the published images; `--profile makemkv` for the MakeMKV image
 - The TMDB match ignores every sign and space in the title, however the download name writes it: apostrophes and a possessive 's with or without the s ("Bridget.Jones.Baby" is *Bridget Jones's Baby*), `&`/`+` as "and", "e" or left out, hyphens, dots, colons, superscripts ("Alien 3" is *Alien³*)
 
 ## [1.0.0] - 2026-10-04

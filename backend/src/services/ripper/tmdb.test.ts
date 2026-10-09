@@ -119,11 +119,30 @@ test('apostrophe look-alikes and ordinal signs in the TMDB title', async () => {
   assert.equal((await matchMovie({ title: 'Amici Miei Atto II', year: 1982 })).movie?.id, 11506);
 });
 
-test('the same words win over the same letters', async () => {
+test('the release year first, then the same words over the same letters', async () => {
   const { matchMovie } = await import('./tmdb.js');
-  respondWith([movie(1, 'I.T.', 'I.T.', 2016), movie(346364, 'It', 'It', 2017)]);
-  assert.equal((await matchMovie({ title: 'I T', year: 2017 })).movie?.id, 1);
+  respondWith([movie(380124, 'I.T.', 'I.T.', 2016), movie(346364, 'It', 'It', 2017)]);
+  assert.equal((await matchMovie({ title: 'I T', year: 2016 })).movie?.id, 380124);
   assert.equal((await matchMovie({ title: 'It', year: 2017 })).movie?.id, 346364);
+  // Same letters in the release year, same words a year off: ask
+  assert.equal((await matchMovie({ title: 'IT', year: 2016 })).movie, null);
+  assert.equal((await matchMovie({ title: 'I T', year: 2017 })).movie, null);
+  respondWith([movie(557, 'Spider-Man', 'Spider-Man', 2002), movie(77777, 'Spiderman', 'Spiderman', 2001)]);
+  assert.equal((await matchMovie({ title: 'Spiderman', year: 2002 })).movie, null);
+  assert.equal((await matchMovie({ title: 'Spider Man', year: 2002 })).movie?.id, 557);
+  // Without a year the same words win
+  respondWith([movie(380124, 'I.T.', 'I.T.', 2016), movie(346364, 'It', 'It', 2017)]);
+  assert.equal((await matchMovie({ title: 'It', year: null })).movie?.id, 346364);
+});
+
+test('ordinals and a dollar for an s, spelled out or left out', async () => {
+  const { matchMovie } = await import('./tmdb.js');
+  respondWith([movie(1592, 'La 25ª ora', '25th Hour', 2002)]);
+  for (const title of ['La 25a Ora', 'La 25 Ora']) assert.equal((await matchMovie({ title, year: 2002 })).movie?.id, 1592, title);
+  respondWith([movie(11506, 'Amici miei - Atto IIº', 'Amici miei - Atto IIº', 1982, 'it')]);
+  for (const title of ['Amici Miei Atto IIo', 'Amici Miei Atto II']) assert.equal((await matchMovie({ title, year: 1982 })).movie?.id, 11506, title);
+  respondWith([movie(41210, 'Ca$h', 'Ca$h', 2010)]);
+  for (const title of ['Cash', 'Ca$h']) assert.equal((await matchMovie({ title, year: 2010 })).movie?.id, 41210, title);
 });
 
 test('the film is found past the first ten results', async () => {

@@ -102,15 +102,19 @@ const CONJUNCTION = /\s*[&+]\s*/g;
 // A possessive 's, with or without the s: "Bridget Jones's Baby", "Bridget.Joness.Baby", "Bridget.Jones.Baby"
 const POSSESSIVE = /(?<=\p{L})'s(?![\p{L}\p{N}])/giu;
 
+// The signs a release name may spell out or leave out, each giving the title's other forms
+const VARIANTS: ((title: string) => string[])[] = [
+  (title) => [' and ', ' e ', ' '].map((word) => title.replace(CONJUNCTION, word)),
+  (title) => [title, title.replace(POSSESSIVE, '')],
+  (title) => [title, title.replace(/º/g, 'o').replace(/ª/g, 'a')], // "La 25ª ora": "La 25 ora", "La 25a ora"
+  (title) => [title, title.replace(/(?<=\p{L})\$(?=\p{L})/gu, 's')], // "Ca$h": "Cah", "Cash"
+];
+
 /** Every way a release name can write the title: its words, or only its letters and digits. */
-const titleKeys = (title: string, lettersOnly: boolean) => {
-  const folded = title.replace(APOSTROPHES, "'");
-  const forms = [' and ', ' e ', ' '].map((word) => folded.replace(CONJUNCTION, word));
-  return forms
-    .flatMap((form) => [form, form.replace(POSSESSIVE, '')])
+const titleKeys = (title: string, lettersOnly: boolean) =>
+  VARIANTS.reduce((forms, variant) => forms.flatMap(variant), [title.replace(APOSTROPHES, "'")])
     .map((form) => (lettersOnly ? normalizeTitle(form) : titleWords(form)))
     .filter(Boolean);
-};
 
 const sameTitle = (movie: TmdbMovie, title: string, lettersOnly: boolean) => {
   const wanted = new Set(titleKeys(title, lettersOnly));
@@ -120,9 +124,10 @@ const sameTitle = (movie: TmdbMovie, title: string, lettersOnly: boolean) => {
 /**
  * Conservative match: automatic only when exactly one film has the same title
  * (localized or original, signs apart) and, when the name has a year, a release
- * year within one year of it. The same words count first, then the same letters
- * ("I.T." is not "It" when TMDB has both). Anything else is left to the user,
- * with the candidates.
+ * year within one year of it. The release year counts first, then the same words
+ * over the same letters ("I.T." is not "It"); when the same letters give the
+ * release year and the same words a year off, it asks. Anything else is left to
+ * the user, with the candidates.
  */
 export const matchMovie = async (name: ParsedName): Promise<TmdbMatch> => {
   if (!name.title) return { movie: null, candidates: [], reason: 'No title in the download name' };
@@ -132,13 +137,18 @@ export const matchMovie = async (name: ParsedName): Promise<TmdbMatch> => {
   const found = [...new Map([...withYear, ...anyYear].map((m) => [m.id, m])).values()];
   const candidates = found.slice(0, 10);
 
-  const inYear = (movies: TmdbMovie[]) => {
-    if (!name.year) return movies;
-    const exact = movies.filter((m) => m.year === name.year);
-    return exact.length ? exact : movies.filter((m) => m.year !== null && Math.abs(m.year - name.year!) <= 1);
-  };
-  let matches = inYear(found.filter((m) => sameTitle(m, name.title, false)));
-  if (!matches.length) matches = inYear(found.filter((m) => sameTitle(m, name.title, true)));
+  const words = found.filter((m) => sameTitle(m, name.title, false));
+  const letters = found.filter((m) => sameTitle(m, name.title, true)); // the same words have the same letters too
+  let matches: TmdbMovie[];
+  if (!name.year) {
+    matches = words.length ? words : letters;
+  } else {
+    const exact = (movies: TmdbMovie[]) => movies.filter((m) => m.year === name.year);
+    const near = (movies: TmdbMovie[]) => movies.filter((m) => m.year !== null && Math.abs(m.year - name.year!) <= 1);
+    if (exact(words).length) matches = exact(words);
+    else if (exact(letters).length) matches = [...new Set([...exact(letters), ...near(words)])];
+    else matches = near(words).length ? near(words) : near(letters);
+  }
 
   if (matches.length === 1) return { movie: await getMovie(matches[0].id), candidates };
   if (matches.length > 1) {
