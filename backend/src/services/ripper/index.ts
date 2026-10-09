@@ -66,6 +66,7 @@ class Ripper extends EventEmitter {
   private timer: NodeJS.Timeout | null = null;
   private busy = false;
   private lastDiscover = 0;
+  private identifiedAgain = false;
   // The rip loop and the exclusion rules change the same rips: one at a time
   private lock: Promise<unknown> = Promise.resolve();
 
@@ -110,6 +111,10 @@ class Ripper extends EventEmitter {
         if (Date.now() - this.lastDiscover >= DISCOVER_MS) {
           this.lastDiscover = Date.now();
           await this.discover();
+        }
+        if (!this.identifiedAgain && tmdbConfigured()) {
+          this.identifiedAgain = true;
+          await this.identifyAgain();
         }
         await this.advance();
       });
@@ -232,6 +237,42 @@ class Ripper extends EventEmitter {
     await this.decide(rip, info.titles, info.name);
   }
 
+  /** The film of a download, from its name, its folder or the disc label: null (and why) when unsure. */
+  private async identify(rip: Rip, discName?: string): Promise<{ movie: TmdbMovie | null; reason: string }> {
+    const names = [...new Set([rip.downloadName, path.basename(rip.sourcePath)])].map(parseReleaseName);
+    if (discName) names.push(parseDiscLabel(discName));
+    let reason = '';
+    for (const name of names) {
+      const match = await matchMovie(name).catch((error: Error) => ({ movie: null, candidates: [], reason: error.message }));
+      if (match.movie) return { movie: match.movie, reason: '' };
+      reason ||= match.reason ?? '';
+    }
+    return { movie: null, reason: reason || 'Film not identified on TMDB' };
+  }
+
+  /**
+   * Once per start: the rips still waiting for their film are looked up again, so
+   * that a better matcher (or a TMDB key added since) also applies to them. Those
+   * identified now go back in the queue with their scan; the others stay as they are.
+   */
+  private async identifyAgain() {
+    for (const rip of await db.getRipsByStatus(['NEEDS_ATTENTION'])) {
+      if (!rip.titles || rip.tmdbId !== null || rip.titleIndex !== null) continue;
+      const { movie } = await this.identify(rip, rip.discName ?? undefined);
+      if (!movie) continue;
+      logger.info({ ripId: rip.id, tmdbId: movie.id, film: movie.title }, 'Film identified on a second look');
+      await this.update(rip.id, {
+        status: 'QUEUED',
+        reason: null,
+        tmdbId: movie.id,
+        title: movie.title,
+        originalTitle: movie.originalTitle,
+        originalLanguage: movie.originalLanguage,
+        year: movie.year,
+      });
+    }
+  }
+
   /** Film (TMDB) and title (disc): rip right away when both are sure. */
   private async decide(rip: Rip, titles: DiscTitle[], discName?: string) {
     const problems: string[] = [];
@@ -242,17 +283,8 @@ class Ripper extends EventEmitter {
     } else if (!tmdbConfigured()) {
       problems.push('TMDB_API_KEY is not set: confirm the title to rip');
     } else {
-      const names = [...new Set([rip.downloadName, path.basename(rip.sourcePath)])].map(parseReleaseName);
-      if (discName) names.push(parseDiscLabel(discName));
-      let reason = '';
-      for (const name of names) {
-        const match = await matchMovie(name).catch((error: Error) => ({ movie: null, candidates: [], reason: error.message }));
-        if (match.movie) {
-          movie = match.movie;
-          break;
-        }
-        reason ||= match.reason ?? '';
-      }
+      const identified = await this.identify(rip, discName);
+      movie = identified.movie;
       if (movie) {
         rip = await this.update(rip.id, {
           tmdbId: movie.id,
@@ -262,7 +294,7 @@ class Ripper extends EventEmitter {
           year: movie.year,
         });
       } else {
-        problems.push(reason || 'Film not identified on TMDB');
+        problems.push(identified.reason);
       }
     }
 

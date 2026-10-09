@@ -22,7 +22,7 @@ const TECHNICAL = new Set([
 // since a few of them can also be part of a title ("The Full Monty", "A Complete Unknown")
 const TRAILING = new Set([
   'ita', 'eng', 'fre', 'ger', 'spa', 'jpn', 'multi', 'dual', 'italian', 'english', 'multisub', 'sub', 'subs',
-  'subbed', 'extended', 'unrated', 'uncut', 'remastered', 'directors', "director's", 'cut', 'criterion',
+  'subbed', 'extended', 'unrated', 'uncut', 'remastered', 'directors', 'cut', 'criterion',
   'limited', 'repack', 'proper', 'internal', 'readnfo', 'retail', 'hybrid', 'complete', 'full', 'imax',
   'custom', 'dvd', 'bd', 'web', 'disc', 'disk',
 ]);
@@ -30,8 +30,20 @@ const TRAILING = new Set([
 const YEAR = /^(19|20)\d{2}$/;
 const DISC = /^(disc|disk|cd|dvd|bd|d)[-_ ]?\d{1,2}$/i;
 
-const bare = (token: string) => token.replace(/^[[({]+|[\])}]+$/g, '');
-const lower = (token: string) => bare(token).toLowerCase();
+// Without the signs around it: "1972," -> "1972", "-ITA-" -> "ITA"
+const core = (token: string) => token.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+const lower = (token: string) => core(token).toLowerCase();
+
+// Its words, apostrophes dropped: "ITA-ENG", "ITA/ENG" -> ["ita", "eng"], "Director’s" -> ["directors"], "-" -> []
+const tagWords = (token: string) =>
+  token
+    .toLowerCase()
+    .replace(/['‘’`´ʼ]/g, '')
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
+
+// A language or edition tag ("ITA", "[ITA-ENG]", "SUB-ITA") or only signs ("-", "–", "|")
+const isTrailing = (token: string) => tagWords(token).every((word) => TRAILING.has(word)) || DISC.test(core(token));
 
 const isTechnical = (token: string) => {
   const t = lower(token);
@@ -45,7 +57,8 @@ export const parseReleaseName = (input: string): ParsedName => {
   const name = input
     .trim()
     .replace(/\.(iso|img)$/i, '')
-    .replace(/^\[[^\]]*\]\s*/, ''); // "[site] Title..."
+    .replace(/^\[[^\]]*\]\s*/, '') // "[site] Title..."
+    .replace(/[[\](){}]/g, ' '); // brackets glued to words: "Il Padrino(1972)[BDRip]"
   const tokens = name
     .replace(/\b(\d)\.(\d)\b/g, '$1\u0000$2') // keep "5.1" and "H.264" together
     .replace(/\b([hx])\.(26[45])\b/gi, '$1\u0000$2')
@@ -61,20 +74,18 @@ export const parseReleaseName = (input: string): ParsedName => {
   // (so "1917.2019" and "2001.A.Space.Odyssey.1968" keep their titles)
   let yearIndex = -1;
   for (let i = end - 1; i >= 1; i--) {
-    if (YEAR.test(bare(tokens[i]))) {
+    if (YEAR.test(core(tokens[i]))) {
       yearIndex = i;
       break;
     }
   }
 
-  const titleTokens = tokens.slice(0, yearIndex > 0 ? yearIndex : end).map(bare).filter(Boolean);
-  while (titleTokens.length > 1 && (TRAILING.has(titleTokens.at(-1)!.toLowerCase()) || DISC.test(titleTokens.at(-1)!))) {
-    titleTokens.pop();
-  }
-  const title = titleTokens.join(' ').replace(/\s+-$/, '').trim();
+  const titleTokens = tokens.slice(0, yearIndex > 0 ? yearIndex : end);
+  while (titleTokens.length > 1 && isTrailing(titleTokens.at(-1)!)) titleTokens.pop();
+  const title = titleTokens.join(' ').trim();
   return {
-    title: title || bare(tokens[0] ?? input),
-    year: yearIndex > 0 ? Number(bare(tokens[yearIndex])) : null,
+    title: title || (tokens[0] ?? input),
+    year: yearIndex > 0 ? Number(core(tokens[yearIndex])) : null,
   };
 };
 

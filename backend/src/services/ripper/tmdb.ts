@@ -73,55 +73,72 @@ export const getMovie = async (id: number): Promise<TmdbMovie> =>
 
 // Letters that have no accent to strip, as release names write them
 const LETTERS: Record<string, string> = { ß: 'ss', æ: 'ae', œ: 'oe', ø: 'o', ł: 'l', đ: 'd', ð: 'd', þ: 'th', ı: 'i' };
+// Typed for an apostrophe: quotes, accents, primes, modifier letters ("Lʼultimo"), fullwidth
+const APOSTROPHES = /[‘’‛`´ʹʻʼʽˈˊˋꞋꞌ′‵＇՚׳]/gu;
 
 /**
- * Only the letters and digits of a title, lower case and without accents: release
- * names drop, keep or replace with a dot any sign, space included.
- * "L'Odio" -> "lodio", "Spider-Man" -> "spiderman", "S.W.A.T." -> "swat", "Alien³" -> "alien3".
+ * The words of a title, lower case, without accents or signs:
+ * "L'Odio" -> "l odio", "S.W.A.T." -> "s w a t", "Alien³" -> "alien3".
  */
-export const normalizeTitle = (title: string) =>
+const titleWords = (title: string) =>
   title
-    .replace(/\p{So}/gu, ' ') // ™, ©, ★...: NFKD would turn some into letters
+    .replace(APOSTROPHES, "'")
+    .replace(/[\p{So}ºª]/gu, ' ') // ™, ©, ★, "IIº": NFKD would turn some into letters
     .normalize('NFKD') // accents apart, "³" -> "3", "ﬁ" -> "fi"
     .replace(/\p{M}/gu, '')
     .toLowerCase()
     .replace(/[ßæœøłđðþı]/g, (letter) => LETTERS[letter])
-    .replace(/[^\p{L}\p{N}]+/gu, '');
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+
+/**
+ * Only the letters and digits of a title: release names drop, keep or replace with
+ * a dot any sign, space included. "L'Odio" -> "lodio", "Spider-Man" -> "spiderman".
+ */
+export const normalizeTitle = (title: string) => titleWords(title).replace(/ /g, '');
 
 // "&" or "+" written as a word or left out: "Fast & Furious", "Fast.and.Furious", "Stanlio.e.Ollio", "Fast.Furious"
 const CONJUNCTION = /\s*[&+]\s*/g;
 // A possessive 's, with or without the s: "Bridget Jones's Baby", "Bridget.Joness.Baby", "Bridget.Jones.Baby"
-const POSSESSIVE = /(?<=\p{L})['‘’`´ʼ]s(?![\p{L}\p{N}])/gu;
+const POSSESSIVE = /(?<=\p{L})'s(?![\p{L}\p{N}])/giu;
 
-/** Every way a release name can write the title, normalized. */
-const titleKeys = (title: string) => {
-  const forms = [' and ', ' e ', ' '].map((word) => title.replace(CONJUNCTION, word));
-  return forms.flatMap((form) => [form, form.replace(POSSESSIVE, '')]).map(normalizeTitle).filter(Boolean);
+/** Every way a release name can write the title: its words, or only its letters and digits. */
+const titleKeys = (title: string, lettersOnly: boolean) => {
+  const folded = title.replace(APOSTROPHES, "'");
+  const forms = [' and ', ' e ', ' '].map((word) => folded.replace(CONJUNCTION, word));
+  return forms
+    .flatMap((form) => [form, form.replace(POSSESSIVE, '')])
+    .map((form) => (lettersOnly ? normalizeTitle(form) : titleWords(form)))
+    .filter(Boolean);
 };
 
-const sameTitle = (movie: TmdbMovie, title: string) => {
-  const wanted = new Set(titleKeys(title));
-  return [movie.title, movie.originalTitle].some((t) => titleKeys(t).some((key) => wanted.has(key)));
+const sameTitle = (movie: TmdbMovie, title: string, lettersOnly: boolean) => {
+  const wanted = new Set(titleKeys(title, lettersOnly));
+  return [movie.title, movie.originalTitle].some((t) => titleKeys(t, lettersOnly).some((key) => wanted.has(key)));
 };
 
 /**
  * Conservative match: automatic only when exactly one film has the same title
- * (localized or original, signs and spaces apart) and, when the name has a year,
- * a release year within one year of it. Anything else is left to the user, with
- * the candidates.
+ * (localized or original, signs apart) and, when the name has a year, a release
+ * year within one year of it. The same words count first, then the same letters
+ * ("I.T." is not "It" when TMDB has both). Anything else is left to the user,
+ * with the candidates.
  */
 export const matchMovie = async (name: ParsedName): Promise<TmdbMatch> => {
   if (!name.title) return { movie: null, candidates: [], reason: 'No title in the download name' };
 
   const withYear = name.year ? await searchMovies(name.title, name.year) : [];
   const anyYear = await searchMovies(name.title);
-  const candidates = [...new Map([...withYear, ...anyYear].map((m) => [m.id, m])).values()].slice(0, 10);
+  const found = [...new Map([...withYear, ...anyYear].map((m) => [m.id, m])).values()];
+  const candidates = found.slice(0, 10);
 
-  let matches = candidates.filter((m) => sameTitle(m, name.title));
-  if (name.year) {
-    const exact = matches.filter((m) => m.year === name.year);
-    matches = exact.length ? exact : matches.filter((m) => m.year !== null && Math.abs(m.year - name.year!) <= 1);
-  }
+  const inYear = (movies: TmdbMovie[]) => {
+    if (!name.year) return movies;
+    const exact = movies.filter((m) => m.year === name.year);
+    return exact.length ? exact : movies.filter((m) => m.year !== null && Math.abs(m.year - name.year!) <= 1);
+  };
+  let matches = inYear(found.filter((m) => sameTitle(m, name.title, false)));
+  if (!matches.length) matches = inYear(found.filter((m) => sameTitle(m, name.title, true)));
 
   if (matches.length === 1) return { movie: await getMovie(matches[0].id), candidates };
   if (matches.length > 1) {

@@ -104,3 +104,33 @@ test('normalizeTitle keeps only letters and digits', async () => {
   assert.equal(normalizeTitle('Der Untergang™'), 'deruntergang');
   assert.equal(normalizeTitle('8½'), '812');
 });
+
+test('apostrophe look-alikes and ordinal signs in the TMDB title', async () => {
+  const { matchMovie } = await import('./tmdb.js');
+  for (const apostrophe of ['′', '＇', 'ʼ', 'ʹ', '‛']) {
+    respondWith([movie(95610, `Bridget Jones${apostrophe}s Baby`, `Bridget Jones${apostrophe}s Baby`, 2016)]);
+    for (const title of ['Bridget Jones Baby', 'Bridget Joness Baby']) {
+      assert.equal((await matchMovie({ title, year: 2016 })).movie?.id, 95610, `${apostrophe} ${title}`);
+    }
+  }
+  respondWith([movie(9776, 'Lʼultimo imperatore', 'The Last Emperor', 1987)]);
+  assert.equal((await matchMovie({ title: 'L Ultimo Imperatore', year: 1987 })).movie?.id, 9776);
+  respondWith([movie(11506, 'Amici miei - Atto IIº', 'Amici miei - Atto IIº', 1982, 'it')]);
+  assert.equal((await matchMovie({ title: 'Amici Miei Atto II', year: 1982 })).movie?.id, 11506);
+});
+
+test('the same words win over the same letters', async () => {
+  const { matchMovie } = await import('./tmdb.js');
+  respondWith([movie(1, 'I.T.', 'I.T.', 2016), movie(346364, 'It', 'It', 2017)]);
+  assert.equal((await matchMovie({ title: 'I T', year: 2017 })).movie?.id, 1);
+  assert.equal((await matchMovie({ title: 'It', year: 2017 })).movie?.id, 346364);
+});
+
+test('the film is found past the first ten results', async () => {
+  const { matchMovie } = await import('./tmdb.js');
+  const others = Array.from({ length: 12 }, (_, i) => movie(1000 + i, `Baby ${i}`, `Baby ${i}`, 2016));
+  respondWith([...others, movie(95610, "Bridget Jones's Baby", "Bridget Jones's Baby", 2016)]);
+  const match = await matchMovie({ title: 'Bridget Jones Baby', year: 2016 });
+  assert.equal(match.movie?.id, 95610);
+  assert.equal(match.candidates.length, 10);
+});

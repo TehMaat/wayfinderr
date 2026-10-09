@@ -328,16 +328,12 @@ sudo ufw enable
 ### Update Application
 
 ```bash
-# Pull latest code
-git pull origin main
-
-# Rebuild images
-docker-compose build
-
-# Down and restart
-docker-compose down
-docker-compose up -d
+# Download the new images, then recreate the containers that changed
+docker compose pull
+docker compose up -d
 ```
+
+`docker compose up -d` or `restart` alone keep running the images already downloaded. With images built from source (`docker-compose.build.yml`), `git pull` and then `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
 
 ### Update Dependencies
 

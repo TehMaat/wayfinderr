@@ -21,6 +21,19 @@ const cases: [string, string, number | null][] = [
   ['The Godfather Part II ITA ENG BluRay', 'The Godfather Part II', null],
   ['Interstellar.2014.iso', 'Interstellar', 2014],
   ['[site.org] Parasite.2019.BluRay.1080p', 'Parasite', 2019],
+  ['Bridget.Jones.Baby.2016.1080p.BluRay.AVC.DTS-HD.MA.5.1-GRP', 'Bridget Jones Baby', 2016],
+  ["Bridget Jones's Baby (2016) [BDMV]", "Bridget Jones's Baby", 2016],
+  ['Il Padrino [ITA-ENG] (1972)', 'Il Padrino', 1972],
+  ['Il Padrino ITA/ENG BluRay', 'Il Padrino', null],
+  ['Il Padrino [SUB-ITA] [iTALiAN-ENGLiSH] (1972)', 'Il Padrino', 1972],
+  ['Movie Name -ITA- (2019)', 'Movie Name', 2019],
+  ['Il Padrino (Director’s Cut) (1972)', 'Il Padrino', 1972],
+  ['Il Padrino - Extended - ITA (1972)', 'Il Padrino', 1972],
+  ['Fantozzi – Il ritorno – (1996)', 'Fantozzi – Il ritorno', 1996],
+  ['Il Padrino(1972)[BDRip]', 'Il Padrino', 1972],
+  ['Il Padrino (1972, Coppola) [BDRip]', 'Il Padrino', 1972],
+  ['(500).Days.of.Summer.2009.BluRay', '500 Days of Summer', 2009],
+  ['Ma.che.bella.sorpresa!.2015.BluRay', 'Ma che bella sorpresa!', 2015],
 ];
 
 for (const [input, title, year] of cases) {
