@@ -79,6 +79,7 @@ const TICK_MS = 10_000;
 const DISCOVER_MS = 60_000;
 const LOG_TAIL_BYTES = 64 * 1024;
 const SPACE_MARGIN_BYTES = 2 * 1024 ** 3;
+const IDENTIFY_RETRY_MS = 10 * 60_000;
 const INITIALIZED_KEY = 'rip_initialized';
 const ARCHIVES_KEY = 'rip_archives_initialized';
 const EXCLUSIONS_KEY = 'rip_exclusions';
@@ -140,6 +141,7 @@ class Ripper extends EventEmitter {
   private busy = false;
   private lastDiscover = 0;
   private unpacking: Unpacking | null = null;
+  private identifyTimer: NodeJS.Timeout | null = null;
   // The rip loop and the exclusion rules change the same rips: one at a time
   private lock: Promise<unknown> = Promise.resolve();
 
@@ -159,13 +161,16 @@ class Ripper extends EventEmitter {
     ensureWorkDirs().catch((error) => logger.error(error, 'Cannot create the rip work folder'));
     this.timer = setInterval(() => this.tick(), TICK_MS);
     this.tick();
+    if (tmdbConfigured()) this.identifyAgain();
   }
 
   stop() {
     if (this.timer) clearInterval(this.timer);
+    if (this.identifyTimer) clearTimeout(this.identifyTimer);
     this.timer = null;
     // unrar is a child of this process: it would go on writing after it ends
     this.unpacking?.controller.abort();
+    this.identifyTimer = null;
   }
 
   private changed(rip: Rip) {
@@ -556,6 +561,82 @@ class Ripper extends EventEmitter {
     await this.decide(rip, info.titles, info.name);
   }
 
+  /**
+   * The film of a download, from its name, its folder or the disc label: null (and
+   * why) when unsure. `failed` when TMDB itself did not answer.
+   */
+  private async identify(rip: Rip, discName?: string) {
+    const names = [...new Set([rip.downloadName, path.basename(rip.sourcePath)])].map(parseReleaseName);
+    if (discName) names.push(parseDiscLabel(discName));
+    let reason = '';
+    let failed = false;
+    for (const name of names) {
+      const match = await matchMovie(name).catch((error: Error) => {
+        failed = true;
+        return { movie: null, candidates: [], reason: error.message };
+      });
+      if (match.movie) return { movie: match.movie as TmdbMovie, reason: '', failed: false };
+      reason ||= match.reason ?? '';
+    }
+    return { movie: null, reason: reason || 'Film not identified on TMDB', failed };
+  }
+
+  /**
+   * At every start: the rips still waiting for their film are looked up again, so
+   * that a better matcher (or a TMDB key added since) also applies to them. Those
+   * identified now go back in the queue with their scan, or wait only for the title
+   * if that is still unsure; the others get a fresh reason. TMDB is asked outside
+   * the rip loop's lock, and when it does not answer the pass is tried again later.
+   */
+  private async identifyAgain() {
+    this.identifyTimer = null;
+    // Only rips nobody chose a film or title for, as they are when written (a Skip or Choose meanwhile wins)
+    const untouched = { status: 'NEEDS_ATTENTION', tmdbId: null, titleIndex: null };
+    try {
+      for (const rip of await db.getRipsByStatus(['NEEDS_ATTENTION'])) {
+        if (!rip.titles || rip.tmdbId !== null || rip.titleIndex !== null) continue;
+        const identified = await this.identify(rip, rip.discName ?? undefined);
+        if (identified.failed) throw new Error(identified.reason);
+        const { movie } = identified;
+        const { title, problems } = await this.pickTitle(rip, JSON.parse(rip.titles));
+        if (!movie) problems.unshift(identified.reason);
+        const reason = problems.join(' · ');
+        if (!movie && reason === rip.reason) continue;
+        const film = movie
+          ? { tmdbId: movie.id, title: movie.title, originalTitle: movie.originalTitle, originalLanguage: movie.originalLanguage, year: movie.year }
+          : {};
+        const updated = await this.exclusive(() =>
+          db.updateRipIf(rip.id, untouched, problems.length || !title ? { ...film, reason } : { ...film, status: 'QUEUED', reason: null })
+        );
+        if (!updated) continue;
+        this.changed(updated);
+        if (movie) logger.info({ ripId: rip.id, tmdbId: movie.id, film: movie.title, status: updated.status }, 'Film identified on a second look');
+      }
+    } catch (error) {
+      logger.warn({ error: (error as Error).message }, 'TMDB did not answer: the waiting rips are looked up again in 10 minutes');
+      if (this.timer) this.identifyTimer = setTimeout(() => this.identifyAgain(), IDENTIFY_RETRY_MS);
+    }
+  }
+
+  /** The title to rip: the chosen one, or the only long one when the download has a single disc. */
+  private async pickTitle(rip: Rip, titles: DiscTitle[]) {
+    const problems: string[] = [];
+    let title: DiscTitle | null = null;
+    if (rip.titleIndex !== null) {
+      title = titles.find((t) => t.index === rip.titleIndex) ?? null;
+      if (!title) problems.push('The chosen title is not on the disc');
+    } else {
+      const siblings = (await db.getRips()).filter((r) => r.downloadName === rip.downloadName && r.status !== 'SKIPPED');
+      if (siblings.length > 1) {
+        problems.push(`This download has ${siblings.length} discs: choose the film on the right one, skip the others`);
+      }
+      const choice = pickMainTitle(titles, keptLanguages());
+      if (choice.title) title = choice.title;
+      else problems.push(choice.reason);
+    }
+    return { title, problems };
+  }
+
   /** Film (TMDB) and title (disc): rip right away when both are sure. */
   private async decide(rip: Rip, titles: DiscTitle[], discName?: string) {
     const problems: string[] = [];
@@ -570,21 +651,23 @@ class Ripper extends EventEmitter {
       movie = match.movie;
       if (movie) rip = await this.update(rip.id, this.movieFields(movie));
       else problems.push(match.reason || 'Film not identified on TMDB');
+      const identified = await this.identify(rip, discName);
+      movie = identified.movie;
+      if (movie) {
+        rip = await this.update(rip.id, {
+          tmdbId: movie.id,
+          title: movie.title,
+          originalTitle: movie.originalTitle,
+          originalLanguage: movie.originalLanguage,
+          year: movie.year,
+        });
+      } else {
+        problems.push(identified.reason);
+      }
     }
 
-    let title: DiscTitle | null = null;
-    if (rip.titleIndex !== null) {
-      title = titles.find((t) => t.index === rip.titleIndex) ?? null;
-      if (!title) problems.push('The chosen title is not on the disc');
-    } else {
-      const siblings = (await db.getRips()).filter((r) => r.downloadName === rip.downloadName && r.status !== 'SKIPPED');
-      if (siblings.length > 1) {
-        problems.push(`This download has ${siblings.length} discs: choose the film on the right one, skip the others`);
-      }
-      const choice = pickMainTitle(titles, keptLanguages());
-      if (choice.title) title = choice.title;
-      else problems.push(choice.reason);
-    }
+    const { title, problems: titleProblems } = await this.pickTitle(rip, titles);
+    problems.push(...titleProblems);
 
     if (problems.length > 0 || !title) {
       logger.info({ ripId: rip.id, problems }, 'Rip needs a choice');
