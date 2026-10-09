@@ -14,16 +14,10 @@ import { EmptyState } from '@/components/empty-state';
 import { StatusBadge } from '@/components/status-badge';
 import { StopUploadDialog, canDelete, canRetry, canStop } from '@/components/upload-actions';
 import { deleteUpload, retryUpload } from '@/lib/actions';
+import { isItalian, uploadTracks, type Track } from '@/lib/media';
 import { useAppStore } from '@/lib/store';
 import { cn, formatBytes, formatDate, formatDuration, formatSpeed } from '@/lib/utils';
 
-interface Track {
-  language: string;
-  codec: string;
-  index: number;
-}
-
-const isItalian = (lang: string) => ['ita', 'it', 'it-it'].includes(lang.toLowerCase()) || lang.toLowerCase().startsWith('ital');
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -84,14 +78,8 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
       .finally(() => setLoading(false));
   }, [params.id]);
 
-  const media = useMemo(() => {
-    try {
-      const parsed = upload?.mediaInfo ? JSON.parse(upload.mediaInfo) : null;
-      return { audio: (parsed?.audioTracks ?? []) as Track[], subs: (parsed?.subtitles ?? []) as Track[], parsed: Boolean(parsed) };
-    } catch {
-      return { audio: [], subs: [], parsed: false };
-    }
-  }, [upload?.mediaInfo]);
+  const mediaInfo = upload?.mediaInfo ?? null;
+  const media = useMemo(() => uploadTracks({ mediaInfo }), [mediaInfo]);
 
   if (!upload) {
     return (
