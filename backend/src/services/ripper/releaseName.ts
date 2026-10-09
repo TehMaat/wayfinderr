@@ -44,7 +44,8 @@ const isTechnical = (token: string) => {
 export const parseReleaseName = (input: string): ParsedName => {
   const name = input
     .trim()
-    .replace(/\.(iso|img)$/i, '')
+    .replace(/(\.part\d+)?\.rar$/i, '')
+    .replace(/\.(iso|img|mkv)$/i, '')
     .replace(/^\[[^\]]*\]\s*/, ''); // "[site] Title..."
   const tokens = name
     .replace(/\b(\d)\.(\d)\b/g, '$1\u0000$2') // keep "5.1" and "H.264" together

@@ -14,12 +14,13 @@ Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitl
 - 🔍 **Media Verification** - Detects Italian audio/subtitle tracks with ffprobe
 - 📤 **Reliable Transfers** - SFTP upload to a temporary `.part` file, size check, then rename; automatic retry with backoff
 - 📊 **Real-Time Monitoring** - WebSocket-driven live dashboard
-- 💽 **Local Disk Space** - Free/used space of the disks holding the watch folder and the database, one bar per disk when they are on different disks
+- 💽 **Local Disk Space** - Free/used space of the disks holding the watch folder, the downloads (with ripping on) and the database, one bar per disk when they are on different disks
 - 🔄 **Job Queue** - Concurrent uploads (max 2 global, max 1 per server); unfinished uploads resume after a restart
 - 💾 **Full History** - SQLite-backed persistence with upload tracking
 - 🌐 **Web UI** - Dashboard, server management and upload history
 - 🔐 **Login** - One password-protected account; the browser only talks to the frontend, which proxies the API, so one HTTPS reverse proxy entry is enough
 - 💿 **Automatic ripping** - Film discs that finish downloading are identified on TMDB and ripped with MakeMKV (main title, Italian + original language), then uploaded; anything unsure waits for a choice in the UI
+- 📦 **RAR archives** - Downloaded RAR archives are unpacked on whichever disk has more free space (downloads or watch folder): the disc inside is ripped, an .mkv is uploaded
 
 ---
 
@@ -122,6 +123,25 @@ To keep some discs from being ripped (TV series, extras discs...), add rules in 
 
 The rips run one at a time inside the MakeMKV container; Wayfinderr only exchanges small job files with it in `<watch folder>/.wayfinderr`. Set the MakeMKV container's `USER_ID`/`GROUP_ID` to the owner of the watch folder: at start it takes ownership of `/output` if it cannot write there.
 
+#### RAR archives
+
+RAR archives in the downloads (`.rar`, `.part1.rar` + `.part2.rar`..., `.rar` + `.r00`...) are unpacked with `unrar` (included in the Docker image; for a local run install it, or set `UNRAR_PATH`, e.g. `C:/Program Files/WinRAR/UnRAR.exe`). Once the download is complete, Wayfinderr lists the archive without unpacking it:
+
+- one film inside, a disc (ISO, `BDMV`, `VIDEO_TS`) or an `.mkv` (samples aside): it is unpacked;
+- nothing else is handled: an archive without a film (subtitles, extras), with several films, password-protected or holding links is listed as skipped, with the reason.
+
+**Where it is unpacked.** Wayfinderr checks the free space of the disk holding the downloads and of the one holding the watch folder, and unpacks the archive on the one with more space left afterwards (2 GB always stay free). A disc unpacked next to the watch folder counts twice there, since its rip goes there too. Without room on either disk the archive stops on *Needs attention* with the free space of each: free some space, then *Retry*.
+
+- Next to the downloads: `<downloads>/.wayfinderr/unpack/`. With Docker the downloads are read-only for the backend except this folder, mounted writable by `docker-compose.yml`; without that line archives are only unpacked next to the watch folder (the Rips page tells which disks are used).
+- Next to the watch folder: `<watch folder>/.wayfinderr/unpack/`.
+
+**Then:**
+
+- a disc is ripped like any other (MakeMKV reads it where it was unpacked); the unpacked copy is deleted once the rip is done;
+- an `.mkv` is named `Title (Year).mkv` like a rip (TMDB title, or the download name). Unpacked next to the watch folder, it is moved there and uploaded like any other file. Unpacked next to the downloads, it is uploaded from there (moving it would mean copying it to the other disk) and deleted once on the server, or skipped by the server's media policy, or when its upload is deleted; until then a failed or stopped upload can be retried.
+
+Archives are unpacked one at a time, between rips. *Skip* stops an unpacking and deletes what was unpacked. Archives already in the downloads when this was added are listed as skipped (*Rip anyway*, or `RIP_EXISTING=true`). To never unpack them, add the exclusion rule `.rar`.
+
 ---
 
 ## Configuration
@@ -139,13 +159,14 @@ The rips run one at a time inside the MakeMKV container; Wayfinderr only exchang
 | `BACKEND_URL` | `http://wayfinderr-backend:3001` (Docker image), `http://localhost:3001` (local run) | Frontend **build** setting: where the frontend server proxies `/api`, `/health` and `/ws`. Compiled in by `next build` (Docker build arg), so changing it means rebuilding |
 | `DELETE_AFTER_UPLOAD` | `false` | Delete the local `.mkv` once uploaded |
 | `RIP_ENABLED` | `false` | Rip film discs from the downloads folder (needs the `makemkv` service) |
-| `DOWNLOADS_DIR` | `./downloads` | Docker: host folder with the downloads, mounted read-only in the backend (`/downloads`) and MakeMKV (`/storage`) |
+| `DOWNLOADS_DIR` | `./downloads` | Docker: host folder with the downloads, mounted read-only in the backend (`/downloads`, but for its `.wayfinderr` folder where archives are unpacked) and MakeMKV (`/storage`) |
 | `RIP_SOURCE_DIR` | `/downloads` | Backend: the downloads folder as it sees it |
 | `RIP_WORK_DIR` | `<WATCH_DIR>/.wayfinderr` | Backend: folder shared with the MakeMKV runner (jobs, rips in progress) |
 | `RIP_QUIET_MINUTES` | `10` | A download is complete when nothing changed for this long |
 | `RIP_MIN_LENGTH` | `2700` | Seconds: shorter titles are never the film |
 | `RIP_EXISTING` | `false` | Also rip the downloads already there when ripping is first enabled |
 | `RIP_LANGUAGE` | `it` | Language always kept (ISO 639-1), besides the film's original one |
+| `UNRAR_PATH` | `unrar` | Backend: the unrar command for RAR archives (in the Docker image) |
 | `TMDB_API_KEY` | – | themoviedb.org API key (v3) or read access token; without it every rip waits for a choice |
 | `TMDB_LANGUAGE` | `it-IT` | Language of the title used for the file name |
 | `MAKEMKV_KEY` | `BETA` | MakeMKV container: registration key, or `BETA` for the free beta key |
@@ -225,7 +246,7 @@ Served through the frontend (`http://localhost:3000/api/...`). Every route excep
 - `POST /api/space/:id/refresh` - Refresh cache
 
 ### System
-- `GET /api/system/disks` - Free/used space of the disks holding the watch folder and the database
+- `GET /api/system/disks` - Free/used space of the disks holding the watch folder, the downloads (with ripping on) and the database
 
 ### Rips
 - `GET /api/rips` - Rips and the ripping status (enabled, runner online, TMDB configured)

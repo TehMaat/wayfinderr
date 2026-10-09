@@ -22,6 +22,10 @@ const localFolders = (): LocalFolder[] => {
   const folders: LocalFolder[] = [
     { key: 'watch', label: 'Watch folder', path: path.resolve(config.WATCH_DIR) },
   ];
+  // Archives are unpacked next to the downloads or next to the watch folder, whichever has more space
+  if (config.RIP.ENABLED) {
+    folders.push({ key: 'downloads', label: 'Downloads', path: path.resolve(config.RIP.SOURCE_DIR) });
+  }
   if (config.DATABASE_URL.startsWith('file:')) {
     const file = config.DATABASE_URL.slice('file:'.length).split('?')[0];
     folders.push({ key: 'data', label: 'Database', path: path.dirname(path.resolve(PRISMA_DIR, file)) });

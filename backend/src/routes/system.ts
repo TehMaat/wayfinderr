@@ -4,7 +4,7 @@ import logger from '../config/logger.js';
 
 const router = Router();
 
-// GET disk space of the folders on this machine (watch folder, database)
+// GET disk space of the folders on this machine (watch folder, downloads, database)
 router.get('/disks', async (req: Request, res: Response) => {
   try {
     res.json(await getLocalDisks());

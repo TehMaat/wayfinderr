@@ -160,6 +160,24 @@ export class DatabaseService {
     return this.prisma.rip.delete({ where: { id } });
   }
 
+  // Rips whose archive is unpacked somewhere (or being unpacked)
+  async getUnpackedRips(): Promise<Rip[]> {
+    return this.prisma.rip.findMany({ where: { unpackedTo: { not: null } }, orderBy: { createdAt: 'asc' } });
+  }
+
+  // The rip's file goes to the upload queue: both or neither, even on a crash
+  async updateRipWithUpload(
+    id: string,
+    data: Prisma.RipUpdateInput,
+    upload: { filename: string; filepath: string; size: bigint }
+  ): Promise<{ rip: Rip; upload: Upload }> {
+    const [created, rip] = await this.prisma.$transaction([
+      this.prisma.upload.create({ data: { ...upload, status: 'PENDING' } }),
+      this.prisma.rip.update({ where: { id }, data }),
+    ]);
+    return { rip, upload: created };
+  }
+
   // The server copy of an upload has the same file name
   async isUploadFileNameUsed(filename: string): Promise<boolean> {
     return (await this.prisma.upload.count({ where: { filename } })) > 0;

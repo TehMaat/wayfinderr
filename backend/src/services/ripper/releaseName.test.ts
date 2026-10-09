@@ -21,6 +21,9 @@ const cases: [string, string, number | null][] = [
   ['The Godfather Part II ITA ENG BluRay', 'The Godfather Part II', null],
   ['Interstellar.2014.iso', 'Interstellar', 2014],
   ['[site.org] Parasite.2019.BluRay.1080p', 'Parasite', 2019],
+  ['Interstellar.2014.1080p.BluRay.x264-GRP.part01.rar', 'Interstellar', 2014],
+  ['Interstellar.2014.COMPLETE.BLURAY-GRP.rar', 'Interstellar', 2014],
+  ['The.Matrix.1999.1080p.BluRay.x264-GRP.mkv', 'The Matrix', 1999],
 ];
 
 for (const [input, title, year] of cases) {

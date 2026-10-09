@@ -2,6 +2,7 @@
 
 import {
   Database,
+  FolderDown,
   FolderInput,
   FolderSymlink,
   HardDrive,
@@ -31,6 +32,7 @@ const KINDS: Record<LocalDisk['kind'], { icon: LucideIcon; label?: string }> = {
 
 const FOLDER_ICONS: Record<LocalFolder['key'], LucideIcon> = {
   watch: FolderInput,
+  downloads: FolderDown,
   data: Database,
 };
 
@@ -79,6 +81,11 @@ export function LocalDisksCard() {
   const report = useAppStore((s) => s.disks);
   const loaded = useAppStore((s) => s.disksLoaded);
   const folderCount = report?.disks.reduce((n, disk) => n + disk.folders.length, 0) ?? 0;
+  // With ripping on, archives are unpacked on the downloads disk or the watch folder one
+  const withDownloads = Boolean(
+    report &&
+      [...report.missing, ...report.disks.flatMap((disk) => disk.folders)].some((folder) => folder.key === 'downloads')
+  );
   const [refreshing, setRefreshing] = useState(false);
 
   // The app shell also refreshes it every minute
@@ -93,7 +100,9 @@ export function LocalDisksCard() {
       <CardHeader>
         <div className="space-y-1.5">
           <CardTitle>This machine</CardTitle>
-          <CardDescription>Disks holding the watch folder and database</CardDescription>
+          <CardDescription>
+            Disks holding the watch folder{withDownloads ? ', the downloads' : ''} and database
+          </CardDescription>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {report && report.disks.length > 1 && <Badge variant="info">{report.disks.length} disks</Badge>}

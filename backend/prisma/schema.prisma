@@ -81,15 +81,22 @@ model Setting {
 }
 
 // A film disc (ISO, BDMV or VIDEO_TS folder) found in the downloads folder,
-// ripped to MKV by the MakeMKV container (see services/ripper)
+// ripped to MKV by the MakeMKV container (see services/ripper), or a RAR
+// archive holding a disc or an .mkv, unpacked first
 model Rip {
   id               String    @id @default(cuid())
-  sourcePath       String    @unique // relative to RIP_SOURCE_DIR
-  sourceType       String    // ISO | BDMV | DVD
+  sourcePath       String    @unique // relative to RIP_SOURCE_DIR (an archive: its first volume)
+  sourceType       String    // ISO | BDMV | DVD | RAR
   downloadName     String    // top-level entry of the downloads folder
 
-  status           String    @default("WAITING") // WAITING | QUEUED | SCANNING | RIPPING | DONE | NEEDS_ATTENTION | FAILED | SKIPPED
+  status           String    @default("WAITING") // WAITING | QUEUED | UNPACKING | SCANNING | RIPPING | DONE | NEEDS_ATTENTION | FAILED | SKIPPED
   reason           String?   // why it needs attention, failed or was skipped
+
+  // RAR archive (see ripper/archive.ts): the film inside, and where it is unpacked
+  contentType      String?   // ISO | BDMV | DVD | MKV
+  contentPath      String?   // the .iso/.mkv file or the disc folder, inside the archive ("." = its root)
+  unpackBytes      BigInt?   // size of every file in the archive
+  unpackedTo       String?   // downloads | watch: the disk it is (being) unpacked on; null when not unpacked
 
   // Disc scan (makemkvcon info): JSON array of the titles, see ripper/makemkv.ts
   discName         String?
@@ -105,7 +112,7 @@ model Rip {
 
   jobId            String?   // current runner job
   progress         Int       @default(0) // 0-100
-  outputFile       String?   // final .mkv path, in the watch folder
+  outputFile       String?   // final .mkv path, in the watch folder (or where an archive was unpacked in the downloads)
 
   startedAt        DateTime?
   completedAt      DateTime?

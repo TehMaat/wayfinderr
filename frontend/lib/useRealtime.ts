@@ -5,7 +5,7 @@ import { useAppStore, type RipStatus } from './store';
 import { checkSession } from './api';
 import { useAuthStore } from './auth';
 import { getWsUrl } from './config';
-import { ripName } from './rips';
+import { isArchivedMkv, ripName } from './rips';
 
 const RECONNECT_DELAY_MS = 3000;
 const SESSION_REVOKED = 4401; // close code sent by the backend
@@ -61,7 +61,7 @@ export const useRealtime = () => {
           action: { label: 'Choose', onClick: () => routerRef.current.push('/rips') },
         });
       } else if (status === 'DONE') {
-        toast.success('Rip completed', { description: name });
+        toast.success(rip && isArchivedMkv(rip) ? 'Archive unpacked' : 'Rip completed', { description: name });
       } else if (status === 'FAILED') {
         toast.error('Rip failed', { description: rip?.reason ? `${name}: ${rip.reason}` : name });
       }
@@ -126,7 +126,11 @@ export const useRealtime = () => {
             break;
 
           case 'rip-progress':
-            store.applyRipProgress(message.ripId as string, message.progress as number);
+            store.applyRipProgress(
+              message.ripId as string,
+              message.progress as number,
+              (message.status as 'UNPACKING' | 'RIPPING' | undefined) ?? 'RIPPING'
+            );
             break;
 
           case 'rip-updated':
