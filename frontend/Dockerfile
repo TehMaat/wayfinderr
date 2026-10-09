@@ -8,8 +8,10 @@ RUN npm ci
 
 COPY . .
 
-# NEXT_PUBLIC_API_URL is left unset on purpose: the browser finds the backend
-# on the same host, port 3001 (see lib/config.ts), so one image works everywhere
+# The browser only talks to this server, which proxies /api, /health and /ws to
+# the backend (next.config.js). The backend URL is compiled in by next build:
+# the default is the compose service name, so the image works with any domain
+ARG BACKEND_URL=http://wayfinderr-backend:3001
 
 RUN npm run build && npm prune --omit=dev
 

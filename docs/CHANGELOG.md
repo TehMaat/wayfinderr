@@ -4,12 +4,43 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Added - Torrent cleanup
-- **Clients** page: qBittorrent WebUI clients (login, API key or auth bypass; category filter; automatic or manual removal; keep or delete the downloaded files) with a connection test
-- After an upload completes, the source torrent is matched by name: MKV file and folder names against the torrent name, its content folder and, with a TMDB key, all its TMDB titles (original, translations, alternative titles), so Italian disc names match English release names
-- Automatic removal only for a certain (95+), unambiguous match, after a 5-minute delay and only when no other file of the same disc is still uploading and no MKV is being written; otherwise the upload shows the suggested torrent with a "Remove torrent now" button
-- TMDB key in the UI (or `TMDB_API_KEY`), pending removals resume after a restart
-- `torrent-updated` WebSocket event; `extra_hosts: host.docker.internal` in Docker Compose
+### Added
+- Torrent cleanup, **Clients** page: qBittorrent WebUI clients (login, API key or auth bypass; category filter; automatic or suggest-only removal; keep or delete the downloaded files) with a connection test. Once an upload completes, its source torrent is removed: found exactly for a rip of the downloads folder (the torrent holding that download), otherwise by name, the MKV file and folder names against each finished torrent's name, folder and, with `TMDB_API_KEY`, every TMDB title of its film (translations, alternative titles), so Italian disc names match English release names. Automatic only for a certain, unambiguous match, 5 minutes after the upload and once no rip or upload of the same download is still running; otherwise the upload page shows the suggested torrent and a "Remove torrent now" button. `torrentStatus`/`torrentHash`/... upload fields, `/api/clients`, `POST /api/uploads/:id/torrent/check|remove`, `torrent-updated` WebSocket event; `host.docker.internal` mapped in Docker Compose
+- Rips page: remove skipped rips from the list, one at a time ("Remove from list" in its menu) or all at once ("Clear skipped" in the Skipped tab); they stay known (`hidden` rip field), so the downloads scan doesn't list them again. `DELETE /api/rips/:id`, `POST /api/rips/clear-skipped`
+- RAR archives in the downloads (`.rar`, `.partN.rar`, `.rNN` volumes) are listed once downloaded and, when they hold one film, unpacked with unrar on the disk with more free space left afterwards, the downloads one or the watch folder one (a disc next to the watch folder counts twice, for its rip): a disc inside is ripped, an `.mkv` is named like a rip and uploaded (from the downloads disk directly, deleted once on the server). `UNPACKING` rip status, `contentType`/`contentPath`/`unpackBytes`/`unpackedTo` rip fields, `status.unpack` in `GET /api/rips`, `UNRAR_PATH`; unrar in the backend image; the backend mounts `<downloads>/.wayfinderr` writable. Archives already in the downloads are listed as skipped
+- The MakeMKV runner reads discs from the work folder too (`root=work` in a job): update the `wayfinderr-makemkv` image with the backend
+- "This machine" card: the downloads disk too, with ripping on
+- Login: one account created on a setup screen with a one-time setup code from the backend log (or `WAYFINDERR_SETUP_CODE`); scrypt password hashes; 30-day sessions in an HttpOnly cookie
+- Account menu: change password (signs out other devices), sign out, sign out everywhere
+- Failed login limit: 5 per 15 minutes per client
+- `node dist/cli.js reset-auth` (`npm run reset-auth`) for a forgotten password
+- Dashboard "This machine" card: free/used space of the disks holding the watch folder and the database, one bar per disk when they are on different filesystems (with device, filesystem type and network/host-share detection)
+- "This machine" card: refresh button to recheck the disk space right away (it is otherwise refreshed every minute)
+- `GET /api/system/disks` endpoint
+- Rip exclusions, edited from the Rips page: discs whose path in the downloads contains a rule (`*` wildcard, case-insensitive) are skipped instead of ripped; `PUT /api/rips/exclusions`
+- Automatic ripping of film discs (ISO, BDMV, VIDEO_TS) from the downloads folder: `RIP_*` and `TMDB_*` variables, Rips page, `wayfinderr-makemkv` image (jlesage/makemkv plus the rip runner)
+- `DELETE_AFTER_UPLOAD`: delete the local file once it is on the server
+- Stop a queued or running upload (`POST /api/uploads/:id/cancel`, `CANCELLED` status, `upload-cancelled` WebSocket event, Stop button): the partial file on the server is deleted
+- The watch folder, subfolders included, is also rescanned every 30 seconds for files the watcher misses
+- Docker images for linux/arm64 too
+
+### Changed
+- The browser only talks to the frontend, which proxies `/api`, `/health` and the `/ws` WebSocket to the backend; the backend port is no longer published. `BACKEND_URL` (frontend build arg, default `http://wayfinderr-backend:3001`) replaces `NEXT_PUBLIC_API_URL`
+- WebSocket only on `/ws` (session cookie required, same site only)
+- `/api/servers` returns `hasApiToken` instead of the API token; a blank token on edit keeps the saved one
+- Unsafe cross-site requests are refused (403 `cross_site_request`); error responses use fixed messages
+- Uploads keep 64 SFTP writes of 32 KiB in flight, like OpenSSH: no longer capped at chunk size / round trip time (~2 MiB/s)
+
+### Fixed
+- An upload no longer hangs forever when the SSH connection drops: the attempt fails and is retried
+- An upload fails (and is retried) when the local file changed while it was sent
+- A rip never takes the name of a file uploaded before: with `DELETE_AFTER_UPLOAD` it would have replaced that film on the server
+- Unfinished uploads are resumed once after a restart (PENDING ones were queued twice)
+- Rips waiting for their film are looked up on TMDB again when the backend starts (retried after 10 minutes when TMDB does not answer): after an update, or a TMDB key added later, the ones now identified go on by themselves with their scan, without a rescan, or wait only for the title; the others get an up-to-date reason. A Skip or a choice made meanwhile is never overwritten
+- TMDB match: apostrophe look-alikes (′ ＇ ʼ ‛...) and ordinal signs (º ª) in TMDB titles, ordinals and "$" spelled out or left out (`La 25a ora` and `La 25 ora` for *La 25ª ora*, `Cash` for *Ca$h*), the release year first and then the same words over the same letters ("I.T." is not "It"; it asks when the two disagree), the film found past the first ten search results
+- Release names: tags joined by signs (`[ITA-ENG]`, `ITA/ENG`, `[SUB-ITA]`, `-ITA-`, `Director’s Cut`), dashes left at the end and brackets glued to words (`Il Padrino(1972)[BDRip]`) and years between dashes (`-1972-`) no longer end up in the title or hide the year
+- `docs/DEPLOYMENT.md` update steps: `docker compose pull`, since `docker-compose build` builds nothing with the published images; `--profile makemkv` for the MakeMKV image
+- The TMDB match ignores every sign and space in the title, however the download name writes it: apostrophes and a possessive 's with or without the s ("Bridget.Jones.Baby" is *Bridget Jones's Baby*), `&`/`+` as "and", "e" or left out, hyphens, dots, colons, superscripts ("Alien 3" is *Alien³*)
 
 ## [1.0.0] - 2026-10-04
 
@@ -73,7 +104,7 @@ All notable changes to this project will be documented in this file.
 ## Future Releases
 
 ### [1.1.0] - Planned
-- [ ] User authentication (JWT/OAuth)
+- [x] User authentication (username/password, see Unreleased)
 - [ ] Email/webhook notifications
 - [ ] Advanced analytics and charts
 - [ ] Multi-language support (i18n)

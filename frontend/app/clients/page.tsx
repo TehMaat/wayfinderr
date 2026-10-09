@@ -7,7 +7,6 @@ import {
   FolderOpen,
   KeyRound,
   Link2,
-  Loader2,
   Magnet,
   MoreHorizontal,
   Pencil,
@@ -16,11 +15,9 @@ import {
   Tag,
   Trash2,
 } from 'lucide-react';
-import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   DropdownMenu,
@@ -34,9 +31,8 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
 import { deleteClient, testClient } from '@/lib/actions';
-import { settingsApi } from '@/lib/api';
 import { useAppStore, type TorrentClient } from '@/lib/store';
-import { cn, errorMessage } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 
 function Detail({ icon: Icon, children }: { icon: typeof Magnet; children: React.ReactNode }) {
   return (
@@ -136,93 +132,33 @@ function ClientCard({ client, onEdit }: { client: TorrentClient; onEdit: () => v
   );
 }
 
+// The TMDB key is the ripper's (TMDB_API_KEY): shown here because matching uses it too
 function TmdbCard() {
-  const settings = useAppStore((s) => s.settings);
-  const [key, setKey] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const save = async (tmdbApiKey: string | null) => {
-    setBusy(true);
-    try {
-      await settingsApi.updateSettings({ tmdbApiKey });
-      await useAppStore.getState().loadSettings();
-      setKey('');
-      toast.success(tmdbApiKey ? 'TMDB key saved' : 'TMDB key removed');
-    } catch (err) {
-      toast.error('Could not save the TMDB key', { description: errorMessage(err) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const test = async () => {
-    setBusy(true);
-    try {
-      await settingsApi.testTmdb();
-      toast.success('TMDB is working');
-    } catch (err) {
-      toast.error('TMDB test failed', { description: errorMessage(err) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const configured = settings?.hasTmdbApiKey || settings?.tmdbFromEnv;
+  const ripStatus = useAppStore((s) => s.ripStatus);
+  const configured = ripStatus?.tmdbConfigured;
 
   return (
     <Card className="p-4">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
-            <Clapperboard className="h-4 w-4" />
-          </div>
-          <div className="min-w-0 space-y-1">
-            <p className="flex items-center gap-2 font-semibold">
-              TMDB
-              {configured ? (
-                <Badge variant="success">{settings?.hasTmdbApiKey ? 'Key saved' : 'Key from environment'}</Badge>
-              ) : (
-                <Badge variant="warning">Not configured</Badge>
-              )}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Matches the MKV to the torrent across languages: &quot;IL_PADRINO&quot; and
-              &quot;The.Godfather.1972.BluRay&quot; are the same movie. Without it only names in the same language match.
-              Free key from themoviedb.org → Settings → API.
-            </p>
-          </div>
+      <div className="flex min-w-0 items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
+          <Clapperboard className="h-4 w-4" />
         </div>
-
-        <form
-          className="flex shrink-0 flex-wrap gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (key.trim()) save(key.trim());
-          }}
-        >
-          <Input
-            type="password"
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            placeholder={settings?.hasTmdbApiKey ? 'Replace key' : 'API key or read token'}
-            autoComplete="off"
-            className="w-full sm:w-56"
-          />
-          <Button type="submit" size="sm" className="h-9" disabled={busy || !key.trim()}>
-            {busy && <Loader2 className="animate-spin" />}
-            Save
-          </Button>
-          {configured && (
-            <Button type="button" size="sm" variant="secondary" className="h-9" disabled={busy} onClick={test}>
-              Test
-            </Button>
-          )}
-          {settings?.hasTmdbApiKey && (
-            <Button type="button" size="sm" variant="ghost" className="h-9" disabled={busy} onClick={() => save(null)}>
-              Remove
-            </Button>
-          )}
-        </form>
+        <div className="min-w-0 space-y-1">
+          <p className="flex items-center gap-2 font-semibold">
+            TMDB
+            {ripStatus === null ? null : configured ? (
+              <Badge variant="success">Configured</Badge>
+            ) : (
+              <Badge variant="warning">TMDB_API_KEY not set</Badge>
+            )}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Matches an MKV to its torrent across languages: &quot;IL_PADRINO&quot; and
+            &quot;The.Godfather.1972.BluRay&quot; are the same film. Without it only names in the same language match.
+            Discs ripped by Wayfinderr are matched by their download, TMDB or not. The key is the one the ripper uses:
+            set <code className="font-mono">TMDB_API_KEY</code> (free from themoviedb.org → Settings → API).
+          </p>
+        </div>
       </div>
     </Card>
   );
@@ -243,7 +179,7 @@ export default function ClientsPage() {
     <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
       <PageHeader
         title="Clients"
-        description="Once an MKV is uploaded, the torrent it was ripped from is matched by name (and TMDB titles) and removed."
+        description="Once an MKV is uploaded, the torrent it was ripped from is found (by its download, or by name and TMDB titles) and removed."
         actions={
           <Button onClick={openAdd}>
             <Plus />

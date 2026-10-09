@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
-import { createReadStream, readFileSync, statSync } from 'fs';
+import { readFileSync, statSync } from 'fs';
 import path from 'path';
+import { setTimeout as sleep } from 'timers/promises';
 import { Client as SSHClient, ConnectConfig, SFTPWrapper } from 'ssh2';
 import logger from '../config/logger.js';
 import { config } from '../config/index.js';
@@ -11,11 +12,22 @@ export interface UploadOptions {
   uploadId: string;
   filepath: string;
   server: Server;
+  // Aborted when the user stops the upload
+  signal?: AbortSignal;
   onProgress: (progress: number, bytes: bigint) => void;
 }
 
 // Emit progress at most this often (DB writes + WebSocket messages)
 const PROGRESS_INTERVAL_MS = 1000;
+
+// SFTP writes kept in flight, like OpenSSH sftp/scp (-R 64 -B 32768).
+// One write at a time (as sftp.createWriteStream does) waits a full round
+// trip per chunk: 64 KiB every ~30 ms caps the upload at ~2 MiB/s.
+const SFTP_CONCURRENCY = 64;
+const SFTP_CHUNK_SIZE = 32 * 1024;
+
+// Max wait for the removal of the partial file when an upload is stopped
+const CLEANUP_TIMEOUT_MS = 5000;
 
 const sftpCall = <T = void>(fn: (cb: (err: Error | null | undefined, res?: T) => void) => void) =>
   new Promise<T>((resolve, reject) => {
@@ -26,14 +38,16 @@ export class UploadManager extends EventEmitter {
   private activeConnections: Set<SSHClient> = new Set();
 
   async uploadFile(options: UploadOptions): Promise<boolean> {
-    const { uploadId, filepath, server, onProgress } = options;
+    const { uploadId, filepath, server, signal, onProgress } = options;
+    signal?.throwIfAborted();
 
     logger.info(
       { uploadId, serverId: server.id, filepath },
       'Starting file upload'
     );
 
-    const fileSize = statSync(filepath).size;
+    const local = statSync(filepath);
+    const fileSize = local.size;
     const filename = path.basename(filepath);
 
     await db.updateUpload(uploadId, {
@@ -50,54 +64,63 @@ export class UploadManager extends EventEmitter {
     const tempPath = path.posix.join(remoteDir, `.${filename}.part`);
 
     const ssh = await this.connect(server);
+    // Ends the transfer on a stop or a dropped connection. On a drop, ssh2's
+    // fastPut would wait forever for the reply to its handle CLOSE
+    let interrupt!: (error: Error) => void;
+    const interrupted = new Promise<never>((_, reject) => (interrupt = reject));
+    interrupted.catch(() => undefined);
+    const onAbort = () => interrupt(new Error('Upload stopped'));
+    ssh.once('close', () => interrupt(new Error('SSH connection closed')));
+    signal?.addEventListener('abort', onAbort, { once: true });
     try {
+      signal?.throwIfAborted();
       const sftp = await sftpCall<SFTPWrapper>((cb) => ssh.sftp(cb));
 
       await this.ensureRemoteDir(sftp, remoteDir);
+      signal?.throwIfAborted();
 
-      await new Promise<void>((resolve, reject) => {
-        const readStream = createReadStream(filepath);
-        const writeStream = sftp.createWriteStream(tempPath);
-        let uploadedBytes = 0n;
-        let lastEmit = 0;
-        let settled = false;
+      let lastEmit = 0;
+      const transfer = sftpCall((cb) =>
+        sftp.fastPut(
+          filepath,
+          tempPath,
+          {
+            concurrency: SFTP_CONCURRENCY,
+            chunkSize: SFTP_CHUNK_SIZE,
+            step: (transferred) => {
+              if (signal?.aborted) return;
+              const now = Date.now();
+              if (now - lastEmit < PROGRESS_INTERVAL_MS) return;
+              lastEmit = now;
+              const progress = fileSize > 0 ? Math.floor((transferred / fileSize) * 100) : 100;
+              onProgress(progress, BigInt(transferred));
+            },
+          },
+          cb
+        )
+      );
+      try {
+        await Promise.race([transfer, interrupted]);
+      } catch (error) {
+        if (signal?.aborted) {
+          // Writes still in flight go to the unlinked file, freed when the
+          // connection closes
+          await Promise.race([
+            sftpCall((cb) => sftp.unlink(tempPath, cb)),
+            sleep(CLEANUP_TIMEOUT_MS),
+          ]).catch((err) =>
+            logger.warn({ uploadId, tempPath, error: (err as Error).message }, 'Could not remove partial file')
+          );
+        }
+        throw error;
+      }
 
-        const fail = (error: Error) => {
-          if (settled) return;
-          settled = true;
-          readStream.destroy();
-          writeStream.destroy();
-          reject(error);
-        };
-
-        readStream.on('data', (chunk) => {
-          uploadedBytes += BigInt(chunk.length);
-          const now = Date.now();
-          if (now - lastEmit >= PROGRESS_INTERVAL_MS) {
-            lastEmit = now;
-            const progress = fileSize > 0 ? Math.floor((Number(uploadedBytes) / fileSize) * 100) : 100;
-            onProgress(progress, uploadedBytes);
-          }
-        });
-
-        readStream.on('error', (error) => {
-          logger.error({ uploadId, error }, 'Read stream error');
-          fail(error);
-        });
-
-        writeStream.on('error', (error: Error) => {
-          logger.error({ uploadId, error }, 'Write stream error');
-          fail(error);
-        });
-
-        writeStream.on('close', () => {
-          if (settled) return;
-          settled = true;
-          resolve();
-        });
-
-        readStream.pipe(writeStream);
-      });
+      // Still being written (a pause longer than the watcher's stability check):
+      // what was sent is not the whole file, and DELETE_AFTER_UPLOAD would delete it
+      const after = statSync(filepath);
+      if (after.size !== local.size || after.mtimeMs !== local.mtimeMs) {
+        throw new Error('The file changed during the upload');
+      }
 
       // Verify the size, then move the file into place
       const stats = await sftpCall<{ size: number }>((cb) => sftp.stat(tempPath, cb));
@@ -111,12 +134,13 @@ export class UploadManager extends EventEmitter {
       logger.info({ uploadId, remotePath }, 'Upload completed');
       return true;
     } finally {
+      signal?.removeEventListener('abort', onAbort);
       ssh.end();
     }
   }
 
   async uploadWithRetry(options: UploadOptions): Promise<boolean> {
-    const { uploadId, server } = options;
+    const { uploadId, server, signal } = options;
 
     let lastError: Error | null = null;
     const maxRetries = server.maxRetries || 3;
@@ -143,6 +167,7 @@ export class UploadManager extends EventEmitter {
           return true;
         }
       } catch (error) {
+        if (signal?.aborted) throw error;
         lastError = error as Error;
         logger.warn(
           { uploadId, attempt: attempt + 1, error: lastError.message },
@@ -152,7 +177,7 @@ export class UploadManager extends EventEmitter {
         if (attempt < maxRetries - 1) {
           const delay = this.calculateBackoff(attempt, backoffStrategy);
           logger.info({ uploadId, delay }, `Retrying after ${delay}ms`);
-          await new Promise((resolve) => setTimeout(resolve, delay));
+          await sleep(delay, undefined, { signal });
         }
       }
     }

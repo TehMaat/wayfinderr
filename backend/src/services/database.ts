@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma, Upload, Server, TorrentClient } from '@prisma/client';
+import { PrismaClient, Prisma, Rip, Upload, Server, TorrentClient } from '@prisma/client';
 import logger from '../config/logger.js';
 
 export class DatabaseService {
@@ -174,17 +174,126 @@ export class DatabaseService {
     return this.prisma.torrentClient.delete({ where: { id } });
   }
 
-  // Settings
-  async getSetting(key: string): Promise<string | null> {
-    return (await this.prisma.setting.findUnique({ where: { key } }))?.value ?? null;
+  // Rip queries
+  async getRips(): Promise<Rip[]> {
+    return this.prisma.rip.findMany({ orderBy: { createdAt: 'desc' } });
   }
 
-  async setSetting(key: string, value: string | null): Promise<void> {
-    if (value === null) {
-      await this.prisma.setting.deleteMany({ where: { key } });
-    } else {
-      await this.prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
+  // The rips in the list (not removed from it)
+  async getVisibleRips(): Promise<Rip[]> {
+    return this.prisma.rip.findMany({ where: { hidden: false }, orderBy: { createdAt: 'desc' } });
+  }
+
+  async getRipById(id: string): Promise<Rip | null> {
+    return this.prisma.rip.findUnique({ where: { id } });
+  }
+
+  async getRipsByStatus(statuses: string[], visibleOnly = false): Promise<Rip[]> {
+    return this.prisma.rip.findMany({
+      where: { status: { in: statuses }, ...(visibleOnly ? { hidden: false } : {}) },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async createRip(data: Prisma.RipCreateInput): Promise<Rip> {
+    return this.prisma.rip.create({ data });
+  }
+
+  async updateRip(id: string, data: Prisma.RipUpdateInput): Promise<Rip> {
+    return this.prisma.rip.update({ where: { id }, data });
+  }
+
+  /** Updates the rip only if it still matches `where` (null otherwise): it may have changed meanwhile. */
+  async updateRipIf(id: string, where: Prisma.RipWhereInput, data: Prisma.RipUpdateManyMutationInput): Promise<Rip | null> {
+    const { count } = await this.prisma.rip.updateMany({ where: { ...where, id }, data });
+    return count ? this.prisma.rip.findUnique({ where: { id } }) : null;
+  }
+
+  // The rip that produced this file (the uploaded MKV)
+  async getRipByOutputFile(outputFile: string): Promise<Rip | null> {
+    return this.prisma.rip.findFirst({ where: { outputFile }, orderBy: { updatedAt: 'desc' } });
+  }
+
+  // Every rip of one download (a film can span several discs)
+  async getRipsByDownloadName(downloadName: string): Promise<Rip[]> {
+    return this.prisma.rip.findMany({ where: { downloadName } });
+  }
+
+  async deleteRip(id: string): Promise<Rip> {
+    return this.prisma.rip.delete({ where: { id } });
+  }
+
+  // Rips whose archive is unpacked somewhere (or being unpacked)
+  async getUnpackedRips(): Promise<Rip[]> {
+    return this.prisma.rip.findMany({ where: { unpackedTo: { not: null } }, orderBy: { createdAt: 'asc' } });
+  }
+
+  // The rip's file goes to the upload queue: both or neither, even on a crash
+  async updateRipWithUpload(
+    id: string,
+    data: Prisma.RipUpdateInput,
+    upload: { filename: string; filepath: string; size: bigint }
+  ): Promise<{ rip: Rip; upload: Upload }> {
+    const [created, rip] = await this.prisma.$transaction([
+      this.prisma.upload.create({ data: { ...upload, status: 'PENDING' } }),
+      this.prisma.rip.update({ where: { id }, data }),
+    ]);
+    return { rip, upload: created };
+  }
+
+  // The server copy of an upload has the same file name
+  async isUploadFileNameUsed(filename: string): Promise<boolean> {
+    return (await this.prisma.upload.count({ where: { filename } })) > 0;
+  }
+
+  async getUploadByPath(filepath: string): Promise<Upload | null> {
+    return this.prisma.upload.findFirst({ where: { filepath }, orderBy: { createdAt: 'desc' } });
+  }
+
+  // Settings (key/value)
+  async getSettings(keys: string[]): Promise<Record<string, string>> {
+    const rows = await this.prisma.setting.findMany({ where: { key: { in: keys } } });
+    return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  }
+
+  async setSettings(values: Record<string, string>): Promise<void> {
+    await this.prisma.$transaction(
+      Object.entries(values).map(([key, value]) =>
+        this.prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } })
+      )
+    );
+  }
+
+  // Creates the setting only if it is missing; returns the stored value either way
+  async getOrCreateSetting(key: string, create: () => string): Promise<string> {
+    const existing = await this.prisma.setting.findUnique({ where: { key } });
+    if (existing) return existing.value;
+    try {
+      return (await this.prisma.setting.create({ data: { key, value: create() } })).value;
+    } catch (error) {
+      // Created concurrently by another request
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        return (await this.prisma.setting.findUniqueOrThrow({ where: { key } })).value;
+      }
+      throw error;
     }
+  }
+
+  // Adds 1 to a numeric setting (1 when missing) and writes the other values in
+  // the same transaction; returns the new number
+  async incrementSetting(key: string, values: Record<string, string> = {}): Promise<string> {
+    return this.prisma.$transaction(async (tx) => {
+      const current = Number((await tx.setting.findUnique({ where: { key } }))?.value ?? 1);
+      const next = String((Number.isFinite(current) ? current : 1) + 1);
+      for (const [name, value] of Object.entries({ ...values, [key]: next })) {
+        await tx.setting.upsert({ where: { key: name }, create: { key: name, value }, update: { value } });
+      }
+      return next;
+    });
+  }
+
+  async deleteSettings(keys: string[]): Promise<void> {
+    await this.prisma.setting.deleteMany({ where: { key: { in: keys } } });
   }
 
   async disconnect(): Promise<void> {

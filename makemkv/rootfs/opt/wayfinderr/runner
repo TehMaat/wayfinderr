@@ -1,0 +1,159 @@
+#!/bin/sh
+#
+# Wayfinderr runner: runs the makemkvcon jobs that the Wayfinderr backend writes
+# in the work folder shared by both containers (protocol in
+# backend/src/services/ripper/runner.ts):
+#
+#   jobs/<id>.job     action, source and options (key=value lines)
+#   jobs/<id>.run     the job, once claimed by this runner
+#   jobs/<id>.log     makemkvcon robot output
+#   jobs/<id>.exit    makemkvcon exit code, when the job is over
+#   jobs/<id>.cancel  stop the job
+#   rips/<id>/        the .mkv files of an mkv job
+#   runner.alive      epoch seconds, rewritten every few seconds
+#
+# One job at a time. Sources are relative to the downloads folder, or to the
+# work folder with root=work (discs unpacked from an archive there).
+
+set -u # Treat unset variables as an error.
+
+WORK_DIR="${WAYFINDERR_WORK_DIR:-/output/.wayfinderr}"
+SOURCE_DIR="${WAYFINDERR_SOURCE_DIR:-/storage}"
+SETTINGS="${WAYFINDERR_SETTINGS:-/config/settings.conf}"
+MAKEMKVCON="${WAYFINDERR_MAKEMKVCON:-/opt/makemkv/bin/makemkvcon}"
+WRAPPER="${WAYFINDERR_WRAPPER-/opt/makemkv/lib/libwrapper.so}"
+# MakeMKV's read cache: its default is "a huge amount of memory"
+CACHE_MB="${WAYFINDERR_CACHE_MB:-1024}"
+POLL_SECONDS="${WAYFINDERR_POLL_SECONDS:-3}"
+
+JOBS="$WORK_DIR/jobs"
+RIPS="$WORK_DIR/rips"
+
+log() {
+    echo "$@"
+}
+
+alive() {
+    date +%s > "$WORK_DIR/runner.alive.tmp" && mv -f "$WORK_DIR/runner.alive.tmp" "$WORK_DIR/runner.alive"
+}
+
+# Value of a key in a job file ("key=value", the value may contain "=")
+value() {
+    sed -n "s/^$1=//p" "$2" | head -n 1
+}
+
+finish() {
+    echo "$2" > "$JOBS/$1.exit"
+}
+
+run_job() {
+    id="$1"
+    job="$JOBS/$id.run"
+    action="$(value action "$job")"
+    source="$(value source "$job")"
+    root="$(value root "$job")"
+    title="$(value title "$job")"
+    minlength="$(value minLength "$job")"
+    selection="$(value selection "$job")"
+
+    kind="${source%%:*}"
+    path="${source#*:}"
+    case "$kind" in
+        iso|file) ;;
+        *) echo "Invalid source: $source" > "$JOBS/$id.log"; finish "$id" 2; return ;;
+    esac
+    case "/$path/" in
+        */../*) echo "Invalid source path: $path" > "$JOBS/$id.log"; finish "$id" 2; return ;;
+    esac
+    case "$root" in
+        '') base="$SOURCE_DIR" ;;
+        work) base="$WORK_DIR" ;;
+        *) echo "Invalid source root: $root" > "$JOBS/$id.log"; finish "$id" 2; return ;;
+    esac
+    case "$selection" in
+        *\"*|*\\*) echo "Invalid selection rule" > "$JOBS/$id.log"; finish "$id" 2; return ;;
+    esac
+    case "$minlength" in
+        ''|*[!0-9]*) minlength=0 ;;
+    esac
+
+    case "$action" in
+        info)
+            set -- info "$kind:$base/$path"
+            ;;
+        mkv)
+            case "$title" in
+                ''|*[!0-9]*) echo "Invalid title: $title" > "$JOBS/$id.log"; finish "$id" 2; return ;;
+            esac
+            mkdir -p "$RIPS/$id"
+            set -- --cache="$CACHE_MB" mkv "$kind:$base/$path" "$title" "$RIPS/$id"
+            ;;
+        *)
+            echo "Invalid action: $action" > "$JOBS/$id.log"; finish "$id" 2; return ;;
+    esac
+
+    # Like the image's own disc ripper: run from a copy of the settings
+    # (makemkvcon may rewrite them), here with this job's track selection
+    home="$(mktemp -d)"
+    cp "$SETTINGS" "$home/settings.conf" 2>/dev/null || : > "$home/settings.conf"
+    ln -s "$home" "$home/.MakeMKV"
+    sed -i '/^app_DefaultSelectionString[= ]/d; /^app_UpdateEnable[= ]/d' "$home/settings.conf"
+    echo 'app_UpdateEnable = "0"' >> "$home/settings.conf"
+    if [ -n "$selection" ]; then
+        echo "app_DefaultSelectionString = \"$selection\"" >> "$home/settings.conf"
+    fi
+
+    log "Job $id: $action $source${title:+ title $title}"
+    if [ -n "$WRAPPER" ] && [ -f "$WRAPPER" ]; then
+        env HOME="$home" LD_PRELOAD="$WRAPPER" "$MAKEMKVCON" -r --noscan --progress=-same --minlength="$minlength" "$@" > "$JOBS/$id.log" 2>&1 &
+    else
+        env HOME="$home" "$MAKEMKVCON" -r --noscan --progress=-same --minlength="$minlength" "$@" > "$JOBS/$id.log" 2>&1 &
+    fi
+    pid=$!
+
+    while kill -0 "$pid" 2>/dev/null; do
+        if [ -e "$JOBS/$id.cancel" ]; then
+            log "Job $id: cancelled"
+            kill "$pid" 2>/dev/null
+        fi
+        alive
+        sleep 2
+    done
+    wait "$pid"
+    code=$?
+    rm -rf "$home"
+    finish "$id" "$code"
+    log "Job $id: done (exit code $code)"
+    if [ "$code" -ne 0 ]; then
+        # The backend deletes the job's log: keep its end in the container log
+        tail -n 5 "$JOBS/$id.log" 2>/dev/null | sed "s/^/Job $id: | /"
+    fi
+}
+
+mkdir -p "$JOBS" "$RIPS"
+
+# Jobs claimed but never finished were interrupted by a restart
+for run in "$JOBS"/*.run; do
+    [ -e "$run" ] || continue
+    id="$(basename "$run" .run)"
+    [ -e "$JOBS/$id.exit" ] || finish "$id" 143
+done
+
+log "Waiting for jobs in $JOBS (downloads in $SOURCE_DIR)"
+while true; do
+    alive
+    for job in "$JOBS"/*.job; do
+        [ -e "$job" ] || continue
+        id="$(basename "$job" .job)"
+        # Claimed by renaming: a job runs once even if the backend rewrites it
+        mv "$job" "$JOBS/$id.run" 2>/dev/null || continue
+        if [ -e "$JOBS/$id.cancel" ]; then
+            finish "$id" 130
+            continue
+        fi
+        run_job "$id"
+    done
+    sleep "$POLL_SECONDS"
+done
+
+# vim:ft=sh:ts=4:sw=4:et:sts=4

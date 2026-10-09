@@ -7,6 +7,7 @@ import { StatusBadge } from '@/components/status-badge';
 import { MediaBadges } from '@/components/media-badges';
 import { UploadActions } from '@/components/upload-actions';
 import { Tooltip } from '@/components/ui/tooltip';
+import { ripOfUpload, uploadLanguages } from '@/lib/media';
 import { useAppStore, type Upload } from '@/lib/store';
 import { cn, formatBytes, formatDate, formatDuration, formatSpeed } from '@/lib/utils';
 
@@ -22,6 +23,7 @@ function ProgressCell({ upload }: { upload: Upload }) {
         indicatorClassName={cn(
           upload.status === 'COMPLETED' && 'bg-success',
           upload.status === 'FAILED' && 'bg-destructive',
+          upload.status === 'CANCELLED' && 'bg-muted-foreground/40',
           upload.status === 'SKIPPED' && 'bg-warning/60'
         )}
       />
@@ -44,6 +46,24 @@ function SpeedCell({ upload }: { upload: Upload }) {
   );
 }
 
+/** Italian tracks, and the original language ones unless compact */
+function LanguageCells({ upload, compact }: { upload: Upload; compact?: boolean }) {
+  const rip = useAppStore((s) => ripOfUpload(s.rips, upload));
+  const { italian, original } = uploadLanguages(upload, rip);
+  return (
+    <>
+      <td>
+        <MediaBadges language={italian} />
+      </td>
+      {!compact && (
+        <td>
+          <MediaBadges language={original} hint="original language" />
+        </td>
+      )}
+    </>
+  );
+}
+
 export function UploadTable({ uploads, compact }: { uploads: Upload[]; compact?: boolean }) {
   const router = useRouter();
 
@@ -56,7 +76,8 @@ export function UploadTable({ uploads, compact }: { uploads: Upload[]; compact?:
             <th>Size</th>
             <th>Progress</th>
             <th>Status</th>
-            <th>Media</th>
+            <th>Italian</th>
+            {!compact && <th>Original</th>}
             <th>Server</th>
             {!compact && <th>Speed · ETA</th>}
             <th className="hidden 2xl:table-cell">Added</th>
@@ -90,9 +111,7 @@ export function UploadTable({ uploads, compact }: { uploads: Upload[]; compact?:
               <td>
                 <StatusBadge status={upload.status} />
               </td>
-              <td>
-                <MediaBadges audio={upload.hasItalianAudio} subs={upload.hasItalianSubtitles} />
-              </td>
+              <LanguageCells upload={upload} compact={compact} />
               <td className="text-muted-foreground">{upload.server?.name ?? '–'}</td>
               {!compact && (
                 <td className="text-xs">

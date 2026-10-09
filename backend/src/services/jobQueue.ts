@@ -1,5 +1,7 @@
 import PQueue from 'p-queue';
+import { unlink } from 'fs/promises';
 import { EventEmitter } from 'events';
+import { setTimeout as sleep } from 'timers/promises';
 import logger from '../config/logger.js';
 import { config } from '../config/index.js';
 import { db } from './database.js';
@@ -11,13 +13,23 @@ export interface UploadJob {
   filepath: string;
 }
 
+// Queued or running upload. `started` is set when the queue picks it up:
+// from then on the job itself writes the final status.
+interface ActiveJob {
+  controller: AbortController;
+  started: boolean;
+  done: Promise<void>;
+}
+
 const BUSY_WAIT_MS = 5000;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+// How long a stop request waits for the running transfer to wind down
+const CANCEL_WAIT_MS = 10_000;
 
 export class JobQueue extends EventEmitter {
   private queue: PQueue;
   // Servers currently receiving a file (max 1 upload per server)
   private busyServers: Set<string> = new Set();
+  private jobs: Map<string, ActiveJob> = new Map();
 
   constructor() {
     super();
@@ -29,29 +41,68 @@ export class JobQueue extends EventEmitter {
    * Adds the upload to the queue and returns immediately.
    */
   async enqueueUpload(job: UploadJob): Promise<void> {
+    if (this.jobs.has(job.uploadId)) {
+      logger.warn({ uploadId: job.uploadId }, 'Upload already queued');
+      return;
+    }
     logger.info({ uploadId: job.uploadId }, 'Adding upload to queue');
 
     await db.updateUpload(job.uploadId, { status: 'QUEUED' });
 
-    this.queue
-      .add(() => this.processUpload(job))
-      .catch((error) => logger.error({ uploadId: job.uploadId, error }, 'Queue job crashed'));
+    const controller = new AbortController();
+    const active = { controller, started: false } as ActiveJob;
+    active.done = this.queue
+      .add(async () => {
+        // Stopped while waiting in the queue: the status is already CANCELLED
+        if (controller.signal.aborted) return;
+        active.started = true;
+        await this.processUpload(job, controller.signal);
+      })
+      .catch((error) => logger.error({ uploadId: job.uploadId, error }, 'Queue job crashed'))
+      .finally(() => {
+        if (this.jobs.get(job.uploadId) === active) this.jobs.delete(job.uploadId);
+      });
+    this.jobs.set(job.uploadId, active);
+  }
+
+  /**
+   * Stops a queued or running upload. A running transfer is interrupted and its
+   * partial remote file removed; resolves once that is done (or after
+   * CANCEL_WAIT_MS, the job then finishes on its own).
+   */
+  async cancelUpload(uploadId: string): Promise<void> {
+    const job = this.jobs.get(uploadId);
+    logger.info({ uploadId, running: Boolean(job?.started) }, 'Stopping upload');
+
+    if (job?.started) {
+      job.controller.abort();
+      await Promise.race([job.done, sleep(CANCEL_WAIT_MS)]);
+      return;
+    }
+
+    // Not picked up by the queue yet: nothing else writes its status
+    job?.controller.abort();
+    this.jobs.delete(uploadId);
+    await db.updateUpload(uploadId, { status: 'CANCELLED' });
+    this.emit('upload-cancelled', { uploadId });
   }
 
   /**
    * Re-enqueues uploads left unfinished by a previous run (crash, restart).
    */
   async resumePending(): Promise<void> {
+    // Read all of them first: enqueueing turns a PENDING upload into QUEUED
+    const uploads = [];
     for (const status of ['PENDING', 'QUEUED', 'UPLOADING']) {
-      const uploads = await db.getUploadsByStatus(status);
-      for (const upload of uploads) {
-        logger.info({ uploadId: upload.id, status }, 'Resuming unfinished upload');
-        await this.enqueueUpload({ uploadId: upload.id, filepath: upload.filepath });
-      }
+      uploads.push(...(await db.getUploadsByStatus(status)));
+    }
+    for (const upload of uploads) {
+      logger.info({ uploadId: upload.id, status: upload.status }, 'Resuming unfinished upload');
+      await this.enqueueUpload({ uploadId: upload.id, filepath: upload.filepath });
     }
   }
 
-  private async processUpload(job: UploadJob): Promise<void> {
+  private async processUpload(job: UploadJob, signal: AbortSignal): Promise<void> {
     const { uploadId, filepath } = job;
     let serverId: string | null = null;
 
@@ -69,6 +120,7 @@ export class JobQueue extends EventEmitter {
       // so two jobs can never reserve the same server.
       while (serverId === null) {
         const candidates = await serverManager.getUploadCandidates(upload.size);
+        signal.throwIfAborted();
 
         if (candidates.length === 0) {
           const servers = await db.getServers();
@@ -88,7 +140,7 @@ export class JobQueue extends EventEmitter {
           this.busyServers.add(serverId);
         } else {
           logger.debug({ uploadId }, 'All candidate servers busy, waiting');
-          await sleep(BUSY_WAIT_MS);
+          await sleep(BUSY_WAIT_MS, undefined, { signal });
         }
       }
 
@@ -115,6 +167,7 @@ export class JobQueue extends EventEmitter {
         return;
       }
 
+      signal.throwIfAborted();
       await db.updateUpload(uploadId, {
         status: 'UPLOADING',
         serverId: server.id,
@@ -126,6 +179,7 @@ export class JobQueue extends EventEmitter {
         uploadId,
         filepath,
         server,
+        signal,
         onProgress: (progress, bytes) => {
           db.updateUpload(uploadId, {
             progress,
@@ -140,12 +194,24 @@ export class JobQueue extends EventEmitter {
 
       if (success) {
         logger.info({ uploadId, serverId: server.id }, 'Upload completed');
+        if (config.DELETE_AFTER_UPLOAD) {
+          // The copy on the server is complete: free the local disk
+          await unlink(filepath)
+            .then(() => logger.info({ uploadId, filepath }, 'Local file deleted after upload'))
+            .catch((error) => logger.error({ uploadId, filepath, error }, 'Failed to delete local file'));
+        }
         this.emit('upload-completed', { uploadId });
       } else {
         logger.error({ uploadId }, 'Upload failed');
         this.emit('upload-failed', { uploadId });
       }
     } catch (error) {
+      if (signal.aborted) {
+        logger.info({ uploadId }, 'Upload stopped');
+        await db.updateUpload(uploadId, { status: 'CANCELLED' });
+        this.emit('upload-cancelled', { uploadId });
+        return;
+      }
       logger.error({ uploadId, error }, 'Error processing upload job');
       await db.updateUpload(uploadId, {
         status: 'FAILED',

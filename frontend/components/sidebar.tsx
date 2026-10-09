@@ -2,15 +2,17 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ArrowUpFromLine, Compass, LayoutDashboard, Magnet, Plus, Server as ServerIcon, UploadCloud } from 'lucide-react';
+import { ArrowUpFromLine, Compass, Disc3, LayoutDashboard, Magnet, Plus, Server as ServerIcon, UploadCloud } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
+import { AccountMenu } from '@/components/account-menu';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Tooltip } from '@/components/ui/tooltip';
 
 const NAV = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/uploads', label: 'Uploads', icon: UploadCloud },
+  { href: '/rips', label: 'Rips', icon: Disc3 },
   { href: '/servers', label: 'Servers', icon: ServerIcon },
   { href: '/clients', label: 'Clients', icon: Magnet },
 ];
@@ -22,6 +24,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const uploads = useAppStore((s) => s.uploads);
   const filters = useAppStore((s) => s.filters);
   const setFilters = useAppStore((s) => s.setFilters);
+  const ripsToChoose = useAppStore((s) => s.rips.filter((r) => r.status === 'NEEDS_ATTENTION').length);
 
   const activeServerIds = new Set(uploads.filter((u) => u.status === 'UPLOADING').map((u) => u.serverId));
 
@@ -57,6 +60,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             >
               <Icon className="h-4 w-4" />
               {label}
+              {href === '/rips' && ripsToChoose > 0 && (
+                <Tooltip content={`${ripsToChoose} need a choice`} side="right">
+                  <span className="ml-auto rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-warning tabular">
+                    {ripsToChoose}
+                  </span>
+                </Tooltip>
+              )}
             </Link>
           );
         })}
@@ -113,11 +123,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         })}
       </div>
 
-      <div className="flex items-center justify-between border-t px-5 py-3">
-        <div className="text-[11px] leading-tight text-muted-foreground">
-          <div>Wayfinderr</div>
-          <div>MakeMKV → Ultra.cc</div>
-        </div>
+      <div className="flex items-center justify-between gap-2 border-t px-3 py-3">
+        <AccountMenu />
         <ThemeToggle />
       </div>
     </div>

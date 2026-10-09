@@ -20,7 +20,7 @@ import { errorMessage } from '@/lib/utils';
 const emptyForm = (server?: Server) => ({
   name: server?.name ?? '',
   apiEndpoint: server?.apiEndpoint ?? '',
-  apiToken: server?.apiToken ?? '',
+  apiToken: '',
   sshHost: server?.sshHost ?? '',
   sshPort: String(server?.sshPort ?? 22),
   sshUsername: server?.sshUsername ?? '',
@@ -121,7 +121,15 @@ export function ServerDialog({
               />
             </Field>
             <Field label="Token">
-              <Input name="apiToken" type="password" value={form.apiToken} onChange={update} required />
+              <Input
+                name="apiToken"
+                type="password"
+                value={form.apiToken}
+                onChange={update}
+                autoComplete="new-password"
+                placeholder={isEdit && server?.hasApiToken ? 'Unchanged' : undefined}
+                required={!isEdit}
+              />
             </Field>
           </div>
 

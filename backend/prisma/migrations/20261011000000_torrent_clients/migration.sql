@@ -1,4 +1,4 @@
--- AlterTable
+-- AlterTable: the qBittorrent torrent each upload was ripped from (removed after the upload)
 ALTER TABLE "Upload" ADD COLUMN "torrentClientId" TEXT;
 ALTER TABLE "Upload" ADD COLUMN "torrentHash" TEXT;
 ALTER TABLE "Upload" ADD COLUMN "torrentMessage" TEXT;
@@ -19,13 +19,6 @@ CREATE TABLE "TorrentClient" (
     "autoRemove" BOOLEAN NOT NULL DEFAULT true,
     "deleteFiles" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL
-);
-
--- CreateTable
-CREATE TABLE "Setting" (
-    "key" TEXT NOT NULL PRIMARY KEY,
-    "value" TEXT NOT NULL,
     "updatedAt" DATETIME NOT NULL
 );
 

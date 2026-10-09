@@ -68,20 +68,31 @@ makemkv             Up 5s
 
 ### Step 5: Verify Installation
 
-Test API endpoint:
+Test the health endpoint (served through the frontend, which proxies `/api`, `/health` and `/ws` to the backend; the backend port is not published):
 
 ```bash
-curl http://localhost:3001/api/space
+curl http://localhost:3000/health
 ```
 
 Expected response:
 ```json
-[]  # Empty array (no servers configured yet)
+{"status":"ok","queue":0}
 ```
 
-Open browser to http://localhost:3000 - Dashboard should load.
+Open browser to http://localhost:3000 - the setup screen should load.
 
 ## Initial Configuration
+
+### Create the Account
+
+1. Copy the one-time setup code from the backend log:
+   ```bash
+   docker-compose logs wayfinderr-backend | grep "setup code"
+   ```
+   To choose it yourself, set `WAYFINDERR_SETUP_CODE` in `.env`.
+2. On the setup screen, enter the code, a username and a password (at least 8 characters)
+
+Anyone with the code can create the account: treat that log line as a secret and create the account before exposing the app. Sessions last 30 days. Change password, Sign out and Sign out everywhere are in the account menu at the bottom of the sidebar. Forgotten password: `docker-compose exec wayfinderr-backend node dist/cli.js reset-auth`, then reopen the page and use the new setup code from the log.
 
 ### Add First Server
 
@@ -128,7 +139,7 @@ npx prisma migrate dev
 npm run dev
 ```
 
-Backend will start at http://localhost:3001
+Backend will start at http://localhost:3001 (API only)
 
 ### Frontend
 
@@ -140,7 +151,7 @@ npm install
 npm run dev
 ```
 
-Frontend will start at http://localhost:3000
+Frontend will start at http://localhost:3000: open this one. It proxies `/api`, `/health` and `/ws` to the backend at `BACKEND_URL` (default `http://localhost:3001`; set it in `frontend/.env`, see `frontend/.env.example`). The setup code is printed in the backend terminal.
 
 ## Database Initialization
 
@@ -170,7 +181,7 @@ docker-compose up -d
 ```
 
 ### Port conflicts
-If ports 3000, 3001, or 5800 are in use:
+If port 3000 or 5800 is in use (the backend's 3001 is not published):
 
 Edit `docker-compose.yml`:
 ```yaml

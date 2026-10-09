@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -e # Exit immediately if a command exits with a non-zero status.
+set -u # Treat unset variables as an error.
+
+# On by default; WAYFINDERR_RUNNER=0 turns it off
+if is-bool-val-true "${WAYFINDERR_RUNNER:-1}"; then
+    echo "false"
+else
+    echo "true"
+fi

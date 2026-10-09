@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowLeft, AudioLines, Captions, FileVideo, Magnet, RotateCcw, Search, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, AudioLines, Captions, FileVideo, Magnet, RotateCcw, Search, Square, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,18 +12,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { StatusBadge } from '@/components/status-badge';
-import { canDelete, canRetry } from '@/components/upload-actions';
+import { StopUploadDialog, canDelete, canRetry, canStop } from '@/components/upload-actions';
 import { checkTorrent, deleteUpload, removeTorrent, retryUpload } from '@/lib/actions';
+import { isItalian, uploadTracks, type Track } from '@/lib/media';
 import { useAppStore, type TorrentStatus, type Upload } from '@/lib/store';
 import { cn, formatBytes, formatDate, formatDuration, formatSpeed } from '@/lib/utils';
 
-interface Track {
-  language: string;
-  codec: string;
-  index: number;
-}
-
-const isItalian = (lang: string) => ['ita', 'it', 'it-it'].includes(lang.toLowerCase()) || lang.toLowerCase().startsWith('ital');
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -155,6 +149,7 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
   const transfer = useAppStore((s) => s.transfers[params.id]);
   const [loading, setLoading] = useState(!upload);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [stopOpen, setStopOpen] = useState(false);
 
   // Uploads older than the loaded list are fetched on demand
   useEffect(() => {
@@ -164,14 +159,8 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
       .finally(() => setLoading(false));
   }, [params.id]);
 
-  const media = useMemo(() => {
-    try {
-      const parsed = upload?.mediaInfo ? JSON.parse(upload.mediaInfo) : null;
-      return { audio: (parsed?.audioTracks ?? []) as Track[], subs: (parsed?.subtitles ?? []) as Track[], parsed: Boolean(parsed) };
-    } catch {
-      return { audio: [], subs: [], parsed: false };
-    }
-  }, [upload?.mediaInfo]);
+  const mediaInfo = upload?.mediaInfo ?? null;
+  const media = useMemo(() => uploadTracks({ mediaInfo }), [mediaInfo]);
 
   if (!upload) {
     return (
@@ -230,6 +219,12 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
             <Button size="sm" onClick={() => retryUpload(upload.id)}>
               <RotateCcw />
               Retry
+            </Button>
+          )}
+          {canStop(upload) && (
+            <Button size="sm" variant="outline" onClick={() => setStopOpen(true)}>
+              <Square className="fill-current" />
+              Stop
             </Button>
           )}
           {canDelete(upload) && (
@@ -316,6 +311,8 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
       ) : (
         <p className="text-sm text-muted-foreground">Media info not available.</p>
       )}
+
+      <StopUploadDialog upload={upload} open={stopOpen} onOpenChange={setStopOpen} />
 
       <ConfirmDialog
         open={confirmOpen}
