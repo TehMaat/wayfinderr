@@ -42,7 +42,7 @@ export interface SelectedServer {
 
 // Local disk types (the machine Wayfinderr runs on)
 export interface LocalFolder {
-  key: 'watch' | 'data';
+  key: 'watch' | 'downloads' | 'data';
   label: string;
   path: string;
 }
@@ -94,4 +94,5 @@ export interface RipConfig {
   TMDB_API_KEY?: string;
   TMDB_LANGUAGE: string; // language of the title used for the file name
   TMDB_API_URL: string;
+  UNRAR_PATH: string; // unrar command, for the RAR archives in the downloads
 }

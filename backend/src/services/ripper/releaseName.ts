@@ -64,6 +64,9 @@ const isTechnical = (token: string) => {
 export const parseReleaseName = (input: string): ParsedName => {
   const name = input
     .trim()
+    .replace(/(\.part\d+)?\.rar$/i, '')
+    .replace(/\.(iso|img|mkv)$/i, '')
+    .replace(/^\[[^\]]*\]\s*/, ''); // "[site] Title..."
     .replace(/\.(iso|img)$/i, '')
     .replace(/^\[[^\]]*\]\s*/, '') // "[site] Title..."
     .replace(/[[\](){}]/g, ' '); // brackets glued to words: "Il Padrino(1972)[BDRip]"

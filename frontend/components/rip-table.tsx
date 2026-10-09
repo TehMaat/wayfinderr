@@ -1,15 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { ExternalLink, FileVideo } from 'lucide-react';
+import { ExternalLink, FileVideo, PackageOpen } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tooltip } from '@/components/ui/tooltip';
 import { RipActions } from '@/components/rip-actions';
 import { RipStatusBadge, StatusBadge } from '@/components/status-badge';
-import { languageName, ripName, tmdbUrl } from '@/lib/rips';
+import { isArchivedMkv, languageName, ripName, tmdbUrl, UNPACK_DISKS } from '@/lib/rips';
 import { useAppStore, type Rip } from '@/lib/store';
-import { basename, cn, formatRuntime, timeAgo } from '@/lib/utils';
+import { basename, cn, formatBytes, formatRuntime, timeAgo } from '@/lib/utils';
 
 /** The upload of the ripped file, live from the uploads list when it is there */
 function useRipUpload(rip: Rip) {
@@ -56,12 +56,17 @@ const sourceLabel = (rip: Rip) => {
 };
 
 function SourceCell({ rip }: { rip: Rip }) {
+  // An archive: what it holds once listed ("RAR · ISO")
+  const content = rip.sourceType === 'RAR' && rip.contentType ? ` · ${rip.contentType}` : '';
+  const path =
+    content && rip.contentPath && rip.contentPath !== '.' ? `${rip.sourcePath} → ${rip.contentPath}` : rip.sourcePath;
   return (
     <div className="flex min-w-0 items-center gap-2">
       <Badge variant="outline" className="shrink-0 font-mono">
         {rip.sourceType}
+        {content}
       </Badge>
-      <Tooltip content={<span className="break-all font-mono">{rip.sourcePath}</span>} side="bottom">
+      <Tooltip content={<span className="break-all font-mono">{path}</span>} side="bottom">
         <span className="truncate text-xs text-muted-foreground">{sourceLabel(rip)}</span>
       </Tooltip>
     </div>
@@ -79,12 +84,39 @@ function Reason({ rip, wrap }: { rip: Rip; wrap?: boolean }) {
   return wrap ? text : <Tooltip content={rip.reason}>{text}</Tooltip>;
 }
 
+/** An archive's unpacked copy, still taking space ("Unpacked on the downloads disk · 45.2 GB") */
+function UnpackedNote({ rip }: { rip: Rip }) {
+  if (!rip.unpackedTo) return null;
+  return (
+    <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+      <PackageOpen className="h-3 w-3 shrink-0" />
+      <span className="truncate">
+        Unpacked on {UNPACK_DISKS[rip.unpackedTo]}
+        {rip.unpackBytes ? ` · ${formatBytes(rip.unpackBytes, 1)}` : ''}
+      </span>
+    </span>
+  );
+}
+
 /** What is going on, per status: progress, reason or the resulting file */
 function DetailsCell({ rip, wrap }: { rip: Rip; wrap?: boolean }) {
   const upload = useRipUpload(rip);
   const title = rip.titles?.find((t) => t.index === rip.titleIndex);
 
   switch (rip.status) {
+    case 'UNPACKING':
+      return (
+        <div className="flex min-w-0 items-center gap-2">
+          <Progress value={rip.progress} animated className={wrap ? 'flex-1' : 'w-28'} />
+          <span className="w-9 shrink-0 text-right text-xs tabular text-muted-foreground">{rip.progress}%</span>
+          {rip.unpackedTo && (
+            <span className="truncate text-xs text-muted-foreground">
+              {rip.unpackBytes ? `${formatBytes(rip.unpackBytes, 1)} on ` : 'On '}
+              {UNPACK_DISKS[rip.unpackedTo]}
+            </span>
+          )}
+        </div>
+      );
     case 'RIPPING':
       return (
         <div className="flex min-w-0 items-center gap-2">
@@ -100,7 +132,13 @@ function DetailsCell({ rip, wrap }: { rip: Rip; wrap?: boolean }) {
     case 'DONE':
       return (
         <div className="flex min-w-0 items-center gap-2">
-          <FileVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          {rip.unpackedTo === 'downloads' ? (
+            <Tooltip content="Uploaded from where the archive was unpacked in the downloads: deleted once on the server">
+              <PackageOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            </Tooltip>
+          ) : (
+            <FileVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )}
           <span className="min-w-0 truncate text-xs">{rip.outputFile ? basename(rip.outputFile) : 'File moved'}</span>
           {upload ? (
             <Link href={`/uploads/${upload.id}`} className="flex shrink-0 items-center gap-1.5 rounded-md hover:opacity-80">
@@ -117,11 +155,24 @@ function DetailsCell({ rip, wrap }: { rip: Rip; wrap?: boolean }) {
     case 'WAITING':
       return <span className="text-xs text-muted-foreground">Waiting for the download to finish</span>;
     case 'QUEUED':
-      return <span className="text-xs text-muted-foreground">Waiting for MakeMKV</span>;
+      return (
+        <span className="text-xs text-muted-foreground">
+          {rip.sourceType === 'RAR' && !rip.unpackedTo
+            ? 'Waiting to unpack the archive'
+            : isArchivedMkv(rip)
+              ? 'Handing the film over to the upload'
+              : 'Waiting for MakeMKV'}
+        </span>
+      );
     case 'SCANNING':
       return <span className="text-xs text-muted-foreground">Reading the disc titles…</span>;
     default:
-      return rip.reason ? <Reason rip={rip} wrap={wrap} /> : <span className="text-xs text-muted-foreground">–</span>;
+      return (
+        <div className="min-w-0 space-y-0.5">
+          {rip.reason ? <Reason rip={rip} wrap={wrap} /> : <span className="text-xs text-muted-foreground">–</span>}
+          <UnpackedNote rip={rip} />
+        </div>
+      );
   }
 }
 

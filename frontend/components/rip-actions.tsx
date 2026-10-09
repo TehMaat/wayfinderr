@@ -19,13 +19,19 @@ import type { Rip } from '@/lib/store';
 // What the backend allows in each status
 export const canChoose = (r: Rip) =>
   Boolean(r.titles) && (r.status === 'NEEDS_ATTENTION' || r.status === 'FAILED' || r.status === 'SKIPPED');
-export const canRetry = (r: Rip) => r.status === 'FAILED' || r.status === 'SKIPPED';
+// Needs attention without a scanned disc: an archive without the space to unpack it
+export const canRetry = (r: Rip) =>
+  r.status === 'FAILED' || r.status === 'SKIPPED' || (r.status === 'NEEDS_ATTENTION' && !r.titles);
 export const canSkip = (r: Rip) => r.status !== 'DONE' && r.status !== 'SKIPPED';
 
 export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) => void }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const attention = rip.status === 'NEEDS_ATTENTION';
+  // Nothing to choose before the disc is scanned (an archive short of space): retry once there is room
+  const attention = rip.status === 'NEEDS_ATTENTION' && Boolean(rip.titles);
+  const noRoom = rip.status === 'NEEDS_ATTENTION' && !rip.titles;
   const choose = () => onChoose(rip);
+  // Stopping these deletes work in progress
+  const confirmSkip = rip.status === 'RIPPING' || rip.status === 'UNPACKING';
   // Skipped: "Rip anyway" picks by hand when the disc was scanned, otherwise starts over
   const ripAnyway = () => (rip.titles ? choose() : retryRip(rip.id));
 
@@ -36,6 +42,11 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
       {attention && (
         <Button size="sm" className="h-7 px-2.5" onClick={choose}>
           Choose…
+        </Button>
+      )}
+      {noRoom && (
+        <Button size="sm" className="h-7 px-2.5" onClick={() => retryRip(rip.id)}>
+          Retry
         </Button>
       )}
 
@@ -51,6 +62,12 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
               <DropdownMenuItem onSelect={choose}>
                 <ListChecks />
                 Choose…
+              </DropdownMenuItem>
+            )}
+            {noRoom && (
+              <DropdownMenuItem onSelect={() => retryRip(rip.id)}>
+                <RotateCcw />
+                Retry
               </DropdownMenuItem>
             )}
             {rip.status === 'FAILED' && (
@@ -102,7 +119,7 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   destructive
-                  onSelect={() => (rip.status === 'RIPPING' ? setConfirmOpen(true) : skipRip(rip.id))}
+                  onSelect={() => (confirmSkip ? setConfirmOpen(true) : skipRip(rip.id))}
                 >
                   <Ban />
                   Skip
@@ -118,12 +135,19 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        title="Stop this rip?"
+        title={rip.status === 'UNPACKING' ? 'Stop unpacking?' : 'Stop this rip?'}
         description={
-          <>
-            MakeMKV stops ripping <span className="font-medium text-foreground">{ripName(rip)}</span> and the partial
-            file is removed. You can rip it later with “Rip anyway”.
-          </>
+          rip.status === 'UNPACKING' ? (
+            <>
+              Unpacking <span className="font-medium text-foreground">{ripName(rip)}</span> stops and the files
+              unpacked so far are deleted. You can unpack it later with “Rip anyway”.
+            </>
+          ) : (
+            <>
+              MakeMKV stops ripping <span className="font-medium text-foreground">{ripName(rip)}</span> and the
+              partial file is removed. You can rip it later with “Rip anyway”.
+            </>
+          )
         }
         confirmLabel="Skip"
         onConfirm={() => skipRip(rip.id)}

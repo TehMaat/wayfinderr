@@ -12,7 +12,8 @@
 #   rips/<id>/        the .mkv files of an mkv job
 #   runner.alive      epoch seconds, rewritten every few seconds
 #
-# One job at a time. Sources are relative to the downloads folder.
+# One job at a time. Sources are relative to the downloads folder, or to the
+# work folder with root=work (discs unpacked from an archive there).
 
 set -u # Treat unset variables as an error.
 
@@ -50,6 +51,7 @@ run_job() {
     job="$JOBS/$id.run"
     action="$(value action "$job")"
     source="$(value source "$job")"
+    root="$(value root "$job")"
     title="$(value title "$job")"
     minlength="$(value minLength "$job")"
     selection="$(value selection "$job")"
@@ -63,6 +65,11 @@ run_job() {
     case "/$path/" in
         */../*) echo "Invalid source path: $path" > "$JOBS/$id.log"; finish "$id" 2; return ;;
     esac
+    case "$root" in
+        '') base="$SOURCE_DIR" ;;
+        work) base="$WORK_DIR" ;;
+        *) echo "Invalid source root: $root" > "$JOBS/$id.log"; finish "$id" 2; return ;;
+    esac
     case "$selection" in
         *\"*|*\\*) echo "Invalid selection rule" > "$JOBS/$id.log"; finish "$id" 2; return ;;
     esac
@@ -72,14 +79,14 @@ run_job() {
 
     case "$action" in
         info)
-            set -- info "$kind:$SOURCE_DIR/$path"
+            set -- info "$kind:$base/$path"
             ;;
         mkv)
             case "$title" in
                 ''|*[!0-9]*) echo "Invalid title: $title" > "$JOBS/$id.log"; finish "$id" 2; return ;;
             esac
             mkdir -p "$RIPS/$id"
-            set -- --cache="$CACHE_MB" mkv "$kind:$SOURCE_DIR/$path" "$title" "$RIPS/$id"
+            set -- --cache="$CACHE_MB" mkv "$kind:$base/$path" "$title" "$RIPS/$id"
             ;;
         *)
             echo "Invalid action: $action" > "$JOBS/$id.log"; finish "$id" 2; return ;;

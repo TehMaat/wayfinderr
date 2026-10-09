@@ -31,6 +31,7 @@ export const loadConfig = (): Config => {
       TMDB_API_KEY: process.env.TMDB_API_KEY || undefined,
       TMDB_LANGUAGE: process.env.TMDB_LANGUAGE || 'it-IT',
       TMDB_API_URL: process.env.TMDB_API_URL || 'https://api.themoviedb.org/3',
+      UNRAR_PATH: process.env.UNRAR_PATH || 'unrar',
     },
   };
 };

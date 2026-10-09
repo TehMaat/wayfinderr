@@ -270,7 +270,7 @@ Bypass cache and fetch fresh space info.
 GET /api/system/disks
 ```
 
-Free/used space of the machine running the backend, for the filesystems that hold the watch folder and the database folder. Folders on the same filesystem are grouped into one entry, so `sameDisk: true` means they share a disk. `freeBytes` is the space that can still be written (on Linux it excludes the blocks reserved for root).
+Free/used space of the machine running the backend, for the filesystems that hold the watch folder, the downloads folder (`key: "downloads"`, with `RIP_ENABLED=true`: RAR archives are unpacked on it or on the watch folder's) and the database folder. Folders on the same filesystem are grouped into one entry, so `sameDisk: true` means they share a disk. `freeBytes` is the space that can still be written (on Linux it excludes the blocks reserved for root).
 
 `kind` is `disk` (block device: local disk, VPS block storage), `network` (NFS, SMB, sshfs, UNC path), `shared` (host folder seen from a VM or Docker Desktop: 9p, virtiofs...), `memory` (tmpfs) or `other` (e.g. overlay). `device` and `fsType` are only known on Linux. In Docker the paths are the ones inside the container.
 
@@ -412,7 +412,7 @@ before it could be stopped.
 
 ## Rips API
 
-Film discs found in the downloads folder (`RIP_ENABLED=true`), see the README's *Automatic ripping*.
+Film discs and RAR archives found in the downloads folder (`RIP_ENABLED=true`), see the README's *Automatic ripping* and *RAR archives*.
 
 ### List Rips
 
@@ -423,7 +423,14 @@ GET /api/rips
 **Response:** 200 OK
 ```json
 {
-  "status": { "enabled": true, "runnerAlive": true, "tmdbConfigured": true, "language": "it", "minLength": 2700, "exclusions": ["Serie TV/"] },
+  "status": {
+    "enabled": true, "runnerAlive": true, "tmdbConfigured": true, "language": "it", "minLength": 2700, "exclusions": ["Serie TV/"],
+    "unpack": {
+      "unrar": true,
+      "disks": [{ "disk": "watch", "freeBytes": 412316860416 }, { "disk": "downloads", "freeBytes": 1288490188800 }],
+      "downloadsWritable": true
+    }
+  },
   "rips": [
     {
       "id": "rip123",
@@ -432,6 +439,10 @@ GET /api/rips
       "downloadName": "Le.Film.2019.BluRay",
       "status": "NEEDS_ATTENTION",
       "reason": "Several long titles (1h52, 1h38): more than one film or cut, choose one",
+      "contentType": null,
+      "contentPath": null,
+      "unpackBytes": null,
+      "unpackedTo": null,
       "discName": "LE_FILM",
       "titles": [
         {
@@ -458,7 +469,11 @@ GET /api/rips
 }
 ```
 
-`status`: `WAITING` (still downloading), `QUEUED`, `SCANNING`, `RIPPING` (`progress` 0-100), `DONE` (`outputFile` in the watch folder, `upload` once picked up), `NEEDS_ATTENTION` (`reason` says what to choose), `FAILED`, `SKIPPED`. `suggestion` is the title and year read from the download name, to search TMDB.
+`status`: `WAITING` (still downloading), `QUEUED`, `UNPACKING` (a RAR archive, `progress` 0-100), `SCANNING`, `RIPPING` (`progress` 0-100), `DONE` (`outputFile` in the watch folder, `upload` once picked up), `NEEDS_ATTENTION` (`reason` says what to choose, or that there is no room to unpack an archive), `FAILED`, `SKIPPED`. `suggestion` is the title and year read from the download name, to search TMDB.
+
+A RAR archive has `sourceType` `RAR` and `sourcePath` its first volume. Once listed, `contentType` (`ISO`, `BDMV`, `DVD` or `MKV`) and `contentPath` (inside the archive) tell its film, `unpackBytes` (string) the size of all its files. `unpackedTo` is the disk it is unpacked (or being unpacked) on, `downloads` or `watch`, and `null` once the unpacked copy is deleted. An `.mkv` unpacked next to the downloads is uploaded from there: `outputFile` is in `<downloads>/.wayfinderr/unpack/`.
+
+`status.unpack` (with ripping on): `unrar` whether the command can be run, `disks` where archives can be unpacked with their free space (one entry per disk: just `watch` when the downloads are on the same disk or read-only), `downloadsWritable` whether the downloads' `.wayfinderr` folder can be written.
 
 ### Choose and Rip
 
@@ -478,7 +493,7 @@ POST /api/rips/:id/retry
 POST /api/rips/:id/skip
 ```
 
-Retry starts over (scan and automatic choices); not while scanning or ripping. Skip never rips the disc and stops a running rip.
+Retry starts over (scan and automatic choices; an archive not unpacked yet is listed and unpacked again); not while unpacking, scanning or ripping. Skip never rips the disc, stops a running rip or unpacking, and deletes what was unpacked of an archive.
 
 ### Exclusions
 
@@ -600,10 +615,10 @@ Upload stopped by the user.
 ```
 
 #### rip-updated, rip-progress
-A rip changed (`status` is `DELETED` when it was removed: its download disappeared before finishing), or a running rip progressed.
+A rip changed (`status` is `DELETED` when it was removed: its download disappeared before finishing), or a running rip or unpacking progressed (`status`: `RIPPING` or `UNPACKING`).
 ```json
 { "type": "rip-updated", "ripId": "rip123", "status": "RIPPING" }
-{ "type": "rip-progress", "ripId": "rip123", "progress": 42 }
+{ "type": "rip-progress", "ripId": "rip123", "progress": 42, "status": "RIPPING" }
 ```
 
 ## Error Responses

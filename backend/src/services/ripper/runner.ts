@@ -15,12 +15,15 @@ import { config } from '../../config/index.js';
  *   rips/<id>/        the .mkv files of an `mkv` job
  *   runner.alive      epoch seconds, rewritten by the runner every few seconds
  *
- * Sources are relative to the downloads folder: each container adds its own root.
+ * Sources are relative to the downloads folder, or to this work folder with
+ * root=work (a disc unpacked from an archive there): each container adds its
+ * own path of that folder.
  */
 
 export interface RunnerJob {
   action: 'info' | 'mkv';
   source: string; // "iso:<relative path>" or "file:<relative path>"
+  root?: 'work'; // the source is in the work folder instead of the downloads folder
   minLength: number; // seconds; must be the same for info and mkv, it changes title numbers
   title?: number; // mkv only
   selection?: string; // mkv only: MakeMKV track selection rule

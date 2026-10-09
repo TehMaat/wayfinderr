@@ -5,6 +5,7 @@ import {
   Clock,
   Hourglass,
   Loader2,
+  PackageOpen,
   ScanSearch,
   SkipForward,
   TriangleAlert,
@@ -45,6 +46,7 @@ export const RIP_STATUS_META: Record<
 > = {
   WAITING: { label: 'Downloading', icon: Hourglass, variant: 'secondary', color: 'text-muted-foreground' },
   QUEUED: { label: 'Queued', icon: Clock, variant: 'info', color: 'text-info' },
+  UNPACKING: { label: 'Unpacking', icon: PackageOpen, variant: 'default', color: 'text-primary' },
   SCANNING: { label: 'Scanning', icon: ScanSearch, variant: 'default', color: 'text-primary' },
   RIPPING: { label: 'Ripping', icon: Loader2, variant: 'default', color: 'text-primary' },
   DONE: { label: 'Done', icon: CheckCircle2, variant: 'success', color: 'text-success' },
@@ -58,7 +60,7 @@ export function RipStatusBadge({ status, className }: { status: RipStatus; class
   const Icon = meta.icon;
   return (
     <Badge variant={meta.variant} className={className}>
-      <Icon className={cn(status === 'RIPPING' && 'animate-spin', status === 'SCANNING' && 'animate-pulse')} />
+      <Icon className={cn(status === 'RIPPING' && 'animate-spin', (status === 'SCANNING' || status === 'UNPACKING') && 'animate-pulse')} />
       {meta.label}
     </Badge>
   );
