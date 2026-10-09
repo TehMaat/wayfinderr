@@ -562,11 +562,14 @@ class Ripper extends EventEmitter {
   }
 
   /**
-   * The film of a download, from its name, its folder or the disc label: null (and
-   * why) when unsure. `failed` when TMDB itself did not answer.
+   * The film of a download, from its name, the file or folder name or the disc label:
+   * null (and why) when unsure. `failed` when TMDB itself did not answer.
    */
   private async identify(rip: Rip, discName?: string) {
-    const names = [...new Set([rip.downloadName, path.basename(rip.sourcePath)])].map(parseReleaseName);
+    const files = [path.basename(rip.sourcePath)];
+    // An archive: the film's own name inside it ("Film.2001.1080p.BluRay.mkv", "Film.2001.COMPLETE.BLURAY/")
+    if (isArchive(rip) && rip.contentPath && rip.contentPath !== '.') files.push(path.posix.basename(rip.contentPath));
+    const names = [...new Set([rip.downloadName, ...files])].map(parseReleaseName);
     if (discName) names.push(parseDiscLabel(discName));
     let reason = '';
     let failed = false;
@@ -647,23 +650,10 @@ class Ripper extends EventEmitter {
     } else if (!tmdbConfigured()) {
       problems.push('TMDB_API_KEY is not set: confirm the title to rip');
     } else {
-      const match = await this.identify(rip, discName);
-      movie = match.movie;
-      if (movie) rip = await this.update(rip.id, this.movieFields(movie));
-      else problems.push(match.reason || 'Film not identified on TMDB');
       const identified = await this.identify(rip, discName);
       movie = identified.movie;
-      if (movie) {
-        rip = await this.update(rip.id, {
-          tmdbId: movie.id,
-          title: movie.title,
-          originalTitle: movie.originalTitle,
-          originalLanguage: movie.originalLanguage,
-          year: movie.year,
-        });
-      } else {
-        problems.push(identified.reason);
-      }
+      if (movie) rip = await this.update(rip.id, this.movieFields(movie));
+      else problems.push(identified.reason);
     }
 
     const { title, problems: titleProblems } = await this.pickTitle(rip, titles);
@@ -675,22 +665,6 @@ class Ripper extends EventEmitter {
       return;
     }
     await this.startRip({ ...rip, titleIndex: title.index });
-  }
-
-  /** The film on TMDB, from the download name, the file or folder name, or the disc label. */
-  private async identify(rip: Rip, discName?: string): Promise<{ movie: TmdbMovie | null; reason: string }> {
-    const files = [path.basename(rip.sourcePath)];
-    // An archive: the film's own name inside it ("Film.2001.1080p.BluRay.mkv", "Film.2001.COMPLETE.BLURAY/")
-    if (isArchive(rip) && rip.contentPath && rip.contentPath !== '.') files.push(path.posix.basename(rip.contentPath));
-    const names = [...new Set([rip.downloadName, ...files])].map(parseReleaseName);
-    if (discName) names.push(parseDiscLabel(discName));
-    let reason = '';
-    for (const name of names) {
-      const match = await matchMovie(name).catch((error: Error) => ({ movie: null, candidates: [], reason: error.message }));
-      if (match.movie) return { movie: match.movie, reason: '' };
-      reason ||= match.reason ?? '';
-    }
-    return { movie: null, reason };
   }
 
   private movieFields(movie: TmdbMovie) {

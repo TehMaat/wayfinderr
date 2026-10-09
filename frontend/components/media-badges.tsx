@@ -1,26 +1,40 @@
 import { AudioLines, Captions } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip } from '@/components/ui/tooltip';
+import type { LanguageTracks } from '@/lib/media';
 
-export function MediaBadges({ audio, subs }: { audio: boolean; subs: boolean }) {
-  if (!audio && !subs) {
+const tracks = (n: number) => `${n} track${n === 1 ? '' : 's'}`;
+
+/** "ITA", plus "+N" for the tracks in the same language beyond the first */
+function Count({ label, count }: { label: string; count: number }) {
+  return (
+    <>
+      {label}
+      {count > 1 && <span className="tabular opacity-70">+{count - 1}</span>}
+    </>
+  );
+}
+
+export function MediaBadges({ language, hint }: { language: LanguageTracks | null; hint?: string }) {
+  if (!language || (!language.audio && !language.subs)) {
     return <span className="text-xs text-muted-foreground">–</span>;
   }
+  const suffix = hint ? ` · ${hint}` : '';
   return (
     <div className="flex items-center gap-1">
-      {audio && (
-        <Tooltip content="Italian audio">
+      {language.audio > 0 && (
+        <Tooltip content={`${language.name} audio · ${tracks(language.audio)}${suffix}`}>
           <Badge variant="success">
             <AudioLines />
-            ITA
+            <Count label={language.label} count={language.audio} />
           </Badge>
         </Tooltip>
       )}
-      {subs && (
-        <Tooltip content="Italian subtitles">
+      {language.subs > 0 && (
+        <Tooltip content={`${language.name} subtitles · ${tracks(language.subs)}${suffix}`}>
           <Badge variant="info">
             <Captions />
-            ITA
+            <Count label={language.label} count={language.subs} />
           </Badge>
         </Tooltip>
       )}
