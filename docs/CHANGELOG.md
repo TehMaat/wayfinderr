@@ -33,7 +33,7 @@ All notable changes to this project will be documented in this file.
 - Unfinished uploads are resumed once after a restart (PENDING ones were queued twice)
 - Rips waiting for their film are looked up on TMDB again when the backend starts: after an update (or a TMDB key added later) the ones now identified go on by themselves, with their scan, without a rescan
 - TMDB match: apostrophe look-alikes (′ ＇ ʼ ‛...) and ordinal signs (º ª) in TMDB titles, the same words preferred over the same letters ("I.T." is not "It" when TMDB has both), the film found past the first ten search results
-- Release names: tags joined by signs (`[ITA-ENG]`, `ITA/ENG`, `[SUB-ITA]`, `-ITA-`, `Director’s Cut`), dashes left at the end and brackets glued to words (`Il Padrino(1972)[BDRip]`, `(1972, Coppola)`) no longer end up in the title or hide the year
+- Release names: tags joined by signs (`[ITA-ENG]`, `ITA/ENG`, `[SUB-ITA]`, `-ITA-`, `Director’s Cut`), dashes left at the end and brackets glued to words (`Il Padrino(1972)[BDRip]`) and years between dashes (`-1972-`) no longer end up in the title or hide the year
 - `docs/DEPLOYMENT.md` update steps: `docker compose pull`, since `docker-compose build` builds nothing with the published images
 - The TMDB match ignores every sign and space in the title, however the download name writes it: apostrophes and a possessive 's with or without the s ("Bridget.Jones.Baby" is *Bridget Jones's Baby*), `&`/`+` as "and", "e" or left out, hyphens, dots, colons, superscripts ("Alien 3" is *Alien³*)
 

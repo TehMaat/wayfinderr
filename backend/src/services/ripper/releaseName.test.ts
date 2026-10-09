@@ -31,9 +31,15 @@ const cases: [string, string, number | null][] = [
   ['Il Padrino - Extended - ITA (1972)', 'Il Padrino', 1972],
   ['Fantozzi – Il ritorno – (1996)', 'Fantozzi – Il ritorno', 1996],
   ['Il Padrino(1972)[BDRip]', 'Il Padrino', 1972],
-  ['Il Padrino (1972, Coppola) [BDRip]', 'Il Padrino', 1972],
+  ['Il Padrino -1972-', 'Il Padrino', 1972],
+  ['Class of 1999, The', 'Class of 1999, The', null],
+  ['Movie Cut!', 'Movie Cut!', null],
   ['(500).Days.of.Summer.2009.BluRay', '500 Days of Summer', 2009],
   ['Ma.che.bella.sorpresa!.2015.BluRay', 'Ma che bella sorpresa!', 2015],
+  ['The Italian - 2005', 'The Italian', 2005],
+  ['Johnny English - ITA - 2003', 'Johnny English', 2003],
+  ['Godzilla 2000: Millennium BluRay', 'Godzilla 2000: Millennium', null],
+  ['Ciao.2020!.BluRay', 'Ciao 2020!', null],
 ];
 
 for (const [input, title, year] of cases) {

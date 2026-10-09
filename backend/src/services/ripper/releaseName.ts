@@ -30,9 +30,11 @@ const TRAILING = new Set([
 const YEAR = /^(19|20)\d{2}$/;
 const DISC = /^(disc|disk|cd|dvd|bd|d)[-_ ]?\d{1,2}$/i;
 
-// Without the signs around it: "1972," -> "1972", "-ITA-" -> "ITA"
+// Without the signs around it: "-ITA-" -> "ITA"
 const core = (token: string) => token.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
 const lower = (token: string) => core(token).toLowerCase();
+// A year can come between dashes or quotes, not with the signs of a title ("Godzilla 2000: Millennium", "Class of 1999, The")
+const isYear = (token: string) => YEAR.test(token.replace(/^[-–—"'«“]+|[-–—"'»”]+$/g, ''));
 
 // Its words, apostrophes dropped: "ITA-ENG", "ITA/ENG" -> ["ita", "eng"], "Director’s" -> ["directors"], "-" -> []
 const tagWords = (token: string) =>
@@ -42,8 +44,14 @@ const tagWords = (token: string) =>
     .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean);
 
-// A language or edition tag ("ITA", "[ITA-ENG]", "SUB-ITA") or only signs ("-", "–", "|")
-const isTrailing = (token: string) => tagWords(token).every((word) => TRAILING.has(word)) || DISC.test(core(token));
+// A language or edition tag: "ITA", "[ITA-ENG]", "SUB-ITA", "Director’s"; never a word with a title's sign ("Cut!")
+const isTag = (token: string) => {
+  if (/[!?¡¿…:;,]/.test(token)) return false;
+  const words = tagWords(token);
+  return (words.length > 0 && words.every((word) => TRAILING.has(word))) || DISC.test(core(token));
+};
+// A separator: "-", "–", "|", "•" (not a title's own "!" or "?": "Mamma Mia !")
+const isSigns = (token: string) => tagWords(token).length === 0 && !/[!?¡¿…]/.test(token);
 
 const isTechnical = (token: string) => {
   const t = lower(token);
@@ -74,18 +82,36 @@ export const parseReleaseName = (input: string): ParsedName => {
   // (so "1917.2019" and "2001.A.Space.Odyssey.1968" keep their titles)
   let yearIndex = -1;
   for (let i = end - 1; i >= 1; i--) {
-    if (YEAR.test(core(tokens[i]))) {
+    if (isYear(tokens[i])) {
       yearIndex = i;
       break;
     }
   }
 
+  // From the end: tags, separators and whole groups of tags between separators
+  // ("Il Padrino - Extended - ITA"); past a separator a single word is never taken
+  // for a tag ("The Italian - 2005")
   const titleTokens = tokens.slice(0, yearIndex > 0 ? yearIndex : end);
-  while (titleTokens.length > 1 && isTrailing(titleTokens.at(-1)!)) titleTokens.pop();
+  let separated = false;
+  while (titleTokens.length > 1) {
+    const last = titleTokens.at(-1)!;
+    if (isSigns(last)) {
+      separated = true;
+    } else if (separated) {
+      let start = titleTokens.length;
+      while (start > 0 && !isSigns(titleTokens[start - 1])) start--;
+      if (start === 0 || !titleTokens.slice(start).every(isTag)) break;
+      titleTokens.length = start;
+      continue;
+    } else if (!isTag(last)) {
+      break;
+    }
+    titleTokens.pop();
+  }
   const title = titleTokens.join(' ').trim();
   return {
     title: title || (tokens[0] ?? input),
-    year: yearIndex > 0 ? Number(core(tokens[yearIndex])) : null,
+    year: yearIndex > 0 ? Number(tokens[yearIndex].match(/\d{4}/)![0]) : null,
   };
 };
 
