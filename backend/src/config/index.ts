@@ -32,6 +32,11 @@ export const loadConfig = (): Config => {
       TMDB_LANGUAGE: process.env.TMDB_LANGUAGE || 'it-IT',
       TMDB_API_URL: process.env.TMDB_API_URL || 'https://api.themoviedb.org/3',
       UNRAR_PATH: process.env.UNRAR_PATH || 'unrar',
+      // Rip without MakeMKV (remux): Blu-ray with mkvmerge (ISOs extracted with 7-Zip), DVD with ffmpeg
+      MKVMERGE_PATH: process.env.MKVMERGE_PATH || 'mkvmerge',
+      SEVENZIP_PATH: process.env.SEVENZIP_PATH || '7zz',
+      FFMPEG_PATH: process.env.FFMPEG_PATH || 'ffmpeg',
+      FFPROBE_PATH: process.env.FFPROBE_PATH || 'ffprobe',
     },
   };
 };

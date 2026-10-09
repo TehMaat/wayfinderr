@@ -155,6 +155,8 @@ export interface Rip {
   downloadName: string;
   status: RipStatus;
   reason: string | null;
+  // makemkv, or remux: ripped by the backend with mkvmerge/ffmpeg after MakeMKV failed
+  engine: 'makemkv' | 'remux';
   // RAR archive: the film inside (once listed) and the disk it is unpacked on (null when not unpacked)
   contentType: 'ISO' | 'BDMV' | 'DVD' | 'MKV' | null;
   contentPath: string | null;
@@ -193,6 +195,8 @@ export interface RipperStatus {
     disks: { disk: UnpackDisk; freeBytes: number }[];
     downloadsWritable: boolean;
   };
+  // Ripping without MakeMKV: mkvmerge (Blu-ray), 7-Zip (ISO images), ffmpeg with DVD support
+  remux?: { mkvmerge: boolean; sevenZip: boolean; dvd: boolean } | null;
 }
 
 interface Transfer {

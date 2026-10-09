@@ -95,4 +95,9 @@ export interface RipConfig {
   TMDB_LANGUAGE: string; // language of the title used for the file name
   TMDB_API_URL: string;
   UNRAR_PATH: string; // unrar command, for the RAR archives in the downloads
+  // Rip without MakeMKV (see services/ripper/remux.ts)
+  MKVMERGE_PATH: string; // Blu-ray
+  SEVENZIP_PATH: string; // 7-Zip (7zz), to read ISO images
+  FFMPEG_PATH: string; // DVD (needs the dvdvideo input)
+  FFPROBE_PATH: string;
 }

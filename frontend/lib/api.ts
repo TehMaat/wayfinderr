@@ -100,6 +100,7 @@ export const ripsApi = {
   chooseRip: (id: string, choice: { titleIndex?: number; tmdbId?: number }) =>
     apiClient.post<Rip>(`/api/rips/${id}/choose`, choice),
   retryRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/retry`),
+  remuxRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/remux`),
   skipRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/skip`),
   removeRip: (id: string) => apiClient.delete(`/api/rips/${id}`),
   clearSkippedRips: () => apiClient.post<{ removed: number }>('/api/rips/clear-skipped'),

@@ -493,7 +493,8 @@ GET /api/rips
       "unrar": true,
       "disks": [{ "disk": "watch", "freeBytes": 412316860416 }, { "disk": "downloads", "freeBytes": 1288490188800 }],
       "downloadsWritable": true
-    }
+    },
+    "remux": { "mkvmerge": true, "sevenZip": true, "dvd": true }
   },
   "rips": [
     {
@@ -503,6 +504,7 @@ GET /api/rips
       "downloadName": "Le.Film.2019.BluRay",
       "status": "NEEDS_ATTENTION",
       "reason": "Several long titles (1h52, 1h38): more than one film or cut, choose one",
+      "engine": "makemkv",
       "contentType": null,
       "contentPath": null,
       "unpackBytes": null,
@@ -537,6 +539,10 @@ GET /api/rips
 
 A RAR archive has `sourceType` `RAR` and `sourcePath` its first volume. Once listed, `contentType` (`ISO`, `BDMV`, `DVD` or `MKV`) and `contentPath` (inside the archive) tell its film, `unpackBytes` (string) the size of all its files. `unpackedTo` is the disk it is unpacked (or being unpacked) on, `downloads` or `watch`, and `null` once the unpacked copy is deleted. An `.mkv` unpacked next to the downloads is uploaded from there: `outputFile` is in `<downloads>/.wayfinderr/unpack/`.
 
+`engine` is what rips the disc: `makemkv`, or `remux` after *Rip without MakeMKV* (then `RIPPING` is mkvmerge or ffmpeg running in the backend, and `titles` were read without MakeMKV: a Blu-ray title's `index` is its playlist number, `sourceFile` its `.mpls`; a DVD title's `index` is the DVD's title number).
+
+`status.remux` (with ripping on): which tools of the rip without MakeMKV can be run: `mkvmerge` (Blu-ray), `sevenZip` (ISO images), `dvd` (ffmpeg with the `dvdvideo` input).
+
 `status.unpack` (with ripping on): `unrar` whether the command can be run, `disks` where archives can be unpacked with their free space (one entry per disk: just `watch` when the downloads are on the same disk or read-only), `downloadsWritable` whether the downloads' `.wayfinderr` folder can be written.
 
 ### Choose and Rip
@@ -557,7 +563,15 @@ POST /api/rips/:id/retry
 POST /api/rips/:id/skip
 ```
 
-Retry starts over (scan and automatic choices; an archive not unpacked yet is listed and unpacked again); not while unpacking, scanning or ripping. Skip never rips the disc, stops a running rip or unpacking, and deletes what was unpacked of an archive.
+Retry starts over with MakeMKV (scan and automatic choices; an archive not unpacked yet is listed and unpacked again); not while unpacking, scanning or ripping. Skip never rips the disc, stops a running rip or unpacking, and deletes what was unpacked of an archive.
+
+### Rip without MakeMKV
+
+```
+POST /api/rips/:id/remux
+```
+
+Rips the disc with mkvmerge (Blu-ray; an ISO extracted with 7-Zip first) or ffmpeg (DVD) in the backend instead of MakeMKV: `engine` becomes `remux` and the rip is queued; its titles are read again, then it goes on like any rip (automatic choice or `NEEDS_ATTENTION`, `RIPPING`, `DONE`). A Blu-ray title chosen on MakeMKV's scan is kept (same playlist). Allowed when the rip is `FAILED`, `NEEDS_ATTENTION`, `SKIPPED` or `QUEUED`; it doesn't need the MakeMKV runner. Errors: 404, 409 (rip in another state, an archive holding an `.mkv`, `Cannot rip without MakeMKV: mkvmerge (Blu-ray) not installed`). A disc that can't be read, a missing or cut clip, or a ripped file shorter than its title ends `FAILED` with the reason.
 
 ### Remove skipped rips from the list
 

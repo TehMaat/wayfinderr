@@ -112,6 +112,15 @@ router.post('/:id/retry', async (req: Request, res: Response) => {
   }
 });
 
+// POST rip with mkvmerge/ffmpeg instead of MakeMKV (after MakeMKV failed)
+router.post('/:id/remux', async (req: Request, res: Response) => {
+  try {
+    res.json(await toPublic(await ripper.ripWithoutMakemkv(req.params.id)));
+  } catch (error) {
+    fail(res, error, 'Failed to start the rip without MakeMKV');
+  }
+});
+
 router.post('/:id/skip', async (req: Request, res: Response) => {
   try {
     res.json(await toPublic(await ripper.skip(req.params.id)));
