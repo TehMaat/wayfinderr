@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Clapperboard, Cpu, Disc3, FolderSearch, Languages, ListX, RefreshCw, Timer } from 'lucide-react';
+import { Clapperboard, Cpu, Disc3, FolderSearch, Languages, ListX, PackageOpen, RefreshCw, Timer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -11,9 +11,9 @@ import { PageHeader } from '@/components/page-header';
 import { RipChooseDialog } from '@/components/rip-choose-dialog';
 import { RipExclusionsDialog } from '@/components/rip-exclusions-dialog';
 import { RipTable } from '@/components/rip-table';
-import { languageName, matchesRipFilter, RIP_FILTERS, type RipFilter } from '@/lib/rips';
+import { languageName, matchesRipFilter, RIP_FILTERS, UNPACK_DISKS, type RipFilter } from '@/lib/rips';
 import { useAppStore, type Rip, type RipperStatus } from '@/lib/store';
-import { cn } from '@/lib/utils';
+import { cn, formatBytes } from '@/lib/utils';
 
 // The runner and the TMDB key change outside Wayfinderr: refresh while the page is open
 const STATUS_REFRESH_MS = 30_000;
@@ -40,6 +40,46 @@ function Chip({
       <Icon className={cn('h-3.5 w-3.5 shrink-0', tone === 'ok' && 'text-success')} />
       {children}
     </span>
+  );
+}
+
+/** Where RAR archives get unpacked, and why only there */
+function UnpackChip({ unpack }: { unpack: NonNullable<RipperStatus['unpack']> }) {
+  if (!unpack.unrar) {
+    return (
+      <Chip icon={PackageOpen} tone="warning">
+        unrar not found
+        <span className="opacity-80">· RAR archives can&apos;t be unpacked</span>
+      </Chip>
+    );
+  }
+  const free = unpack.disks.map((d) => `${formatBytes(d.freeBytes, 1)} free on ${UNPACK_DISKS[d.disk]}`).join(', ');
+  const both = unpack.disks.length > 1;
+  const why = both
+    ? 'Each archive is unpacked on the disk with more free space left afterwards'
+    : unpack.downloadsWritable
+      ? 'The downloads are on the watch folder disk'
+      : 'The downloads folder is read-only: mount <downloads>/.wayfinderr writable to unpack there too';
+  return (
+    <Tooltip
+      content={
+        <span>
+          {why}
+          {free && (
+            <>
+              <br />
+              {free}
+            </>
+          )}
+        </span>
+      }
+    >
+      <span>
+        <Chip icon={PackageOpen} tone="ok">
+          RAR → {both ? 'downloads or watch folder disk' : 'watch folder disk'}
+        </Chip>
+      </span>
+    </Tooltip>
   );
 }
 
@@ -76,6 +116,7 @@ function SetupStrip({ status }: { status: RipperStatus }) {
           <Chip icon={Timer}>Titles ≥ {Math.round(status.minLength / 60)} min</Chip>
         </span>
       </Tooltip>
+      {status.unpack && <UnpackChip unpack={status.unpack} />}
     </div>
   );
 }
@@ -131,7 +172,7 @@ export default function RipsPage() {
     <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
       <PageHeader
         title="Rips"
-        description="Film discs (ISO, Blu-ray, DVD) downloaded by qBittorrent are ripped with MakeMKV into the watch folder."
+        description="Film discs (ISO, Blu-ray, DVD) downloaded by qBittorrent are ripped with MakeMKV into the watch folder. RAR archives are unpacked first: the disc inside is ripped, an .mkv is uploaded."
         actions={
           <>
             {status && (
@@ -223,7 +264,7 @@ export default function RipsPage() {
               <EmptyState
                 icon={Disc3}
                 title="No discs yet"
-                description="ISO files and Blu-ray (BDMV) or DVD (VIDEO_TS) folders that appear in the downloads show up here."
+                description="ISO files, Blu-ray (BDMV) or DVD (VIDEO_TS) folders and RAR archives that appear in the downloads show up here."
               />
             )
           ) : (

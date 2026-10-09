@@ -48,7 +48,7 @@ export interface Server {
 }
 
 export interface LocalFolder {
-  key: 'watch' | 'data';
+  key: 'watch' | 'downloads' | 'data';
   label: string;
   path: string;
 }
@@ -80,7 +80,19 @@ export interface Stats {
   queueSize: number;
 }
 
-export type RipStatus = 'WAITING' | 'QUEUED' | 'SCANNING' | 'RIPPING' | 'DONE' | 'NEEDS_ATTENTION' | 'FAILED' | 'SKIPPED';
+export type RipStatus =
+  | 'WAITING'
+  | 'QUEUED'
+  | 'UNPACKING'
+  | 'SCANNING'
+  | 'RIPPING'
+  | 'DONE'
+  | 'NEEDS_ATTENTION'
+  | 'FAILED'
+  | 'SKIPPED';
+
+/** Where a RAR archive is unpacked: next to the downloads, or next to the watch folder */
+export type UnpackDisk = 'downloads' | 'watch';
 
 export interface DiscStream {
   type: 'video' | 'audio' | 'subtitle';
@@ -115,11 +127,16 @@ export interface TmdbMovie {
 
 export interface Rip {
   id: string;
-  sourcePath: string;
-  sourceType: 'ISO' | 'BDMV' | 'DVD';
+  sourcePath: string; // an archive: its first volume
+  sourceType: 'ISO' | 'BDMV' | 'DVD' | 'RAR';
   downloadName: string;
   status: RipStatus;
   reason: string | null;
+  // RAR archive: the film inside (once listed) and the disk it is unpacked on (null when not unpacked)
+  contentType: 'ISO' | 'BDMV' | 'DVD' | 'MKV' | null;
+  contentPath: string | null;
+  unpackBytes: string | null; // bytes, serialized as string by the API
+  unpackedTo: UnpackDisk | null;
   discName: string | null;
   titles: DiscTitle[] | null; // null until the disc is scanned
   titleIndex: number | null;
@@ -130,7 +147,7 @@ export interface Rip {
   year: number | null;
   jobId: string | null;
   progress: number;
-  outputFile: string | null; // path in the watch folder, same as the upload's
+  outputFile: string | null; // path in the watch folder (or in the downloads' unpack folder), same as the upload's
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;
@@ -147,6 +164,12 @@ export interface RipperStatus {
   language: string; // ISO 639-1, kept with the film's original language
   minLength: number; // seconds
   exclusions: string[]; // discs whose path contains one are not ripped
+  // RAR archives: unrar installed, the disks they can be unpacked on (one per disk), the downloads writable
+  unpack?: {
+    unrar: boolean;
+    disks: { disk: UnpackDisk; freeBytes: number }[];
+    downloadsWritable: boolean;
+  };
 }
 
 interface Transfer {
@@ -191,7 +214,7 @@ interface AppState {
   loadRips: () => Promise<void>;
   refreshRip: (id: string) => Promise<void>;
   removeRip: (id: string) => void;
-  applyRipProgress: (id: string, progress: number) => void;
+  applyRipProgress: (id: string, progress: number, status?: 'UNPACKING' | 'RIPPING') => void;
 }
 
 const UPLOADS_LIMIT = 500;
@@ -345,11 +368,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   removeRip: (id) => set((state) => ({ rips: state.rips.filter((r) => r.id !== id) })),
 
   // A late progress event must not bring back a rip that has already ended
-  applyRipProgress: (id, progress) =>
+  applyRipProgress: (id, progress, status = 'RIPPING') =>
     set((state) => ({
       rips: state.rips.map((r) =>
-        r.id === id && (r.status === 'RIPPING' || r.status === 'QUEUED' || r.status === 'SCANNING')
-          ? { ...r, status: 'RIPPING', progress }
+        r.id === id && (r.status === status || r.status === 'QUEUED' || (status === 'RIPPING' && r.status === 'SCANNING'))
+          ? { ...r, status, progress }
           : r
       ),
     })),

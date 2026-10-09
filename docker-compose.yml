@@ -31,8 +31,12 @@ services:
       # Folder where MakeMKV saves the .mkv files (set MAKEMKV_OUTPUT_DIR in .env).
       # Writable: rips are moved in, uploaded files deleted (DELETE_AFTER_UPLOAD)
       - ${MAKEMKV_OUTPUT_DIR:-./makemkv-output}:/makemkv-output
-      # Downloads with the discs to rip (ISO, BDMV, VIDEO_TS), read only
+      # Downloads with the discs to rip (ISO, BDMV, VIDEO_TS) and RAR archives, read only...
       - ${DOWNLOADS_DIR:-./downloads}:/downloads:ro
+      # ...but for Wayfinderr's own folder in them: a RAR archive is unpacked there when the
+      # downloads disk has more free space than the watch folder's (without this line, only
+      # next to the watch folder)
+      - ${DOWNLOADS_DIR:-./downloads}/.wayfinderr:/downloads/.wayfinderr
       - wayfinderr-data:/app/data
     restart: unless-stopped
     networks:

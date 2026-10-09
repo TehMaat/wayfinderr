@@ -6,7 +6,7 @@ import { statSync } from 'fs';
 import { config } from './config/index.js';
 import logger from './config/logger.js';
 import { db } from './services/database.js';
-import { fileWatcher } from './services/fileWatcher.js';
+import { FileDetectedEvent, fileWatcher } from './services/fileWatcher.js';
 import { mediaInfoParser } from './services/mediaInfo.js';
 import { jobQueue } from './services/jobQueue.js';
 import { uploadManager } from './services/uploadManager.js';
@@ -197,12 +197,16 @@ jobQueue.on('upload-cancelled', ({ uploadId }) => {
 });
 
 // Ripper events: the page refetches the rip, progress updates it in place
+// (status: UNPACKING or RIPPING, the step the progress is of)
 ripper.on('rip-updated', ({ ripId, status }) => broadcast({ type: 'rip-updated', ripId, status }));
-ripper.on('rip-progress', ({ ripId, progress }) => broadcast({ type: 'rip-progress', ripId, progress }));
+ripper.on('rip-progress', ({ ripId, progress, status }) => broadcast({ type: 'rip-progress', ripId, progress, status }));
 
-// File watcher event handler
-fileWatcher.on('file-detected', async (event) => {
-  let uploadId: string | null = null;
+/**
+ * A new .mkv to upload: one from the watch folder, or one unpacked from an
+ * archive next to the downloads (its upload record is already created).
+ */
+const processFile = async (event: FileDetectedEvent, existingUploadId?: string) => {
+  let uploadId: string | null = existingUploadId ?? null;
   try {
     logger.info(event, 'Processing detected file');
 
@@ -210,12 +214,15 @@ fileWatcher.on('file-detected', async (event) => {
     const fileSize = BigInt(statSync(event.filepath).size);
 
     // Create upload record
-    const upload = await db.createUpload({
-      filename: event.filename,
-      filepath: event.filepath,
-      size: fileSize,
-      status: 'PENDING',
-    });
+    const upload =
+      existingUploadId !== undefined
+        ? { id: existingUploadId }
+        : await db.createUpload({
+            filename: event.filename,
+            filepath: event.filepath,
+            size: fileSize,
+            status: 'PENDING',
+          });
     uploadId = upload.id;
 
     // Parse media info
@@ -262,7 +269,10 @@ fileWatcher.on('file-detected', async (event) => {
       broadcast({ type: 'upload-failed', uploadId });
     }
   }
-});
+};
+
+fileWatcher.on('file-detected', (event: FileDetectedEvent) => processFile(event));
+ripper.on('file-ready', ({ uploadId, filepath, filename }) => processFile({ filepath, filename }, uploadId));
 
 // Error handling
 fileWatcher.on('error', (error) => {

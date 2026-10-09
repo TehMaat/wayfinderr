@@ -42,9 +42,11 @@ export async function deleteUpload(id: string): Promise<boolean> {
 
 export async function retryRip(id: string) {
   try {
-    await ripsApi.retryRip(id);
+    const { data } = await ripsApi.retryRip(id);
     await useAppStore.getState().refreshRip(id);
-    toast.success('Rip queued again', { description: 'The disc is scanned again' });
+    // An archive not unpacked yet is read again; once unpacked, its disc is scanned again
+    const again = data.sourceType === 'RAR' && !data.unpackedTo ? 'The archive is read and unpacked again' : 'The disc is scanned again';
+    toast.success('Rip queued again', { description: again });
   } catch (err) {
     toast.error('Retry failed', { description: errorMessage(err) });
   }

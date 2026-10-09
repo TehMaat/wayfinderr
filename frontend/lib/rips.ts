@@ -1,11 +1,11 @@
-import type { Rip, RipStatus } from './store';
+import type { Rip, RipStatus, UnpackDisk } from './store';
 
 export type RipFilter = 'ALL' | 'ATTENTION' | 'ACTIVE' | 'DONE' | 'FAILED' | 'SKIPPED';
 
 export const RIP_FILTERS: { value: RipFilter; label: string; statuses: RipStatus[] | null }[] = [
   { value: 'ALL', label: 'All', statuses: null },
   { value: 'ATTENTION', label: 'Needs attention', statuses: ['NEEDS_ATTENTION'] },
-  { value: 'ACTIVE', label: 'In progress', statuses: ['WAITING', 'QUEUED', 'SCANNING', 'RIPPING'] },
+  { value: 'ACTIVE', label: 'In progress', statuses: ['WAITING', 'QUEUED', 'UNPACKING', 'SCANNING', 'RIPPING'] },
   { value: 'DONE', label: 'Done', statuses: ['DONE'] },
   { value: 'FAILED', label: 'Failed', statuses: ['FAILED'] },
   { value: 'SKIPPED', label: 'Skipped', statuses: ['SKIPPED'] },
@@ -19,6 +19,15 @@ export const ripName = (rip: Pick<Rip, 'title' | 'year' | 'downloadName'>) =>
   rip.title ? `${rip.title}${rip.year ? ` (${rip.year})` : ''}` : rip.downloadName;
 
 export const tmdbUrl = (tmdbId: number) => `https://www.themoviedb.org/movie/${tmdbId}`;
+
+export const UNPACK_DISKS: Record<UnpackDisk, string> = {
+  downloads: 'the downloads disk',
+  watch: 'the watch folder disk',
+};
+
+/** A RAR archive holding an .mkv: unpacked and uploaded, never ripped */
+export const isArchivedMkv = (rip: Pick<Rip, 'sourceType' | 'contentType'>) =>
+  rip.sourceType === 'RAR' && rip.contentType === 'MKV';
 
 // Exclusion rules: same matching as the backend (services/ripper/exclusions.ts)
 export const EXCLUDED_PREFIX = 'Excluded by the rule ';
