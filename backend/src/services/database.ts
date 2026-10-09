@@ -140,12 +140,20 @@ export class DatabaseService {
     return this.prisma.rip.findMany({ orderBy: { createdAt: 'desc' } });
   }
 
+  // The rips in the list (not removed from it)
+  async getVisibleRips(): Promise<Rip[]> {
+    return this.prisma.rip.findMany({ where: { hidden: false }, orderBy: { createdAt: 'desc' } });
+  }
+
   async getRipById(id: string): Promise<Rip | null> {
     return this.prisma.rip.findUnique({ where: { id } });
   }
 
-  async getRipsByStatus(statuses: string[]): Promise<Rip[]> {
-    return this.prisma.rip.findMany({ where: { status: { in: statuses } }, orderBy: { createdAt: 'asc' } });
+  async getRipsByStatus(statuses: string[], visibleOnly = false): Promise<Rip[]> {
+    return this.prisma.rip.findMany({
+      where: { status: { in: statuses }, ...(visibleOnly ? { hidden: false } : {}) },
+      orderBy: { createdAt: 'asc' },
+    });
   }
 
   async createRip(data: Prisma.RipCreateInput): Promise<Rip> {

@@ -62,6 +62,26 @@ export async function skipRip(id: string) {
   }
 }
 
+export async function removeRip(id: string) {
+  try {
+    await ripsApi.removeRip(id);
+    useAppStore.getState().removeRip(id);
+    toast.success('Removed from the list');
+  } catch (err) {
+    toast.error('Remove failed', { description: errorMessage(err) });
+  }
+}
+
+export async function clearSkippedRips() {
+  try {
+    const { data } = await ripsApi.clearSkippedRips();
+    await useAppStore.getState().loadRips();
+    toast.success(data.removed === 1 ? '1 skipped rip removed' : `${data.removed} skipped rips removed`);
+  } catch (err) {
+    toast.error('Remove failed', { description: errorMessage(err) });
+  }
+}
+
 export async function testServer(id: string) {
   const name = useAppStore.getState().servers.find((s) => s.id === id)?.name ?? 'Server';
   const pending = toast.loading(`Testing ${name}…`, { description: 'Ultra.cc API and SSH/SFTP login' });

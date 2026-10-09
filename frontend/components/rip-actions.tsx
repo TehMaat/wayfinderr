@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Ban, ExternalLink, ListChecks, MoreHorizontal, Play, RotateCcw, UploadCloud } from 'lucide-react';
+import { Ban, ExternalLink, ListChecks, MoreHorizontal, Play, RotateCcw, Trash2, UploadCloud } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { retryRip, skipRip } from '@/lib/actions';
+import { removeRip, retryRip, skipRip } from '@/lib/actions';
 import { ripName, tmdbUrl } from '@/lib/rips';
 import type { Rip } from '@/lib/store';
 
@@ -123,6 +123,15 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
                 >
                   <Ban />
                   Skip
+                </DropdownMenuItem>
+              </>
+            )}
+            {rip.status === 'SKIPPED' && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem destructive onSelect={() => removeRip(rip.id)}>
+                  <Trash2 />
+                  Remove from list
                 </DropdownMenuItem>
               </>
             )}

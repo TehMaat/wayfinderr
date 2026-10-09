@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Clapperboard, Cpu, Disc3, FolderSearch, Languages, ListX, PackageOpen, RefreshCw, Timer } from 'lucide-react';
+import { Clapperboard, Cpu, Disc3, FolderSearch, Languages, ListX, PackageOpen, RefreshCw, Timer, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip } from '@/components/ui/tooltip';
 import { EmptyState } from '@/components/empty-state';
@@ -11,6 +12,7 @@ import { PageHeader } from '@/components/page-header';
 import { RipChooseDialog } from '@/components/rip-choose-dialog';
 import { RipExclusionsDialog } from '@/components/rip-exclusions-dialog';
 import { RipTable } from '@/components/rip-table';
+import { clearSkippedRips } from '@/lib/actions';
 import { languageName, matchesRipFilter, RIP_FILTERS, UNPACK_DISKS, type RipFilter } from '@/lib/rips';
 import { useAppStore, type Rip, type RipperStatus } from '@/lib/store';
 import { cn, formatBytes } from '@/lib/utils';
@@ -130,6 +132,7 @@ export default function RipsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [exclusionsOpen, setExclusionsOpen] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
 
   // /rips?filter=attention (dashboard callout) opens that list
   useEffect(() => {
@@ -241,6 +244,17 @@ export default function RipsPage() {
                 </button>
               );
             })}
+            {filter === 'SKIPPED' && counts.SKIPPED > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto shrink-0 text-muted-foreground hover:text-destructive"
+                onClick={() => setClearOpen(true)}
+              >
+                <Trash2 />
+                Clear skipped
+              </Button>
+            )}
           </div>
 
           {!loaded ? (
@@ -275,6 +289,19 @@ export default function RipsPage() {
 
       <RipChooseDialog rip={choosing} open={dialogOpen && Boolean(choosing)} onOpenChange={setDialogOpen} />
       <RipExclusionsDialog open={exclusionsOpen} onOpenChange={setExclusionsOpen} />
+      <ConfirmDialog
+        open={clearOpen}
+        onOpenChange={setClearOpen}
+        title="Clear skipped rips?"
+        description={
+          <>
+            {counts.SKIPPED === 1 ? 'The skipped rip is' : `The ${counts.SKIPPED} skipped rips are`} removed from the
+            list. The files in the downloads are not touched, and these discs are not listed again.
+          </>
+        }
+        confirmLabel="Clear"
+        onConfirm={clearSkippedRips}
+      />
     </div>
   );
 }
