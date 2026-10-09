@@ -66,11 +66,39 @@ model Upload {
   completedAt          DateTime?
   error                String?  // Error message if failed
 
+  // Torrent cleanup: the qBittorrent torrent the MKV was ripped from
+  // torrentStatus: null (not checked) | NO_MATCH | REVIEW | WAITING | REMOVED | ERROR
+  torrentStatus        String?
+  torrentClientId      String?
+  torrentHash          String?
+  torrentName          String?
+  torrentScore         Int?     // 0-100 name match score
+  torrentMessage       String?  // Why it was (not) removed
+
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
   @@index([status])
   @@index([serverId])
+  @@index([torrentStatus])
+}
+
+// Download client the source torrents come from (qBittorrent WebUI API)
+model TorrentClient {
+  id                   String   @id @default(cuid())
+  name                 String
+  url                  String   // e.g. http://localhost:8080
+  username             String?  // Blank: no login (WebUI auth bypass for this host)
+  password             String?
+  apiKey               String?  // qBittorrent 5.2+: used instead of username/password
+  category             String?  // Only look at torrents in this category (blank = all)
+
+  enabled              Boolean  @default(true)
+  autoRemove           Boolean  @default(true)  // false: only suggest, remove from the UI
+  deleteFiles          Boolean  @default(false) // Also delete the downloaded data (ISO/BDMV)
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 }
 
 // Key/value app settings: the login account and the session signing secret

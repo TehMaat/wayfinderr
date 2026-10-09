@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma, Rip, Upload, Server } from '@prisma/client';
+import { PrismaClient, Prisma, Rip, Upload, Server, TorrentClient } from '@prisma/client';
 import logger from '../config/logger.js';
 
 export class DatabaseService {
@@ -135,6 +135,45 @@ export class DatabaseService {
     return { total, byStatus, byServer, completedBytes: completed._sum.size ?? 0n };
   }
 
+  async getUploadsByTorrentStatus(torrentStatus: string): Promise<Upload[]> {
+    return this.prisma.upload.findMany({ where: { torrentStatus } });
+  }
+
+  /** Marks every upload waiting on this torrent at once (a disc often gives several MKVs) */
+  async updateUploadsByTorrentHash(
+    torrentHash: string,
+    fromStatuses: string[],
+    data: Prisma.UploadUncheckedUpdateManyInput
+  ): Promise<string[]> {
+    const uploads = await this.prisma.upload.findMany({
+      where: { torrentHash, torrentStatus: { in: fromStatuses } },
+      select: { id: true },
+    });
+    await this.prisma.upload.updateMany({ where: { id: { in: uploads.map((u) => u.id) } }, data });
+    return uploads.map((u) => u.id);
+  }
+
+  // Torrent client queries
+  async getTorrentClients(): Promise<TorrentClient[]> {
+    return this.prisma.torrentClient.findMany({ orderBy: { createdAt: 'asc' } });
+  }
+
+  async getTorrentClientById(id: string): Promise<TorrentClient | null> {
+    return this.prisma.torrentClient.findUnique({ where: { id } });
+  }
+
+  async createTorrentClient(data: Prisma.TorrentClientCreateInput): Promise<TorrentClient> {
+    return this.prisma.torrentClient.create({ data });
+  }
+
+  async updateTorrentClient(id: string, data: Prisma.TorrentClientUpdateInput): Promise<TorrentClient> {
+    return this.prisma.torrentClient.update({ where: { id }, data });
+  }
+
+  async deleteTorrentClient(id: string): Promise<TorrentClient> {
+    return this.prisma.torrentClient.delete({ where: { id } });
+  }
+
   // Rip queries
   async getRips(): Promise<Rip[]> {
     return this.prisma.rip.findMany({ orderBy: { createdAt: 'desc' } });
@@ -168,6 +207,16 @@ export class DatabaseService {
   async updateRipIf(id: string, where: Prisma.RipWhereInput, data: Prisma.RipUpdateManyMutationInput): Promise<Rip | null> {
     const { count } = await this.prisma.rip.updateMany({ where: { ...where, id }, data });
     return count ? this.prisma.rip.findUnique({ where: { id } }) : null;
+  }
+
+  // The rip that produced this file (the uploaded MKV)
+  async getRipByOutputFile(outputFile: string): Promise<Rip | null> {
+    return this.prisma.rip.findFirst({ where: { outputFile }, orderBy: { updatedAt: 'desc' } });
+  }
+
+  // Every rip of one download (a film can span several discs)
+  async getRipsByDownloadName(downloadName: string): Promise<Rip[]> {
+    return this.prisma.rip.findMany({ where: { downloadName } });
   }
 
   async deleteRip(id: string): Promise<Rip> {

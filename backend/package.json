@@ -12,7 +12,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:generate": "prisma generate",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/services/ripper/*.test.ts",
+    "test": "tsx --test src/services/*.test.ts src/services/ripper/*.test.ts",
     "reset-auth": "node dist/cli.js reset-auth"
   },
   "dependencies": {

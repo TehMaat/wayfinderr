@@ -79,7 +79,19 @@ export const uploadsApi = {
   // The backend waits for the running transfer to stop (up to 10 s)
   cancelUpload: (id: string) => apiClient.post(`/api/uploads/${id}/cancel`, null, { timeout: 30000 }),
   deleteUpload: (id: string) => apiClient.delete(`/api/uploads/${id}`),
+  checkTorrent: (id: string) => apiClient.post(`/api/uploads/${id}/torrent/check`, null, { timeout: 120000 }),
+  removeTorrent: (id: string) => apiClient.post(`/api/uploads/${id}/torrent/remove`, null, { timeout: 45000 }),
 };
+
+// Download clients API (qBittorrent)
+export const clientsApi = {
+  listClients: () => apiClient.get('/api/clients'),
+  createClient: (data: Record<string, unknown>) => apiClient.post('/api/clients', data),
+  updateClient: (id: string, data: Record<string, unknown>) => apiClient.put(`/api/clients/${id}`, data),
+  deleteClient: (id: string) => apiClient.delete(`/api/clients/${id}`),
+  testClient: (id: string) => apiClient.post(`/api/clients/${id}/test`, null, { timeout: 45000 }),
+};
+
 
 // Rips API (film discs ripped with MakeMKV)
 export const ripsApi = {

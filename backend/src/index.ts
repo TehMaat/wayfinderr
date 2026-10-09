@@ -12,6 +12,7 @@ import { jobQueue } from './services/jobQueue.js';
 import { uploadManager } from './services/uploadManager.js';
 import { authEvents, authenticate, ensureSetupCode, getAccount } from './services/auth.js';
 import { isCrossSite, requireAuth, securityMiddleware } from './middleware/security.js';
+import { torrentCleanup } from './services/torrentCleanup.js';
 import authRoutes from './routes/auth.js';
 import serverRoutes from './routes/servers.js';
 import uploadRoutes from './routes/uploads.js';
@@ -19,6 +20,7 @@ import spaceRoutes from './routes/space.js';
 import ripRoutes from './routes/rips.js';
 import { ripper } from './services/ripper/index.js';
 import systemRoutes from './routes/system.js';
+import clientRoutes from './routes/clients.js';
 
 // Prisma returns BigInt for sizes: serialize them as strings in JSON responses
 (BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function () {
@@ -52,6 +54,7 @@ app.use('/api/uploads', uploadRoutes);
 app.use('/api/space', spaceRoutes);
 app.use('/api/rips', ripRoutes);
 app.use('/api/system', systemRoutes);
+app.use('/api/clients', clientRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -172,6 +175,18 @@ jobQueue.on('upload-completed', ({ uploadId }) => {
   broadcast({
     type: 'upload-completed',
     uploadId,
+  });
+  // Uploaded: the source torrent can go
+  torrentCleanup
+    .handleUploadCompleted(uploadId)
+    .catch((error) => logger.error({ uploadId, error }, 'Torrent cleanup failed'));
+});
+
+torrentCleanup.on('torrent-updated', ({ uploadId, torrentStatus }) => {
+  broadcast({
+    type: 'torrent-updated',
+    uploadId,
+    torrentStatus,
   });
 });
 
@@ -294,6 +309,8 @@ const shutdown = async (signal: string) => {
     // Close SSH connections
     uploadManager.close();
 
+    // Drop pending torrent removals (resumed at the next start)
+    torrentCleanup.stop();
     // Close the browsers' WebSockets, or the HTTP server would wait for them
     wss.clients.forEach((client) => client.close(1001, 'Server shutting down'));
 
@@ -328,6 +345,7 @@ const startServer = async () => {
 
     // Resume uploads left unfinished by a previous run
     await jobQueue.resumePending();
+    await torrentCleanup.resumePending();
 
     // Start file watcher
     fileWatcher.start();

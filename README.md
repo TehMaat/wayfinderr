@@ -2,7 +2,7 @@
 
 Automated MKV file transfer system with intelligent server selection and real-time monitoring.
 
-Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitles, and uploads it via SFTP to the server with the most free space, with automatic retry. Optionally it also rips the film discs (ISO, Blu-ray and DVD folders) that land in the downloads folder.
+Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitles, and uploads it via SFTP to the server with the most free space, with automatic retry. Optionally it also rips the film discs (ISO, Blu-ray and DVD folders) that land in the downloads folder, and removes the source torrent from qBittorrent once the film is uploaded.
 
 **Stack**: Node.js 20 • Express • Prisma + SQLite • Next.js 14 • WebSocket • Docker Compose (optional)
 
@@ -16,6 +16,7 @@ Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitl
 - 📊 **Real-Time Monitoring** - WebSocket-driven live dashboard
 - 💽 **Local Disk Space** - Free/used space of the disks holding the watch folder, the downloads (with ripping on) and the database, one bar per disk when they are on different disks
 - 🔄 **Job Queue** - Concurrent uploads (max 2 global, max 1 per server); unfinished uploads resume after a restart
+- 🧲 **Torrent Cleanup** - After the upload, finds the torrent the MKV was ripped from (names + TMDB titles in every language) and removes it from qBittorrent
 - 💾 **Full History** - SQLite-backed persistence with upload tracking
 - 🌐 **Web UI** - Dashboard, server management and upload history
 - 🔐 **Login** - One password-protected account; the browser only talks to the frontend, which proxies the API, so one HTTPS reverse proxy entry is enough
@@ -142,6 +143,23 @@ RAR archives in the downloads (`.rar`, `.part1.rar` + `.part2.rar`..., `.rar` + 
 
 Archives are unpacked one at a time, between rips. *Skip* stops an unpacking and deletes what was unpacked. Archives already in the downloads when this was added are listed as skipped (*Rip anyway*, or `RIP_EXISTING=true`). To never unpack them, add the exclusion rule `.rar`.
 
+### Remove the source torrent (optional)
+
+If the films come from qBittorrent, Wayfinderr can remove each torrent once its MKV is uploaded.
+
+1. In qBittorrent enable the WebUI (Tools → Options → WebUI). Optional: put the disc torrents in a category such as `rip`
+2. Open **Clients** → **Add client**: URL (`http://localhost:8080`; from Docker `http://host.docker.internal:8080`), username/password (or an API key on qBittorrent 5.2+, or blank if the WebUI skips login for this host), category, and whether to keep or delete the downloaded files
+3. Click **Test connection**
+4. For MKVs not ripped by Wayfinderr, set `TMDB_API_KEY` (the ripper's key, see above) so that `IL_PADRINO_t00.mkv` matches `The.Godfather.1972.1080p.BluRay`
+
+How a torrent is matched and removed:
+
+- **Ripped by Wayfinderr** (automatic ripping above): the torrent is the one whose folder or file is the rip's download, an exact match whatever the names. With several discs in one download, it waits for all of them
+- **Any other MKV**: the MKV name and its folders inside the watch folder (`_t00`, `DISC_1`, release tags and the leading article are ignored) are compared with every finished torrent's name, content folder and TMDB titles. Generic names such as `title_t00.mkv` never match: rename the file or rip into a folder named after the movie
+- **Automatic** only when the match is certain (same title, score 95+) and no other torrent comes close. A partial match (`Blade Runner` vs `Blade Runner 2049`) or two torrents of the same movie only show a suggestion and a **Remove torrent now** button on the upload page
+- The removal waits 5 minutes, then until no other rip or upload of the same download is still running (for an MKV matched by name: no other MKV of the same film queued or uploading, and no MKV in the watch folder written in the last 2 minutes, since MakeMKV may still be ripping the other titles from that ISO)
+- Only finished torrents are ever considered. Note that removing a torrent stops seeding: on private trackers check your ratio rules, or leave **When matched** on "Only suggest"
+
 ---
 
 ## Configuration
@@ -167,7 +185,7 @@ Archives are unpacked one at a time, between rips. *Skip* stops an unpacking and
 | `RIP_EXISTING` | `false` | Also rip the downloads already there when ripping is first enabled |
 | `RIP_LANGUAGE` | `it` | Language always kept (ISO 639-1), besides the film's original one |
 | `UNRAR_PATH` | `unrar` | Backend: the unrar command for RAR archives (in the Docker image) |
-| `TMDB_API_KEY` | – | themoviedb.org API key (v3) or read access token; without it every rip waits for a choice |
+| `TMDB_API_KEY` | – | themoviedb.org API key (v3) or read access token; without it every rip waits for a choice, and torrents are matched only by names in the same language |
 | `TMDB_LANGUAGE` | `it-IT` | Language of the title used for the file name |
 | `MAKEMKV_KEY` | `BETA` | MakeMKV container: registration key, or `BETA` for the free beta key |
 | `WAYFINDERR_RUNNER` | `1` | MakeMKV container: `0` turns the runner off |
@@ -240,6 +258,12 @@ Served through the frontend (`http://localhost:3000/api/...`). Every route excep
 - `GET /api/uploads/:id` - Get upload details
 - `POST /api/uploads/:id/retry` - Re-queue a failed, skipped or stopped upload
 - `POST /api/uploads/:id/cancel` - Stop a queued or running upload (the partial file on the server is deleted)
+- `POST /api/uploads/:id/torrent/check` - Match the upload to its source torrent again
+- `POST /api/uploads/:id/torrent/remove` - Remove the matched torrent now
+
+### Clients (qBittorrent)
+- `GET /api/clients` / `POST /api/clients` / `PUT /api/clients/:id` / `DELETE /api/clients/:id`
+- `POST /api/clients/:id/test` - Login + version + finished torrents in scope
 
 ### Space
 - `GET /api/space` - All servers' space

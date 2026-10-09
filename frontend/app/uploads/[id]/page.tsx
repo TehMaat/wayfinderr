@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowLeft, AudioLines, Captions, FileVideo, RotateCcw, Square, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, AudioLines, Captions, FileVideo, Magnet, RotateCcw, Search, Square, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,9 +13,9 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { StatusBadge } from '@/components/status-badge';
 import { StopUploadDialog, canDelete, canRetry, canStop } from '@/components/upload-actions';
-import { deleteUpload, retryUpload } from '@/lib/actions';
+import { checkTorrent, deleteUpload, removeTorrent, retryUpload } from '@/lib/actions';
 import { isItalian, uploadTracks, type Track } from '@/lib/media';
-import { useAppStore } from '@/lib/store';
+import { useAppStore, type TorrentStatus, type Upload } from '@/lib/store';
 import { cn, formatBytes, formatDate, formatDuration, formatSpeed } from '@/lib/utils';
 
 
@@ -58,6 +58,87 @@ function TrackList({ title, icon: Icon, tracks }: { title: string; icon: typeof 
           </div>
         )}
       </CardContent>
+    </Card>
+  );
+}
+
+const TORRENT_STATUS: Record<TorrentStatus, { label: string; variant: 'success' | 'warning' | 'destructive' | 'info' | 'secondary' }> = {
+  WAITING: { label: 'Removal scheduled', variant: 'info' },
+  REMOVED: { label: 'Removed', variant: 'success' },
+  REVIEW: { label: 'Needs review', variant: 'warning' },
+  NO_MATCH: { label: 'No match', variant: 'secondary' },
+  ERROR: { label: 'Error', variant: 'destructive' },
+};
+
+function TorrentCard({ upload }: { upload: Upload }) {
+  const hasClients = useAppStore((s) => s.clients.some((c) => c.enabled));
+  const client = useAppStore((s) => s.clients.find((c) => c.id === upload.torrentClientId));
+  const clientName = client?.name;
+  const [busy, setBusy] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  // Nothing to show before the upload is done, or when the feature is not set up
+  if (upload.status !== 'COMPLETED' || (!upload.torrentStatus && !hasClients)) return null;
+
+  const status = upload.torrentStatus ? TORRENT_STATUS[upload.torrentStatus] : null;
+  const canRemove =
+    Boolean(upload.torrentHash) && (upload.torrentStatus === 'REVIEW' || upload.torrentStatus === 'WAITING' || upload.torrentStatus === 'ERROR');
+  const canCheck = hasClients && upload.torrentStatus !== 'REMOVED' && upload.torrentStatus !== 'WAITING';
+
+  const run = async (action: () => Promise<void>) => {
+    setBusy(true);
+    await action();
+    setBusy(false);
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Magnet className="h-4 w-4 text-muted-foreground" />
+          Source torrent
+        </CardTitle>
+        {status ? <Badge variant={status.variant}>{status.label}</Badge> : <Badge variant="secondary">Not checked</Badge>}
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {upload.torrentName && (
+          <div className="divide-y divide-border/60">
+            <Row label="Torrent">
+              <span className="font-mono text-xs">{upload.torrentName}</span>
+            </Row>
+            <Row label="Client">{clientName ?? '–'}</Row>
+            <Row label="Name match">{upload.torrentScore !== null ? `${upload.torrentScore}%` : '–'}</Row>
+          </div>
+        )}
+        {upload.torrentMessage && <p className="text-sm text-muted-foreground">{upload.torrentMessage}</p>}
+        {(canRemove || canCheck) && (
+          <div className="flex flex-wrap gap-2">
+            {canRemove && (
+              <Button size="sm" variant={upload.torrentStatus === 'REVIEW' ? 'default' : 'secondary'} disabled={busy} onClick={() => setConfirmOpen(true)}>
+                <Trash2 />
+                Remove torrent now
+              </Button>
+            )}
+            {canCheck && (
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => run(() => checkTorrent(upload.id))}>
+                <Search />
+                {upload.torrentStatus ? 'Check again' : 'Find torrent'}
+              </Button>
+            )}
+          </div>
+        )}
+      </CardContent>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Remove this torrent?"
+        description={`"${upload.torrentName}" is removed from ${clientName ?? 'the client'}${
+          client?.deleteFiles ? ' together with its downloaded files' : '. Its downloaded files are kept'
+        }.`}
+        confirmLabel="Remove"
+        onConfirm={() => run(() => removeTorrent(upload.id))}
+      />
     </Card>
   );
 }
@@ -219,6 +300,8 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
           </CardContent>
         </Card>
       </div>
+
+      <TorrentCard upload={upload} />
 
       {media.parsed ? (
         <div className="grid gap-4 md:grid-cols-2">
