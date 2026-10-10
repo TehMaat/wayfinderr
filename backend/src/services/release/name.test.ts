@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MediaInfo } from '../../types/index.js';
-import { analyze, buildReleaseName, isAutoHybrid, pythonTitle, validateFlags, versionTag } from './name.js';
+import { analyze, buildReleaseName, dotted, isAutoHybrid, pythonTitle, validateFlags, versionTag } from './name.js';
 
 const video = (width: number, height: number, hdr: string | null = null) => ({
   index: 0,
@@ -128,6 +128,16 @@ test('title case, edition and signs like Python', () => {
   assert.equal(
     buildReleaseName({ ...flags, title: 'Mission: Impossible  ', remux: false }, analyze(media({ audioTracks: [], subtitles: [] })), 'mkv'),
     'Mission.Impossible.1972.1080P.mkv'
+  );
+});
+
+test('the title keeps only letters and digits', () => {
+  assert.equal(dotted("Stuber - Autista D'Assalto"), 'Stuber.Autista.D.Assalto');
+  assert.equal(dotted('La città & il mare!'), 'La.citta.il.mare');
+  assert.equal(versionTag('Director’s Cut (4K)'), 'DIRECTORS.CUT.4K');
+  assert.equal(
+    buildReleaseName({ ...flags, title: "Stuber - Autista D'Assalto", year: '2019', remux: false }, analyze(media({ audioTracks: [], subtitles: [] })), 'mkv'),
+    'Stuber.Autista.D.Assalto.2019.1080P.mkv'
   );
 });
 

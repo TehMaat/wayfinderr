@@ -197,9 +197,16 @@ export const pythonTitle = (text: string) => {
   return out;
 };
 
+/** Letters and digits only, without accents, joined by single dots: "Stuber - Autista D'Assalto" -> "Stuber.Autista.D.Assalto" */
+export const dotted = (text: string) =>
+  text
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^A-Za-z0-9]+/g, '.')
+    .replace(/^\.+|\.+$/g, '');
+
 /** "Director's Cut" -> "DIRECTORS.CUT" */
-export const versionTag = (version: string) =>
-  version.trim().toUpperCase().replace(/'/g, '').replace(/\s+/g, '.');
+export const versionTag = (version: string) => dotted(version.toUpperCase().replace(/['’]/g, ''));
 
 const sanitize = (name: string) => name.replace(/[<>:"/\\|?*]/g, '').replace(/\.{2,}/g, '.');
 
@@ -223,7 +230,7 @@ export const buildReleaseName = (
   const vu = flags.remux && !hybrid;
   const { video } = analysis;
 
-  const parts = [pythonTitle(flags.title.trim().replace(/\s+/g, '.')), flags.year.trim()];
+  const parts = [pythonTitle(dotted(flags.title)), flags.year.trim()];
   if (flags.version.trim()) parts.push(versionTag(flags.version));
   if (hybrid) parts.push('HYBRID');
   if (flags.remux) parts.push('REMUX');
