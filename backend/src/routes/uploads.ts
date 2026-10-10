@@ -1,8 +1,8 @@
 import { existsSync } from 'fs';
-import { Router, Request, Response } from 'express';
+import express, { Router, Request, Response } from 'express';
 import { db } from '../services/database.js';
 import { jobQueue } from '../services/jobQueue.js';
-import { torrentCleanup } from '../services/torrentCleanup.js';
+import { torrentCleanup, TorrentFileError } from '../services/torrentCleanup.js';
 import { describeError } from '../services/qbittorrent.js';
 import { mediaInfoParser } from '../services/mediaInfo.js';
 import { releaseManager, ReleaseError } from '../services/release/index.js';
@@ -156,6 +156,30 @@ router.post('/:id/torrent/remove', async (req: Request, res: Response) => {
     res.status(502).json({ error: describeError(error) });
   }
 });
+
+// The source torrent's .torrent given by hand (removed before its tracker was kept):
+// the body is the file itself; with an upload id, for that upload, else for every
+// removed source torrent with its info hash
+const torrentBody = express.raw({ type: 'application/x-bittorrent', limit: '10mb' });
+const addTorrentFile = async (req: Request, res: Response) => {
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+    res.status(415).json({ error: 'Send the .torrent file as application/x-bittorrent' });
+    return;
+  }
+  try {
+    const added = await torrentCleanup.addTorrentFile(req.body, req.params.id);
+    res.json(req.params.id ? await db.getUploadById(req.params.id) : added);
+  } catch (error) {
+    if (error instanceof TorrentFileError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+    logger.error({ uploadId: req.params.id, error }, 'Failed to add the source .torrent');
+    res.status(500).json({ error: 'Failed to add the source .torrent' });
+  }
+};
+router.post('/torrent-file', torrentBody, addTorrentFile);
+router.post('/:id/torrent/file', torrentBody, addTorrentFile);
 
 // DELETE upload record (history only, the file is not touched)
 router.delete('/:id', async (req: Request, res: Response) => {

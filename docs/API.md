@@ -455,6 +455,21 @@ POST /api/uploads/:id/torrent/remove
 
 Removes the matched torrent from its client now (the "Remove torrent now" button), also while the upload is running. Uses the client's `deleteFiles` setting. Returns the updated upload, `502` if qBittorrent refuses.
 
+### Add the Source .torrent by Hand
+
+```
+POST /api/uploads/:id/torrent/file
+POST /api/uploads/torrent-file
+Content-Type: application/x-bittorrent
+```
+
+For source torrents removed before their tracker was kept: the body is the source torrent's .torrent file (up to 10 MB), downloaded again from its tracker. Its tracker host (from `announce`, else `announce-list`) goes into `torrentTracker`; the file itself and the passkey in its announce URL are not stored.
+
+- `/:id/torrent/file`: for this upload, whose `torrentStatus` must be `REMOVED`. Fills `torrentHash` (and `torrentName`) when unknown; `409` when the upload knows another hash. Returns the updated upload.
+- `/torrent-file`: for every `REMOVED` upload with the .torrent's info hash (several .torrents are sent one per request). Returns `{ name, infoHash, tracker, uploadIds }`, `404` when no removed source torrent has that hash.
+
+`400` when the body is not a .torrent, `415` without the content type, `422` when the .torrent names no tracker. Each upload changed sends `torrent-updated` with `byHand: true`.
+
 **Torrent fields on an upload:**
 
 | Field | Meaning |

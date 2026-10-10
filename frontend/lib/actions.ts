@@ -190,6 +190,41 @@ export async function removeTorrent(id: string) {
   }
 }
 
+/** The source .torrent of a torrent removed before its tracker was kept */
+export async function addTorrentFile(id: string, file: File) {
+  try {
+    const { data } = await uploadsApi.addTorrentFile(id, file);
+    await useAppStore.getState().refreshUpload(id);
+    toast.success('Source tracker added', { description: data.torrentTracker ?? undefined });
+  } catch (err) {
+    toast.error(`${file.name} not added`, { description: errorMessage(err) });
+  }
+}
+
+/** Several source .torrents at once: each goes to the removed source torrents with its info hash */
+export async function importTorrentFiles(files: File[]) {
+  const pending = toast.loading(`Reading ${files.length} .torrent ${files.length === 1 ? 'file' : 'files'}…`);
+  const updated = new Set<string>();
+  const failed: string[] = [];
+  for (const file of files) {
+    try {
+      const { data } = await uploadsApi.importTorrentFile(file);
+      data.uploadIds.forEach((id) => updated.add(id));
+    } catch (err) {
+      failed.push(`${file.name}: ${errorMessage(err)}`);
+    }
+  }
+  await Promise.all([...updated].map((id) => useAppStore.getState().refreshUpload(id)));
+  const summary = `Source tracker added to ${updated.size} ${updated.size === 1 ? 'upload' : 'uploads'}`;
+  if (failed.length === 0) {
+    toast.success(summary, { id: pending });
+  } else {
+    // The files that matched no removed source torrent, or are no .torrent
+    const shown = failed.slice(0, 5).join(' · ') + (failed.length > 5 ? ` · and ${failed.length - 5} more` : '');
+    toast.warning(`${summary}, ${failed.length} not used`, { id: pending, description: shown, duration: 20_000 });
+  }
+}
+
 // Release: the tracker command on the renamed file (see the rename dialog for the rename)
 export async function runRelease(id: string) {
   try {

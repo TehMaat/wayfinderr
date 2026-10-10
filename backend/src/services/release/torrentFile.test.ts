@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'crypto';
-import { parseTorrent, trackerHost } from './torrentFile.js';
+import { parseTorrent, torrentTrackers, trackerHost } from './torrentFile.js';
 
 const info = 'd6:lengthi1234e4:name13:Film.2001.mkv12:piece lengthi16384e6:pieces0:e';
 
@@ -44,4 +44,11 @@ test('the tracker host only, never the passkey', () => {
   assert.equal(trackerHost('udp://open.example.net:1337/announce'), 'open.example.net');
   assert.equal(trackerHost('** [DHT] **'), null);
   assert.equal(trackerHost(''), null);
+});
+
+test("a .torrent's trackers: announce and announce-list hosts, each once", () => {
+  const list = 'll30:https://t.example/a/PASSKEY/anel21:udp://b.example:80/anee';
+  const file = Buffer.from(`d8:announce30:https://t.example/a/PASSKEY/an13:announce-list${list}4:info${info}e`);
+  assert.deepEqual(torrentTrackers(file), ['t.example', 'b.example']);
+  assert.deepEqual(torrentTrackers(Buffer.from(`d4:info${info}e`)), []);
 });

@@ -197,11 +197,12 @@ releaseManager.on('release-updated', ({ uploadId, releaseStatus, prompt, linked 
 );
 releaseManager.on('release-output', ({ uploadId, log }) => broadcast({ type: 'release-output', uploadId, log }));
 
-torrentCleanup.on('torrent-updated', ({ uploadId, torrentStatus }) => {
+torrentCleanup.on('torrent-updated', ({ uploadId, torrentStatus, byHand }) => {
   broadcast({
     type: 'torrent-updated',
     uploadId,
     torrentStatus,
+    byHand,
   });
 });
 

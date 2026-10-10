@@ -6,7 +6,7 @@ import logger from '../config/logger.js';
 import { config } from '../config/index.js';
 import { db } from './database.js';
 import { describeError, getQbitClient, QbitTorrent } from './qbittorrent.js';
-import { trackerHost } from './release/torrentFile.js';
+import { parseTorrent, TorrentFile, torrentTrackers, trackerHost } from './release/torrentFile.js';
 import { isMeaningfulTitle, MatchName, normalize, parseName, titleSimilarity } from './nameMatch.js';
 import { parseReleaseName } from './ripper/releaseName.js';
 import { getMovieTitles, matchMovie, tmdbConfigured } from './ripper/tmdb.js';
@@ -38,6 +38,13 @@ const RIP_UNFINISHED = new Set(['WAITING', 'QUEUED', 'UNPACKING', 'SCANNING', 'R
 const UPLOAD_UNFINISHED = ['PENDING', 'QUEUED', 'UPLOADING'];
 
 export type TorrentStatus = 'NO_MATCH' | 'REVIEW' | 'WAITING' | 'REMOVED' | 'ERROR';
+
+/** A .torrent given by hand that cannot be used, with the HTTP status to answer */
+export class TorrentFileError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+  }
+}
 
 interface TorrentTitles {
   titles: string[];
@@ -497,6 +504,42 @@ export class TorrentCleanup extends EventEmitter {
     }
     await this.findTorrent(upload);
     return db.getUploadById(uploadId);
+  }
+
+  /**
+   * The source torrent's .torrent, given by hand: for torrents removed before their
+   * tracker was kept. Its info hash tells which uploads it is for (with uploadId, that
+   * upload, which may not know the hash yet). Only the tracker host is kept, never the
+   * file: its announce URLs carry the passkey.
+   */
+  async addTorrentFile(data: Buffer, uploadId?: string): Promise<{ name: string; infoHash: string; tracker: string; uploadIds: string[] }> {
+    let torrent: TorrentFile;
+    try {
+      torrent = parseTorrent(data);
+    } catch {
+      throw new TorrentFileError('Not a .torrent file', 400);
+    }
+    const { infoHash, name } = torrent;
+    const tracker = torrentTrackers(data)[0];
+    if (!tracker) throw new TorrentFileError(`"${name}" names no tracker`, 422);
+
+    if (uploadId) {
+      const upload = await db.getUploadById(uploadId);
+      if (!upload) throw new TorrentFileError('Upload not found', 404);
+      if (upload.torrentStatus !== 'REMOVED') {
+        throw new TorrentFileError('Only for a source torrent already removed: "Find torrent" reads the others from the client', 409);
+      }
+      if (upload.torrentHash && upload.torrentHash.toLowerCase() !== infoHash) {
+        throw new TorrentFileError(`Another torrent: "${name}" is ${infoHash}, the source torrent was ${upload.torrentHash}`, 409);
+      }
+      await db.updateUpload(uploadId, { torrentHash: infoHash, torrentName: upload.torrentName ?? name });
+    }
+
+    const uploadIds = await db.updateUploadsByTorrentHash(infoHash, ['REMOVED'], { torrentTracker: tracker });
+    if (uploadIds.length === 0) throw new TorrentFileError(`No removed source torrent has the hash of "${name}" (${infoHash})`, 404);
+    uploadIds.forEach((id) => this.emit('torrent-updated', { uploadId: id, torrentStatus: 'REMOVED', byHand: true }));
+    logger.info({ infoHash, tracker, uploadIds }, 'Source torrent tracker added by hand');
+    return { name, infoHash, tracker, uploadIds };
   }
 
   /** After a restart: pick up the removals that were waiting */
