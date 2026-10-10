@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Clapperboard, Cpu, Disc3, FolderSearch, Languages, ListX, PackageOpen, RefreshCw, Timer, Trash2 } from 'lucide-react';
+import { Clapperboard, Cpu, Disc3, FolderSearch, Languages, ListX, PackageOpen, RefreshCw, Timer, Trash2, Wrench } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -85,6 +85,39 @@ function UnpackChip({ unpack }: { unpack: NonNullable<RipperStatus['unpack']> })
   );
 }
 
+/** The tools for ripping without MakeMKV when it fails */
+function RemuxChip({ remux }: { remux: NonNullable<RipperStatus['remux']> }) {
+  const bluRay = remux.mkvmerge;
+  const dvd = remux.dvd;
+  const what = [bluRay && (remux.sevenZip ? 'Blu-ray (folders and ISO)' : 'Blu-ray folders'), dvd && 'DVD'].filter(Boolean).join(', ');
+  const missing = [
+    !remux.mkvmerge && 'mkvmerge (Blu-ray)',
+    !remux.sevenZip && '7-Zip (ISO images)',
+    !remux.dvd && 'ffmpeg with DVD support',
+  ].filter(Boolean);
+  return (
+    <Tooltip
+      content={
+        <span>
+          When MakeMKV fails, “Rip without MakeMKV” remuxes unencrypted discs with mkvmerge or ffmpeg
+          {missing.length > 0 && (
+            <>
+              <br />
+              Not found: {missing.join(', ')}
+            </>
+          )}
+        </span>
+      }
+    >
+      <span>
+        <Chip icon={Wrench} tone={what ? 'ok' : 'warning'}>
+          {what ? `Without MakeMKV: ${what}` : 'Rip without MakeMKV unavailable'}
+        </Chip>
+      </span>
+    </Tooltip>
+  );
+}
+
 function SetupStrip({ status }: { status: RipperStatus }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -119,6 +152,7 @@ function SetupStrip({ status }: { status: RipperStatus }) {
         </span>
       </Tooltip>
       {status.unpack && <UnpackChip unpack={status.unpack} />}
+      {status.remux && <RemuxChip remux={status.remux} />}
     </div>
   );
 }

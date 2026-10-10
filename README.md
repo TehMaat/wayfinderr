@@ -20,7 +20,7 @@ Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitl
 - 💾 **Full History** - SQLite-backed persistence with upload tracking
 - 🌐 **Web UI** - Dashboard, server management and upload history
 - 🔐 **Login** - One password-protected account; the browser only talks to the frontend, which proxies the API, so one HTTPS reverse proxy entry is enough
-- 💿 **Automatic ripping** - Film discs that finish downloading are identified on TMDB and ripped with MakeMKV (main title, Italian + original language), then uploaded; anything unsure waits for a choice in the UI
+- 💿 **Automatic ripping** - Film discs that finish downloading are identified on TMDB and ripped with MakeMKV (main title, Italian + original language), then uploaded; anything unsure waits for a choice in the UI. When MakeMKV fails, unencrypted discs can be ripped without it (mkvmerge, ffmpeg)
 - 📦 **RAR archives** - Downloaded RAR archives are unpacked on whichever disk has more free space (downloads or watch folder): the disc inside is ripped, an .mkv is uploaded
 
 ---
@@ -143,6 +143,20 @@ RAR archives in the downloads (`.rar`, `.part1.rar` + `.part2.rar`..., `.rar` + 
 
 Archives are unpacked one at a time, between rips. *Skip* stops an unpacking and deletes what was unpacked. Archives already in the downloads when this was added are listed as skipped (*Rip anyway*, or `RIP_EXISTING=true`). To never unpack them, add the exclusion rule `.rar`.
 
+#### Rip without MakeMKV
+
+When MakeMKV can't rip a disc (makemkvcon crashes, the `BETA` key expired, the runner is offline), **Rips** → the rip's menu → *Rip without MakeMKV* rips it with the backend's own tools instead, included in the Docker image:
+
+| Disc | Tool | Notes |
+|---|---|---|
+| Blu-ray folder (`BDMV`) | `mkvmerge` on the film's playlist (`.mpls`) | joins its clips; languages from `CLIPINF`, chapters from the playlist |
+| Blu-ray `.iso` | the playlist's files extracted with 7-Zip (`7zz`), then `mkvmerge` | needs twice the film's size free on the watch folder disk |
+| DVD (`VIDEO_TS` or `.iso`) | `ffmpeg` (`dvdvideo` input, ffmpeg 7+ built with libdvdnav) | languages, subtitles (VobSub) and chapters from the IFO files |
+
+The disc's titles are read again without MakeMKV (a Blu-ray title is its playlist number, e.g. *Title 800* is `00800.mpls`; a DVD title is the DVD's own), then the rip goes on as usual: the film's title is picked automatically or chosen in *Choose…* (a Blu-ray title already chosen on MakeMKV's scan is kept), the tracks kept are the same (Italian first and default, plus the original language) and the file is moved to the watch folder as `Title (Year).mkv`. *Retry with MakeMKV* goes back to MakeMKV.
+
+Limits: nothing is decrypted, so only unencrypted discs work (as downloaded discs usually are); a Blu-ray played through several angles keeps the first one, 3D keeps only the 2D picture, and forced subtitles are not told apart. Neither tool reports a damaged download, so the playlist's clips must all be there and whole, and the ripped file must be as long as the title: a missing or cut clip fails the rip with the reason. A damaged chunk inside a clip goes unnoticed (that part of the film is skipped). Running locally (no Docker), install MKVToolNix, 7-Zip and ffmpeg 7+, or set `MKVMERGE_PATH`, `SEVENZIP_PATH`, `FFMPEG_PATH`, `FFPROBE_PATH`; the Rips page shows which discs can be ripped without MakeMKV.
+
 ### Remove the source torrent (optional)
 
 If the films come from qBittorrent, Wayfinderr can remove each torrent once its MKV is uploaded.
@@ -185,6 +199,9 @@ How a torrent is matched and removed:
 | `RIP_EXISTING` | `false` | Also rip the downloads already there when ripping is first enabled |
 | `RIP_LANGUAGE` | `it` | Language always kept (ISO 639-1), besides the film's original one |
 | `UNRAR_PATH` | `unrar` | Backend: the unrar command for RAR archives (in the Docker image) |
+| `MKVMERGE_PATH` | `mkvmerge` | Backend: mkvmerge, to rip a Blu-ray without MakeMKV (in the Docker image) |
+| `SEVENZIP_PATH` | `7zz` | Backend: 7-Zip, to read an ISO without MakeMKV (in the Docker image) |
+| `FFMPEG_PATH` / `FFPROBE_PATH` | `ffmpeg` / `ffprobe` | Backend: to rip a DVD without MakeMKV; needs ffmpeg 7+ with the `dvdvideo` input (in the Docker image) |
 | `TMDB_API_KEY` | – | themoviedb.org API key (v3) or read access token; without it every rip waits for a choice, and torrents are matched only by names in the same language |
 | `TMDB_LANGUAGE` | `it-IT` | Language of the title used for the file name |
 | `MAKEMKV_KEY` | `BETA` | MakeMKV container: registration key, or `BETA` for the free beta key |
@@ -275,7 +292,8 @@ Served through the frontend (`http://localhost:3000/api/...`). Every route excep
 ### Rips
 - `GET /api/rips` - Rips and the ripping status (enabled, runner online, TMDB configured)
 - `POST /api/rips/:id/choose` - Rip with the given `titleIndex` and/or `tmdbId`
-- `POST /api/rips/:id/retry` - Scan and choose again
+- `POST /api/rips/:id/retry` - Scan and choose again (with MakeMKV)
+- `POST /api/rips/:id/remux` - Rip without MakeMKV (mkvmerge, 7-Zip, ffmpeg)
 - `POST /api/rips/:id/skip` - Never rip it (stops a running rip)
 - `GET /api/rips/tmdb/search?query=&year=` - Search a film on TMDB
 

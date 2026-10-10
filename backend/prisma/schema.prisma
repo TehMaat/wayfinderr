@@ -127,7 +127,11 @@ model Rip {
   unpackBytes      BigInt?   // size of every file in the archive
   unpackedTo       String?   // downloads | watch: the disk it is (being) unpacked on; null when not unpacked
 
-  // Disc scan (makemkvcon info): JSON array of the titles, see ripper/makemkv.ts
+  // What rips the disc: makemkv (the MakeMKV container), or remux (mkvmerge or ffmpeg in the
+  // backend, chosen in the UI when MakeMKV fails: see ripper/remux.ts)
+  engine           String    @default("makemkv")
+
+  // Disc scan (makemkvcon info, or the remux scan): JSON array of the titles, see ripper/makemkv.ts
   discName         String?
   titles           String?
   titleIndex       Int?      // title to rip (chosen automatically or by the user)

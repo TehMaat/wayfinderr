@@ -3,8 +3,11 @@
 # Pinned: bump it on purpose
 FROM ghcr.io/linuxserver/unrar:7.2.7-ls18 AS unrar
 
+# Node 22 on Alpine 3.24 (pinned: node:20-alpine stays on Alpine 3.23, where Qt pulls
+# mesa and LLVM into mkvtoolnix, and ffmpeg has no DVD input)
+
 # Build stage
-FROM node:20-alpine AS builder
+FROM node:22-alpine3.24 AS builder
 
 WORKDIR /build
 
@@ -18,12 +21,13 @@ COPY . .
 RUN npm run build && npm prune --omit=dev && npx prisma generate
 
 # Runtime stage
-FROM node:20-alpine
+FROM node:22-alpine3.24
 
 WORKDIR /app
 
-# ffprobe (ffmpeg) for media info, openssl for Prisma
-RUN apk add --no-cache ffmpeg openssl
+# ffprobe (ffmpeg) for media info, openssl for Prisma. Ripping without MakeMKV:
+# mkvmerge (mkvtoolnix) for Blu-ray, 7-Zip (7zz) for ISO images, ffmpeg's dvdvideo for DVD
+RUN apk add --no-cache ffmpeg mkvtoolnix 7zip openssl
 COPY --from=unrar /usr/bin/unrar-alpine /usr/bin/unrar
 
 COPY --from=builder /build/package*.json ./

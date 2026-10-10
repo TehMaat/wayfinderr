@@ -23,7 +23,9 @@ import {
 import { DiscType, findDiscs, isDownloadComplete, makemkvSource } from './downloads.js';
 import { EXCLUDED_PREFIX, excludedReason, matchExclusion, parseExclusions } from './exclusions.js';
 import { describeExit, DiscTitle, languageCodes, parseInfo, parseProgress, parseRipResult, selectionRule } from './makemkv.js';
+import { playlistNumber } from './mpls.js';
 import { parseDiscLabel, parseReleaseName } from './releaseName.js';
+import { missingTools, openSource, RemuxSource, remuxNeeds, remuxTitle, remuxTools, scanDisc } from './remux.js';
 import {
   cancelJob,
   ensureWorkDirs,
@@ -56,6 +58,11 @@ import { getMovie, matchMovie, TmdbMovie, tmdbConfigured } from './tmdb.js';
  *              or next to the watch folder
  *   QUEUED     unpacked: a disc goes on as above, then its unpacked copy is
  *              deleted; an .mkv is renamed "Title (Year).mkv" and uploaded (DONE)
+ *
+ * When MakeMKV fails (a crash, an expired key), "Rip without MakeMKV" in the UI
+ * rips the disc again with the backend's own tools (engine "remux", see
+ * remux.ts): its titles are read again, then it goes on as above, RIPPING
+ * being mkvmerge or ffmpeg here instead of the MakeMKV runner.
  *
  * When the film or its title can't be told for sure, the rip stops in
  * NEEDS_ATTENTION and waits for a choice in the UI (so does an archive without
@@ -138,11 +145,20 @@ interface Unpacking {
   done: Promise<void>;
 }
 
+// The disc being ripped without MakeMKV (mkvmerge, 7-Zip or ffmpeg run here too)
+interface Remuxing extends Unpacking {
+  result?: { file: string; warnings: string[] };
+}
+
+/** The work folder of a rip without MakeMKV: on the watch folder's disk, like MakeMKV's rips */
+const remuxDir = (ripId: string) => path.join(config.RIP.WORK_DIR, 'remux', ripId);
+
 class Ripper extends EventEmitter {
   private timer: NodeJS.Timeout | null = null;
   private busy = false;
   private lastDiscover = 0;
   private unpacking: Unpacking | null = null;
+  private remuxing: Remuxing | null = null;
   private identifyTimer: NodeJS.Timeout | null = null;
   // The rip loop and the exclusion rules change the same rips: one at a time
   private lock: Promise<unknown> = Promise.resolve();
@@ -170,8 +186,9 @@ class Ripper extends EventEmitter {
     if (this.timer) clearInterval(this.timer);
     if (this.identifyTimer) clearTimeout(this.identifyTimer);
     this.timer = null;
-    // unrar is a child of this process: it would go on writing after it ends
+    // unrar, mkvmerge and ffmpeg are children of this process: they would go on writing after it ends
     this.unpacking?.controller.abort();
+    this.remuxing?.controller.abort();
     this.identifyTimer = null;
   }
 
@@ -317,11 +334,12 @@ class Ripper extends EventEmitter {
     const [active] = await db.getRipsByStatus(['UNPACKING', 'SCANNING', 'RIPPING']);
     if (active) {
       if (active.status === 'UNPACKING') await this.pollUnpack(active);
+      else if (active.engine === 'remux') await this.pollRemux(active);
       else await this.poll(active);
       return;
     }
 
-    // Unpacking an archive and moving its .mkv don't need MakeMKV
+    // Unpacking an archive, moving its .mkv and ripping without MakeMKV don't need MakeMKV
     const queued = await db.getRipsByStatus(['QUEUED']);
     const alive = queued.length > 0 && (await runnerAlive());
     let next: Rip | undefined;
@@ -337,7 +355,7 @@ class Ripper extends EventEmitter {
           return;
         }
       }
-      if (alive) {
+      if (alive || rip.engine === 'remux') {
         next = rip;
         break;
       }
@@ -350,6 +368,8 @@ class Ripper extends EventEmitter {
       await this.startRip(next);
     } else if (next.titles) {
       await this.decide(next, JSON.parse(next.titles), next.discName ?? undefined);
+    } else if (next.engine === 'remux') {
+      await this.scanWithoutMakemkv(next);
     } else {
       const jobId = await submitJob({ action: 'info', ...sourceOf(next), minLength: config.RIP.MIN_LENGTH });
       await this.update(next.id, { status: 'SCANNING', jobId, startedAt: new Date(), progress: 0, reason: null });
@@ -686,6 +706,10 @@ class Ripper extends EventEmitter {
       await this.update(rip.id, { status: 'NEEDS_ATTENTION', reason: 'The chosen title is not on the disc' });
       return;
     }
+    if (rip.engine === 'remux') {
+      await this.startRemux(rip, title);
+      return;
+    }
 
     const { bavail, bsize } = await statfs(config.RIP.WORK_DIR);
     const free = bavail * bsize;
@@ -731,10 +755,16 @@ class Ripper extends EventEmitter {
       return;
     }
 
+    const target = await this.handOver(rip, files[0]);
+    await removeJob(rip.jobId!);
+    logger.info({ ripId: rip.id, file: target }, 'Rip completed');
+  }
+
+  /** Moves a ripped film into the watch folder (the upload follows): DONE. */
+  private async handOver(rip: Rip, file: string) {
     // Same filesystem: the watcher sees the complete file appear at once
     const target = await this.freeName(config.WATCH_DIR, outputName(rip));
-    await rename(files[0], target);
-    await removeJob(rip.jobId!);
+    await rename(file, target);
     // Ripped: the disc unpacked from an archive is not needed any more
     await this.discardUnpacked(rip);
     await this.update(rip.id, {
@@ -744,7 +774,144 @@ class Ripper extends EventEmitter {
       outputFile: target,
       completedAt: new Date(),
     });
-    logger.info({ ripId: rip.id, file: target }, 'Rip completed');
+    return target;
+  }
+
+  // --- Ripping without MakeMKV (remux.ts) ---
+
+  /** The disc on disk: in the downloads, or unpacked from an archive (null when that is gone). */
+  private async discOf(rip: Rip): Promise<{ file: string; type: DiscType } | null> {
+    if (!isArchive(rip)) return { file: path.join(config.RIP.SOURCE_DIR, rip.sourcePath), type: rip.sourceType as DiscType };
+    const film = unpackedFilm(rip);
+    return film && rip.contentType !== 'MKV' && (await exists(film)) ? { file: film, type: rip.contentType as DiscType } : null;
+  }
+
+  /** The titles of the disc read without MakeMKV, then on as after MakeMKV's scan. */
+  private async scanWithoutMakemkv(rip: Rip) {
+    const disc = await this.discOf(rip);
+    let titles: DiscTitle[];
+    try {
+      if (!disc) throw new Error('the disc unpacked from the archive is gone');
+      titles = await scanDisc(await openSource(disc.file, disc.type), `${remuxDir(rip.id)}-scan`);
+    } catch (error) {
+      logger.warn({ ripId: rip.id, error: (error as Error).message }, 'Cannot read the disc without MakeMKV');
+      await this.update(rip.id, { status: 'FAILED', reason: `Cannot read the disc without MakeMKV: ${(error as Error).message}` });
+      return;
+    }
+    // Like MakeMKV's minimum length: shorter titles are never the film (unless chosen already)
+    titles = titles.filter((t) => t.durationSec >= config.RIP.MIN_LENGTH || t.index === rip.titleIndex);
+    const titleIndex = titles.some((t) => t.index === rip.titleIndex) ? rip.titleIndex : null;
+    rip = await this.update(rip.id, { titles: JSON.stringify(titles), titleIndex });
+    logger.info({ ripId: rip.id, titles: titles.length, chosen: titleIndex }, 'Disc read without MakeMKV');
+    // A title chosen on MakeMKV's scan is ripped as it is, like a choice in the UI
+    if (titleIndex !== null) await this.startRip(rip);
+    else await this.decide(rip, titles, rip.discName ?? undefined);
+  }
+
+  private async startRemux(rip: Rip, title: DiscTitle) {
+    const disc = await this.discOf(rip);
+    let source: RemuxSource;
+    try {
+      if (!disc) throw new Error('the disc unpacked from the archive is gone: Retry');
+      source = await openSource(disc.file, disc.type);
+    } catch (error) {
+      await this.update(rip.id, { status: 'FAILED', reason: `Cannot read the disc without MakeMKV: ${(error as Error).message}` });
+      return;
+    }
+
+    const needs = remuxNeeds(source, title);
+    const { bavail, bsize } = await statfs(config.RIP.WORK_DIR);
+    const free = bavail * bsize;
+    if (free < needs + SPACE_MARGIN_BYTES) {
+      await this.update(rip.id, {
+        status: 'NEEDS_ATTENTION',
+        reason:
+          `Not enough free space for the rip: ${formatBytes(needs)} needed` +
+          (needs > title.sizeBytes ? ' (the image is extracted first)' : '') +
+          `, ${formatBytes(free)} free`,
+      });
+      return;
+    }
+
+    const dir = remuxDir(rip.id);
+    await rm(dir, { recursive: true, force: true });
+    await mkdir(dir, { recursive: true });
+    rip = await this.update(rip.id, {
+      status: 'RIPPING',
+      jobId: null,
+      titleIndex: title.index,
+      progress: 0,
+      reason: null,
+      startedAt: new Date(),
+    });
+
+    // Film not identified (ripped by hand): its language is unknown, keep them all
+    const original = languageCodes(rip.originalLanguage);
+    const ripId = rip.id;
+    const controller = new AbortController();
+    const job = { ripId, controller, progress: 0, finished: false } as Remuxing;
+    job.done = remuxTitle({
+      source,
+      title,
+      languages: [keptLanguages(), original].filter((codes) => codes.length > 0),
+      keepAll: original.length === 0,
+      dir,
+      name: 'film',
+      signal: controller.signal,
+      onProgress: (progress) => {
+        if (progress === job.progress) return;
+        job.progress = progress;
+        this.emit('rip-progress', { ripId, progress, status: 'RIPPING' });
+      },
+    })
+      .then((result) => {
+        job.result = result;
+      })
+      .catch((error: Error) => {
+        job.error = error;
+      })
+      .finally(() => {
+        job.finished = true;
+      });
+    this.remuxing = job;
+    logger.info({ ripId, title: title.name ?? title.index, film: rip.title, kind: source.kind, iso: source.iso }, 'Ripping without MakeMKV');
+  }
+
+  private async pollRemux(rip: Rip) {
+    const job = this.remuxing?.ripId === rip.id ? this.remuxing : null;
+    if (!job) {
+      // Interrupted by a restart: from scratch, with the same title
+      await rm(remuxDir(rip.id), { recursive: true, force: true });
+      await this.update(rip.id, { status: 'QUEUED', progress: 0 });
+      return;
+    }
+    if (!job.finished) {
+      if (job.progress !== rip.progress) await db.updateRip(rip.id, { progress: job.progress });
+      return;
+    }
+    this.remuxing = null;
+
+    if (job.error || !job.result) {
+      const message = job.error?.message ?? 'no file';
+      logger.warn({ ripId: rip.id, error: message }, 'Ripping without MakeMKV failed');
+      await rm(remuxDir(rip.id), { recursive: true, force: true });
+      await this.update(rip.id, { status: 'FAILED', progress: 0, reason: `Ripping without MakeMKV failed: ${message}` });
+      return;
+    }
+    if (job.result.warnings.length > 0) logger.warn({ ripId: rip.id, warnings: job.result.warnings }, 'Ripped without MakeMKV, with warnings');
+    const target = await this.handOver(rip, job.result.file);
+    await rm(remuxDir(rip.id), { recursive: true, force: true });
+    logger.info({ ripId: rip.id, file: target }, 'Rip without MakeMKV completed');
+  }
+
+  /** Stops the rip without MakeMKV of this rip, if running, and deletes its files. */
+  private async discardRemux(rip: Rip) {
+    if (this.remuxing?.ripId === rip.id) {
+      this.remuxing.controller.abort();
+      await this.remuxing.done;
+      this.remuxing = null;
+    }
+    await rm(remuxDir(rip.id), { recursive: true, force: true });
   }
 
   // --- Actions from the UI ---
@@ -773,11 +940,43 @@ class Ripper extends EventEmitter {
     });
   }
 
-  /** Starts over: scan and automatic choices again (an archive not unpacked yet is listed again). */
+  /**
+   * Rips the disc with the backend's own tools instead of MakeMKV (remux.ts): its
+   * titles are read again. A title chosen on MakeMKV's scan of a Blu-ray is the
+   * same playlist; on a DVD MakeMKV numbers the titles its own way, so it is not.
+   */
+  async ripWithoutMakemkv(id: string) {
+    return this.exclusive(async () => {
+      const rip = await this.visibleRip(id);
+      if (!['FAILED', 'NEEDS_ATTENTION', 'SKIPPED', 'QUEUED'].includes(rip.status)) throw new Error(`Rip is ${rip.status}`);
+      const type = isArchive(rip) ? rip.contentType : rip.sourceType;
+      if (type === 'MKV') throw new Error('The archive holds an .mkv, not a disc');
+      // An archive not listed yet: its disc type is known once unpacked
+      const missing = type ? missingTools(await remuxTools(), type as DiscType) : null;
+      if (missing) throw new Error(`Cannot rip without MakeMKV: ${missing} not installed`);
+
+      const titles: DiscTitle[] = JSON.parse(rip.titles ?? '[]');
+      const chosen = titles.find((t) => t.index === rip.titleIndex);
+      const titleIndex = rip.engine === 'remux' ? (chosen?.index ?? null) : playlistNumber(chosen?.sourceFile ?? '');
+      logger.info({ ripId: rip.id, title: titleIndex }, 'Rip without MakeMKV requested');
+      return this.update(id, {
+        engine: 'remux',
+        status: 'QUEUED',
+        reason: null,
+        titles: null,
+        titleIndex,
+        progress: 0,
+        jobId: null,
+      });
+    });
+  }
+
+  /** Starts over with MakeMKV: scan and automatic choices again (an archive not unpacked yet is listed again). */
   async retry(id: string) {
     const rip = await this.visibleRip(id);
     if (['UNPACKING', 'SCANNING', 'RIPPING'].includes(rip.status)) throw new Error('Rip in progress');
     return this.update(id, {
+      engine: 'makemkv',
       status: 'QUEUED',
       reason: null,
       ...(isArchive(rip) && !rip.unpackedTo ? { contentType: null, contentPath: null, unpackBytes: null } : {}),
@@ -801,6 +1000,7 @@ class Ripper extends EventEmitter {
         // The runner leaves an .exit file; the job's files are removed with it
         setTimeout(() => removeJob(rip.jobId!).catch(() => undefined), 30_000);
       }
+      await this.discardRemux(rip);
       await this.discardUnpacked(rip);
       return this.update(id, { status: 'SKIPPED', reason: 'Skipped', jobId: null, progress: 0 });
     });
@@ -826,6 +1026,7 @@ class Ripper extends EventEmitter {
   }
 
   private async hide(rip: Rip) {
+    await this.discardRemux(rip);
     await this.discardUnpacked(rip);
     await db.updateRip(rip.id, { hidden: true });
     this.emit('rip-updated', { ripId: rip.id, status: 'DELETED' });
@@ -887,6 +1088,8 @@ class Ripper extends EventEmitter {
         disks: enabled ? await unpackTargets(false) : [],
         downloadsWritable: enabled ? await downloadsUnpackWritable() : false,
       },
+      // Ripping without MakeMKV: the tools found
+      remux: enabled ? await remuxTools() : null,
     };
   }
 }

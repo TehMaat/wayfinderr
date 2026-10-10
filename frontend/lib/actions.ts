@@ -52,6 +52,16 @@ export async function retryRip(id: string) {
   }
 }
 
+export async function remuxRip(id: string) {
+  try {
+    await ripsApi.remuxRip(id);
+    await useAppStore.getState().refreshRip(id);
+    toast.success('Ripping without MakeMKV', { description: 'The disc is read again with mkvmerge or ffmpeg' });
+  } catch (err) {
+    toast.error('Rip without MakeMKV failed', { description: errorMessage(err) });
+  }
+}
+
 export async function skipRip(id: string) {
   try {
     await ripsApi.skipRip(id);
