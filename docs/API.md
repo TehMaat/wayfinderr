@@ -480,11 +480,14 @@ DELETE /api/clients/:id
   "category": "rip",
   "enabled": true,
   "autoRemove": true,
-  "deleteFiles": false
+  "deleteFiles": false,
+  "minFreeGB": 20
 }
 ```
 
 `username` blank = no login (WebUI auth bypass for this host). `apiKey` (qBittorrent 5.2+) replaces username/password. On update a blank `password`/`apiKey` keeps the stored one; send `"clearPassword": true` / `"clearApiKey": true` to remove it. Responses never include the secrets, only `hasPassword` / `hasApiKey`.
+
+`minFreeGB` (`null` = off): when a disk of this machine holding the watch folder, the downloads or the database has less free space, every running torrent of the client (any category) is paused and tagged `wayfinderr-low-space` in qBittorrent; checked every 30 seconds and right after a save. Once the disk has 10% more free space than that (at least 1 GB more), only the tagged torrents are resumed, so torrents paused by hand stay paused. They are resumed too when the value is cleared, the client is disabled or deleted. Responses also carry `spacePausedAt` (set while paused) and `spaceMessage` (the last pause/resume, or why it failed).
 
 ### Test Client
 
@@ -762,6 +765,18 @@ The source torrent of an upload was matched, scheduled, removed, or could not be
   "type": "torrent-updated",
   "uploadId": "upload123",
   "torrentStatus": "REMOVED"
+}
+```
+
+#### client-updated
+A client's torrents were paused or resumed for low disk space. `first` is false when torrents started while paused were paused again.
+```json
+{
+  "type": "client-updated",
+  "clientId": "client123",
+  "paused": true,
+  "first": true,
+  "message": "/data has 9.2 GB free, less than 10 GB: paused 4 torrent(s)"
 }
 ```
 

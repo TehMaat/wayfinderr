@@ -104,6 +104,53 @@ export class QbitClient {
     return torrents.find((t) => t.hash === hash) ?? null;
   }
 
+  /** Every torrent of the client, any category and state; with `tag`, only those carrying it */
+  async getAllTorrents(tag?: string): Promise<QbitTorrent[]> {
+    return this.request<QbitTorrent[]>({
+      method: 'GET',
+      url: '/api/v2/torrents/info',
+      params: tag ? { tag } : {},
+    });
+  }
+
+  private async post(url: string, data: Record<string, string>): Promise<void> {
+    await this.request({
+      method: 'POST',
+      url,
+      data: form(data),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+  }
+
+  // qBittorrent 5 renamed pause/resume to stop/start: the old names answer 404 there, the new ones before
+  private async postRenamed(current: string, legacy: string, data: Record<string, string>): Promise<void> {
+    try {
+      await this.post(current, data);
+    } catch (error) {
+      if (!axios.isAxiosError(error) || error.response?.status !== 404) throw error;
+      await this.post(legacy, data);
+    }
+  }
+
+  /** Pauses these torrents (an explicit list, never "all") and tags them, so they can be told apart later */
+  async pauseTorrents(hashes: string[], tag: string): Promise<void> {
+    if (hashes.length === 0) return;
+    const data = { hashes: hashes.join('|') };
+    // Tagged first: a torrent paused but not tagged would never be resumed
+    await this.post('/api/v2/torrents/addTags', { ...data, tags: tag });
+    await this.postRenamed('/api/v2/torrents/stop', '/api/v2/torrents/pause', data);
+  }
+
+  /** Resumes the torrents carrying the tag, then deletes the tag */
+  async resumeTagged(tag: string): Promise<number> {
+    const hashes = (await this.getAllTorrents(tag)).map((t) => t.hash);
+    if (hashes.length > 0) {
+      await this.postRenamed('/api/v2/torrents/start', '/api/v2/torrents/resume', { hashes: hashes.join('|') });
+    }
+    await this.post('/api/v2/torrents/deleteTags', { tags: tag });
+    return hashes.length;
+  }
+
   async deleteTorrent(hash: string, deleteFiles: boolean): Promise<void> {
     // Never pass "all" or a list: exactly one hash
     if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/i.test(hash)) {
@@ -119,14 +166,16 @@ export class QbitClient {
   }
 }
 
-// One client (and session cookie) per saved config; a config change makes a new one
-const clients = new Map<string, { updatedAt: number; client: QbitClient }>();
+// One client (and session cookie) per saved connection; changing the URL or the login makes a new one
+// (not any save: the disk space check writes its status on the client)
+const clients = new Map<string, { key: string; client: QbitClient }>();
 
 export const getQbitClient = (client: TorrentClient): QbitClient => {
+  const key = JSON.stringify([client.url, client.username, client.password, client.apiKey]);
   const cached = clients.get(client.id);
-  if (cached && cached.updatedAt === client.updatedAt.getTime()) return cached.client;
+  if (cached && cached.key === key) return cached.client;
   const fresh = new QbitClient(client);
-  clients.set(client.id, { updatedAt: client.updatedAt.getTime(), client: fresh });
+  clients.set(client.id, { key, client: fresh });
   return fresh;
 };
 

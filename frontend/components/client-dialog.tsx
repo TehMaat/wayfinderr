@@ -27,6 +27,7 @@ const emptyForm = (client?: TorrentClient) => ({
   enabled: client?.enabled ?? true,
   autoRemove: client?.autoRemove ?? true,
   deleteFiles: client?.deleteFiles ?? false,
+  minFreeGB: client?.minFreeGB != null ? String(client.minFreeGB) : '',
 });
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
@@ -70,11 +71,13 @@ export function ClientDialog({
     e.preventDefault();
     setSaving(true);
     setError(null);
+    // Blank = no disk space check
+    const data = { ...form, minFreeGB: form.minFreeGB.trim() === '' ? null : Number(form.minFreeGB) };
     try {
       if (client) {
-        await clientsApi.updateClient(client.id, form);
+        await clientsApi.updateClient(client.id, data);
       } else {
-        await clientsApi.createClient(form);
+        await clientsApi.createClient(data);
       }
       await useAppStore.getState().loadClients();
       toast.success(isEdit ? 'Client updated' : 'Client added', { description: form.name });
@@ -168,6 +171,28 @@ export function ClientDialog({
                 </Select>
               </Field>
             </div>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Disk space</p>
+            <Field
+              label="Pause all torrents below (GB free)"
+              hint="When a disk of this machine (watch folder, downloads, database) has less free space, every torrent is paused; they resume with 10% more free (at least 1 GB). Blank = off"
+            >
+              <Input
+                name="minFreeGB"
+                type="number"
+                inputMode="decimal"
+                min="0.1"
+                step="any"
+                value={form.minFreeGB}
+                onChange={update}
+                placeholder="Off"
+              />
+            </Field>
+          </div>
+
+          <div className="space-y-3">
             <Field label="Status">
               <Select name="enabled" value={String(form.enabled)} onChange={updateFlag}>
                 <option value="true">Enabled</option>

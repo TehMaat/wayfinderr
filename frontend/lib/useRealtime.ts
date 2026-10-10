@@ -132,6 +132,18 @@ export const useRealtime = () => {
             scheduleStats();
             break;
 
+          case 'client-updated': {
+            await store.loadClients();
+            const name = useAppStore.getState().clients.find((c) => c.id === message.clientId)?.name ?? 'Client';
+            // Torrents started while paused are paused again without a toast
+            if (message.first && message.paused) {
+              toast.warning(`${name}: torrents paused, disk almost full`, { description: message.message as string });
+            } else if (message.first) {
+              toast.success(`${name}: torrents resumed`, { description: message.message as string });
+            }
+            break;
+          }
+
           case 'rip-progress':
             store.applyRipProgress(
               message.ripId as string,

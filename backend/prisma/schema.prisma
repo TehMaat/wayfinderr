@@ -97,6 +97,11 @@ model TorrentClient {
   autoRemove           Boolean  @default(true)  // false: only suggest, remove from the UI
   deleteFiles          Boolean  @default(false) // Also delete the downloaded data (ISO/BDMV)
 
+  // Low disk space on this machine: every torrent is paused below this many GB free (null = off)
+  minFreeGB            Float?
+  spacePausedAt        DateTime? // Set while its torrents are paused for low space
+  spaceMessage         String?   // Last pause/resume, or why it failed
+
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 }

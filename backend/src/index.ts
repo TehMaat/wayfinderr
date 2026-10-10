@@ -13,6 +13,7 @@ import { uploadManager } from './services/uploadManager.js';
 import { authEvents, authenticate, ensureSetupCode, getAccount } from './services/auth.js';
 import { isCrossSite, requireAuth, securityMiddleware } from './middleware/security.js';
 import { torrentCleanup } from './services/torrentCleanup.js';
+import { spaceGuard } from './services/spaceGuard.js';
 import authRoutes from './routes/auth.js';
 import serverRoutes from './routes/servers.js';
 import uploadRoutes from './routes/uploads.js';
@@ -190,6 +191,11 @@ torrentCleanup.on('torrent-updated', ({ uploadId, torrentStatus }) => {
   });
 });
 
+// Torrents paused or resumed for low disk space: the Clients page refetches
+spaceGuard.on('client-updated', ({ clientId, paused, message, first }) => {
+  broadcast({ type: 'client-updated', clientId, paused, message, first });
+});
+
 jobQueue.on('upload-failed', ({ uploadId }) => {
   broadcast({
     type: 'upload-failed',
@@ -311,6 +317,7 @@ const shutdown = async (signal: string) => {
 
     // Drop pending torrent removals (resumed at the next start)
     torrentCleanup.stop();
+    spaceGuard.stop();
     // Close the browsers' WebSockets, or the HTTP server would wait for them
     wss.clients.forEach((client) => client.close(1001, 'Server shutting down'));
 
@@ -352,6 +359,9 @@ const startServer = async () => {
 
     // Rip film discs from the downloads folder (RIP_ENABLED)
     ripper.start();
+
+    // Pause the torrents while a disk of this machine is low on space
+    spaceGuard.start();
 
     // Start HTTP server
     httpServer.listen(config.PORT, () => {
