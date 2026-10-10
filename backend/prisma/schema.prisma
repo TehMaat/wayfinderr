@@ -66,11 +66,39 @@ model Upload {
   completedAt          DateTime?
   error                String?  // Error message if failed
 
+  // Torrent cleanup: the qBittorrent torrent the MKV was ripped from
+  // torrentStatus: null (not checked) | NO_MATCH | REVIEW | WAITING | REMOVED | ERROR
+  torrentStatus        String?
+  torrentClientId      String?
+  torrentHash          String?
+  torrentName          String?
+  torrentScore         Int?     // 0-100 name match score
+  torrentMessage       String?  // Why it was (not) removed
+
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
   @@index([status])
   @@index([serverId])
+  @@index([torrentStatus])
+}
+
+// Download client the source torrents come from (qBittorrent WebUI API)
+model TorrentClient {
+  id                   String   @id @default(cuid())
+  name                 String
+  url                  String   // e.g. http://localhost:8080
+  username             String?  // Blank: no login (WebUI auth bypass for this host)
+  password             String?
+  apiKey               String?  // qBittorrent 5.2+: used instead of username/password
+  category             String?  // Only look at torrents in this category (blank = all)
+
+  enabled              Boolean  @default(true)
+  autoRemove           Boolean  @default(true)  // false: only suggest, remove from the UI
+  deleteFiles          Boolean  @default(false) // Also delete the downloaded data (ISO/BDMV)
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 }
 
 // Key/value app settings: the login account and the session signing secret
@@ -91,6 +119,7 @@ model Rip {
 
   status           String    @default("WAITING") // WAITING | QUEUED | UNPACKING | SCANNING | RIPPING | DONE | NEEDS_ATTENTION | FAILED | SKIPPED
   reason           String?   // why it needs attention, failed or was skipped
+  hidden           Boolean   @default(false) // a skipped rip removed from the list: kept so the downloads scan doesn't list it again
 
   // RAR archive (see ripper/archive.ts): the film inside, and where it is unpacked
   contentType      String?   // ISO | BDMV | DVD | MKV
@@ -98,7 +127,11 @@ model Rip {
   unpackBytes      BigInt?   // size of every file in the archive
   unpackedTo       String?   // downloads | watch: the disk it is (being) unpacked on; null when not unpacked
 
-  // Disc scan (makemkvcon info): JSON array of the titles, see ripper/makemkv.ts
+  // What rips the disc: makemkv (the MakeMKV container), or remux (mkvmerge or ffmpeg in the
+  // backend, chosen in the UI when MakeMKV fails: see ripper/remux.ts)
+  engine           String    @default("makemkv")
+
+  // Disc scan (makemkvcon info, or the remux scan): JSON array of the titles, see ripper/makemkv.ts
   discName         String?
   titles           String?
   titleIndex       Int?      // title to rip (chosen automatically or by the user)

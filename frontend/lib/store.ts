@@ -1,7 +1,9 @@
 import { create } from 'zustand';
-import { ripsApi, serversApi, spaceApi, systemApi, uploadsApi } from './api';
+import { clientsApi, ripsApi, serversApi, spaceApi, systemApi, uploadsApi } from './api';
 
 export type UploadStatus = 'PENDING' | 'QUEUED' | 'UPLOADING' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'CANCELLED';
+
+export type TorrentStatus = 'NO_MATCH' | 'REVIEW' | 'WAITING' | 'REMOVED' | 'ERROR';
 
 export const UPLOAD_STATUSES: UploadStatus[] = ['UPLOADING', 'QUEUED', 'PENDING', 'COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED'];
 
@@ -22,8 +24,29 @@ export interface Upload {
   startedAt: string | null;
   completedAt: string | null;
   error: string | null;
+  // Source torrent cleanup (null until checked)
+  torrentStatus: TorrentStatus | null;
+  torrentClientId: string | null;
+  torrentHash: string | null;
+  torrentName: string | null;
+  torrentScore: number | null;
+  torrentMessage: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TorrentClient {
+  id: string;
+  name: string;
+  url: string;
+  username: string | null;
+  category: string | null;
+  hasPassword: boolean;
+  hasApiKey: boolean;
+  enabled: boolean;
+  autoRemove: boolean;
+  deleteFiles: boolean;
+  createdAt: string;
 }
 
 export interface Server {
@@ -132,6 +155,8 @@ export interface Rip {
   downloadName: string;
   status: RipStatus;
   reason: string | null;
+  // makemkv, or remux: ripped by the backend with mkvmerge/ffmpeg after MakeMKV failed
+  engine: 'makemkv' | 'remux';
   // RAR archive: the film inside (once listed) and the disk it is unpacked on (null when not unpacked)
   contentType: 'ISO' | 'BDMV' | 'DVD' | 'MKV' | null;
   contentPath: string | null;
@@ -172,6 +197,8 @@ export interface RipperStatus {
     disks: { disk: UnpackDisk; freeBytes: number }[];
     downloadsWritable: boolean;
   };
+  // Ripping without MakeMKV: mkvmerge (Blu-ray), 7-Zip (ISO images), ffmpeg with DVD support
+  remux?: { mkvmerge: boolean; sevenZip: boolean; dvd: boolean } | null;
 }
 
 interface Transfer {
@@ -191,6 +218,8 @@ interface AppState {
   uploadsLoaded: boolean;
   servers: Server[];
   serversLoaded: boolean;
+  clients: TorrentClient[];
+  clientsLoaded: boolean;
   spaceLoaded: boolean;
   stats: Stats | null;
   disks: LocalDiskReport | null;
@@ -205,6 +234,7 @@ interface AppState {
   loadUploads: () => Promise<void>;
   loadServers: () => Promise<void>;
   loadSpace: () => Promise<void>;
+  loadClients: () => Promise<void>;
   loadStats: () => Promise<void>;
   loadDisks: () => Promise<void>;
   loadAll: () => Promise<void>;
@@ -226,6 +256,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   uploadsLoaded: false,
   servers: [],
   serversLoaded: false,
+  clients: [],
+  clientsLoaded: false,
   spaceLoaded: false,
   stats: null,
   disks: null,
@@ -279,6 +311,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
+  loadClients: async () => {
+    const { data } = await clientsApi.listClients();
+    set({ clients: data, clientsLoaded: true });
+  },
+
   loadStats: async () => {
     const { data } = await uploadsApi.getStats();
     set({ stats: data });
@@ -300,6 +337,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       get().loadStats(),
       get().loadRips(),
       get().loadDisks(),
+      get().loadClients(),
     ]);
   },
 

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ArrowUpFromLine, Compass, Disc3, LayoutDashboard, Plus, Server as ServerIcon, UploadCloud } from 'lucide-react';
+import { ArrowUpFromLine, Compass, Disc3, LayoutDashboard, Magnet, Plus, Server as ServerIcon, UploadCloud } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { AccountMenu } from '@/components/account-menu';
@@ -14,6 +14,7 @@ const NAV = [
   { href: '/uploads', label: 'Uploads', icon: UploadCloud },
   { href: '/rips', label: 'Rips', icon: Disc3 },
   { href: '/servers', label: 'Servers', icon: ServerIcon },
+  { href: '/clients', label: 'Clients', icon: Magnet },
 ];
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {

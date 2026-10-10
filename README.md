@@ -2,7 +2,7 @@
 
 Automated MKV file transfer system with intelligent server selection and real-time monitoring.
 
-Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitles, and uploads it via SFTP to the server with the most free space, with automatic retry. Optionally it also rips the film discs (ISO, Blu-ray and DVD folders) that land in the downloads folder.
+Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitles, and uploads it via SFTP to the server with the most free space, with automatic retry. Optionally it also rips the film discs (ISO, Blu-ray and DVD folders) that land in the downloads folder, and removes the source torrent from qBittorrent once the film is uploaded.
 
 **Stack**: Node.js 20 • Express • Prisma + SQLite • Next.js 14 • WebSocket • Docker Compose (optional)
 
@@ -16,10 +16,11 @@ Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitl
 - 📊 **Real-Time Monitoring** - WebSocket-driven live dashboard
 - 💽 **Local Disk Space** - Free/used space of the disks holding the watch folder, the downloads (with ripping on) and the database, one bar per disk when they are on different disks
 - 🔄 **Job Queue** - Concurrent uploads (max 2 global, max 1 per server); unfinished uploads resume after a restart
+- 🧲 **Torrent Cleanup** - After the upload, finds the torrent the MKV was ripped from (names + TMDB titles in every language) and removes it from qBittorrent
 - 💾 **Full History** - SQLite-backed persistence with upload tracking
 - 🌐 **Web UI** - Dashboard, server management and upload history
 - 🔐 **Login** - One password-protected account; the browser only talks to the frontend, which proxies the API, so one HTTPS reverse proxy entry is enough
-- 💿 **Automatic ripping** - Film discs that finish downloading are identified on TMDB and ripped with MakeMKV (main title, Italian + original language), then uploaded; anything unsure waits for a choice in the UI
+- 💿 **Automatic ripping** - Film discs that finish downloading are identified on TMDB and ripped with MakeMKV (main title, Italian + original language), then uploaded; anything unsure waits for a choice in the UI. When MakeMKV fails, unencrypted discs can be ripped without it (mkvmerge, ffmpeg)
 - 📦 **RAR archives** - Downloaded RAR archives are unpacked on whichever disk has more free space (downloads or watch folder): the disc inside is ripped, an .mkv is uploaded
 
 ---
@@ -144,6 +145,37 @@ RAR archives in the downloads (`.rar`, `.part1.rar` + `.part2.rar`..., `.rar` + 
 
 Archives are unpacked one at a time, between rips. *Skip* stops an unpacking and deletes what was unpacked. Archives already in the downloads when this was added are listed as skipped (*Rip anyway*, or `RIP_EXISTING=true`). To never unpack them, add the exclusion rule `.rar`.
 
+#### Rip without MakeMKV
+
+When MakeMKV can't rip a disc (makemkvcon crashes, the `BETA` key expired, the runner is offline), **Rips** → the rip's menu → *Rip without MakeMKV* rips it with the backend's own tools instead, included in the Docker image:
+
+| Disc | Tool | Notes |
+|---|---|---|
+| Blu-ray folder (`BDMV`) | `mkvmerge` on the film's playlist (`.mpls`) | joins its clips; languages from `CLIPINF`, chapters from the playlist |
+| Blu-ray `.iso` | the playlist's files extracted with 7-Zip (`7zz`), then `mkvmerge` | needs twice the film's size free on the watch folder disk |
+| DVD (`VIDEO_TS` or `.iso`) | `ffmpeg` (`dvdvideo` input, ffmpeg 7+ built with libdvdnav) | languages, subtitles (VobSub) and chapters from the IFO files |
+
+The disc's titles are read again without MakeMKV (a Blu-ray title is its playlist number, e.g. *Title 800* is `00800.mpls`; a DVD title is the DVD's own), then the rip goes on as usual: the film's title is picked automatically or chosen in *Choose…* (a Blu-ray title already chosen on MakeMKV's scan is kept), the tracks kept are the same (Italian first and default, plus the original language) and the file is moved to the watch folder as `Title (Year).mkv`. *Retry with MakeMKV* goes back to MakeMKV.
+
+Limits: nothing is decrypted, so only unencrypted discs work (as downloaded discs usually are); a Blu-ray played through several angles keeps the first one, 3D keeps only the 2D picture, and forced subtitles are not told apart. Neither tool reports a damaged download, so the playlist's clips must all be there and whole, and the ripped file must be as long as the title: a missing or cut clip fails the rip with the reason. A damaged chunk inside a clip goes unnoticed (that part of the film is skipped). Running locally (no Docker), install MKVToolNix, 7-Zip and ffmpeg 7+, or set `MKVMERGE_PATH`, `SEVENZIP_PATH`, `FFMPEG_PATH`, `FFPROBE_PATH`; the Rips page shows which discs can be ripped without MakeMKV.
+
+### Remove the source torrent (optional)
+
+If the films come from qBittorrent, Wayfinderr can remove each torrent once its MKV is uploaded.
+
+1. In qBittorrent enable the WebUI (Tools → Options → WebUI). Optional: put the disc torrents in a category such as `rip`
+2. Open **Clients** → **Add client**: URL (`http://localhost:8080`; from Docker `http://host.docker.internal:8080`), username/password (or an API key on qBittorrent 5.2+, or blank if the WebUI skips login for this host), category, and whether to keep or delete the downloaded files
+3. Click **Test connection**
+4. For MKVs not ripped by Wayfinderr, set `TMDB_API_KEY` (the ripper's key, see above) so that `IL_PADRINO_t00.mkv` matches `The.Godfather.1972.1080p.BluRay`
+
+How a torrent is matched and removed:
+
+- **Ripped by Wayfinderr** (automatic ripping above): the torrent is the one whose folder or file is the rip's download, an exact match whatever the names. With several discs in one download, it waits for all of them
+- **Any other MKV**: the MKV name and its folders inside the watch folder (`_t00`, `DISC_1`, release tags and the leading article are ignored) are compared with every finished torrent's name, content folder and TMDB titles. Generic names such as `title_t00.mkv` never match: rename the file or rip into a folder named after the movie
+- **Automatic** only when the match is certain (same title, score 95+) and no other torrent comes close. A partial match (`Blade Runner` vs `Blade Runner 2049`) or two torrents of the same movie only show a suggestion and a **Remove torrent now** button on the upload page
+- The removal waits 5 minutes, then until no other rip or upload of the same download is still running (for an MKV matched by name: no other MKV of the same film queued or uploading, and no MKV in the watch folder written in the last 2 minutes, since MakeMKV may still be ripping the other titles from that ISO)
+- Only finished torrents are ever considered. Note that removing a torrent stops seeding: on private trackers check your ratio rules, or leave **When matched** on "Only suggest"
+
 ---
 
 ## Configuration
@@ -169,7 +201,10 @@ Archives are unpacked one at a time, between rips. *Skip* stops an unpacking and
 | `RIP_EXISTING` | `false` | Also rip the downloads already there when ripping is first enabled |
 | `RIP_LANGUAGE` | `it` | Language always kept (ISO 639-1), besides the film's original one |
 | `UNRAR_PATH` | `unrar` | Backend: the unrar command for RAR archives (in the Docker image) |
-| `TMDB_API_KEY` | – | themoviedb.org API key (v3) or read access token; without it every rip waits for a choice |
+| `MKVMERGE_PATH` | `mkvmerge` | Backend: mkvmerge, to rip a Blu-ray without MakeMKV (in the Docker image) |
+| `SEVENZIP_PATH` | `7zz` | Backend: 7-Zip, to read an ISO without MakeMKV (in the Docker image) |
+| `FFMPEG_PATH` / `FFPROBE_PATH` | `ffmpeg` / `ffprobe` | Backend: to rip a DVD without MakeMKV; needs ffmpeg 7+ with the `dvdvideo` input (in the Docker image) |
+| `TMDB_API_KEY` | – | themoviedb.org API key (v3) or read access token; without it every rip waits for a choice, and torrents are matched only by names in the same language |
 | `TMDB_LANGUAGE` | `it-IT` | Language of the title used for the file name |
 | `MAKEMKV_KEY` | `BETA` | MakeMKV container: registration key, or `BETA` for the free beta key |
 | `WAYFINDERR_RUNNER` | `1` | MakeMKV container: `0` turns the runner off |
@@ -242,6 +277,12 @@ Served through the frontend (`http://localhost:3000/api/...`). Every route excep
 - `GET /api/uploads/:id` - Get upload details
 - `POST /api/uploads/:id/retry` - Re-queue a failed, skipped or stopped upload
 - `POST /api/uploads/:id/cancel` - Stop a queued or running upload (the partial file on the server is deleted)
+- `POST /api/uploads/:id/torrent/check` - Match the upload to its source torrent again
+- `POST /api/uploads/:id/torrent/remove` - Remove the matched torrent now
+
+### Clients (qBittorrent)
+- `GET /api/clients` / `POST /api/clients` / `PUT /api/clients/:id` / `DELETE /api/clients/:id`
+- `POST /api/clients/:id/test` - Login + version + finished torrents in scope
 
 ### Space
 - `GET /api/space` - All servers' space
@@ -253,7 +294,8 @@ Served through the frontend (`http://localhost:3000/api/...`). Every route excep
 ### Rips
 - `GET /api/rips` - Rips and the ripping status (enabled, runner online, TMDB configured)
 - `POST /api/rips/:id/choose` - Rip with the given `titleIndex` and/or `tmdbId`
-- `POST /api/rips/:id/retry` - Scan and choose again
+- `POST /api/rips/:id/retry` - Scan and choose again (with MakeMKV)
+- `POST /api/rips/:id/remux` - Rip without MakeMKV (mkvmerge, 7-Zip, ffmpeg)
 - `POST /api/rips/:id/skip` - Never rip it (stops a running rip)
 - `GET /api/rips/tmdb/search?query=&year=` - Search a film on TMDB
 

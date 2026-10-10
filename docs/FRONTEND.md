@@ -187,6 +187,7 @@ All components follow the existing design system:
 ### Rips API
 - `GET /api/rips`, `GET /api/rips/:id` - Rips and the ripping status
 - `POST /api/rips/:id/choose`, `POST /api/rips/:id/retry`, `POST /api/rips/:id/skip`
+- `DELETE /api/rips/:id`, `POST /api/rips/clear-skipped` - Remove skipped rips from the list
 - `PUT /api/rips/exclusions` - Ignored folders, "downloads arrive complete", and rules for the discs that are never ripped
 - `GET /api/rips/folders` - Subfolders of the downloads, for picking the ignored folders
 - `GET /api/rips/tmdb/search?query=&year=` - Search a film on TMDB

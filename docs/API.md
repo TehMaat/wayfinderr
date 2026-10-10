@@ -410,6 +410,70 @@ before it could be stopped.
 
 **Response:** 200 OK (the upload), 409 if the upload is not queued or uploading
 
+### Match Upload to its Torrent
+
+```
+POST /api/uploads/:id/torrent/check
+```
+
+Looks for the source torrent again (e.g. after adding a client). Only for `COMPLETED` uploads. Returns the updated upload; see `torrentStatus` below.
+
+### Remove the Matched Torrent
+
+```
+POST /api/uploads/:id/torrent/remove
+```
+
+Removes the matched torrent from its client now (the "Remove torrent now" button). Uses the client's `deleteFiles` setting. Returns the updated upload, `502` if qBittorrent refuses.
+
+**Torrent fields on an upload:**
+
+| Field | Meaning |
+|---|---|
+| `torrentStatus` | `null` not checked · `NO_MATCH` · `REVIEW` match found, remove by hand · `WAITING` removal scheduled · `REMOVED` · `ERROR` |
+| `torrentClientId`, `torrentHash`, `torrentName` | The matched torrent |
+| `torrentScore` | Match, 0-100: 100 for a rip of the downloads folder (the torrent holding that download), else the name match (automatic removal needs 95+) |
+| `torrentMessage` | Why it was or was not removed |
+
+## Clients API (qBittorrent)
+
+### List / Create / Update / Delete
+
+```
+GET    /api/clients
+POST   /api/clients
+PUT    /api/clients/:id
+DELETE /api/clients/:id
+```
+
+**Body:**
+```json
+{
+  "name": "qBittorrent",
+  "url": "http://localhost:8080",
+  "username": "admin",
+  "password": "secret",
+  "apiKey": "",
+  "category": "rip",
+  "enabled": true,
+  "autoRemove": true,
+  "deleteFiles": false
+}
+```
+
+`username` blank = no login (WebUI auth bypass for this host). `apiKey` (qBittorrent 5.2+) replaces username/password. On update a blank `password`/`apiKey` keeps the stored one; send `"clearPassword": true` / `"clearApiKey": true` to remove it. Responses never include the secrets, only `hasPassword` / `hasApiKey`.
+
+### Test Client
+
+```
+POST /api/clients/:id/test
+```
+
+**Response:** 200 OK
+```json
+{ "ok": true, "version": "v5.0.4", "completedTorrents": 12 }
+```
+
 ## Rips API
 
 Film discs and RAR archives found in the downloads folder (`RIP_ENABLED=true`), see the README's *Automatic ripping* and *RAR archives*.
@@ -429,7 +493,8 @@ GET /api/rips
       "unrar": true,
       "disks": [{ "disk": "watch", "freeBytes": 412316860416 }, { "disk": "downloads", "freeBytes": 1288490188800 }],
       "downloadsWritable": true
-    }
+    },
+    "remux": { "mkvmerge": true, "sevenZip": true, "dvd": true }
   },
   "rips": [
     {
@@ -439,6 +504,7 @@ GET /api/rips
       "downloadName": "Le.Film.2019.BluRay",
       "status": "NEEDS_ATTENTION",
       "reason": "Several long titles (1h52, 1h38): more than one film or cut, choose one",
+      "engine": "makemkv",
       "contentType": null,
       "contentPath": null,
       "unpackBytes": null,
@@ -473,6 +539,10 @@ GET /api/rips
 
 A RAR archive has `sourceType` `RAR` and `sourcePath` its first volume. Once listed, `contentType` (`ISO`, `BDMV`, `DVD` or `MKV`) and `contentPath` (inside the archive) tell its film, `unpackBytes` (string) the size of all its files. `unpackedTo` is the disk it is unpacked (or being unpacked) on, `downloads` or `watch`, and `null` once the unpacked copy is deleted. An `.mkv` unpacked next to the downloads is uploaded from there: `outputFile` is in `<downloads>/.wayfinderr/unpack/`.
 
+`engine` is what rips the disc: `makemkv`, or `remux` after *Rip without MakeMKV* (then `RIPPING` is mkvmerge or ffmpeg running in the backend, and `titles` were read without MakeMKV: a Blu-ray title's `index` is its playlist number, `sourceFile` its `.mpls`; a DVD title's `index` is the DVD's title number).
+
+`status.remux` (with ripping on): which tools of the rip without MakeMKV can be run: `mkvmerge` (Blu-ray), `sevenZip` (ISO images), `dvd` (ffmpeg with the `dvdvideo` input).
+
 `status.unpack` (with ripping on): `unrar` whether the command can be run, `disks` where archives can be unpacked with their free space (one entry per disk: just `watch` when the downloads are on the same disk or read-only), `downloadsWritable` whether the downloads' `.wayfinderr` folder can be written.
 
 ### Choose and Rip
@@ -493,7 +563,24 @@ POST /api/rips/:id/retry
 POST /api/rips/:id/skip
 ```
 
-Retry starts over (scan and automatic choices; an archive not unpacked yet is listed and unpacked again); not while unpacking, scanning or ripping. Skip never rips the disc, stops a running rip or unpacking, and deletes what was unpacked of an archive.
+Retry starts over with MakeMKV (scan and automatic choices; an archive not unpacked yet is listed and unpacked again); not while unpacking, scanning or ripping. Skip never rips the disc, stops a running rip or unpacking, and deletes what was unpacked of an archive.
+
+### Rip without MakeMKV
+
+```
+POST /api/rips/:id/remux
+```
+
+Rips the disc with mkvmerge (Blu-ray; an ISO extracted with 7-Zip first) or ffmpeg (DVD) in the backend instead of MakeMKV: `engine` becomes `remux` and the rip is queued; its titles are read again, then it goes on like any rip (automatic choice or `NEEDS_ATTENTION`, `RIPPING`, `DONE`). A Blu-ray title chosen on MakeMKV's scan is kept (same playlist). Allowed when the rip is `FAILED`, `NEEDS_ATTENTION`, `SKIPPED` or `QUEUED`; it doesn't need the MakeMKV runner. Errors: 404, 409 (rip in another state, an archive holding an `.mkv`, `Cannot rip without MakeMKV: mkvmerge (Blu-ray) not installed`). A disc that can't be read, a missing or cut clip, or a ripped file shorter than its title ends `FAILED` with the reason.
+
+### Remove skipped rips from the list
+
+```
+DELETE /api/rips/:id
+POST /api/rips/clear-skipped
+```
+
+Removes one `SKIPPED` rip (204; 409 in any other status), or every one (`{ "removed": 3 }`), from the list. The files in the downloads are not touched: the rips are hidden, not deleted, so the downloads scan doesn't list those discs again. A removed rip is no longer returned by `GET /api/rips` (404 on `GET /api/rips/:id`), and the exclusion rules leave it alone.
 
 ### Exclusions
 
@@ -618,6 +705,16 @@ Upload skipped (no Italian content).
     "uploadId": "upload123",
     "reason": "No Italian audio or subtitles"
   }
+}
+```
+
+#### torrent-updated
+The source torrent of an upload was matched, scheduled, removed, or could not be removed.
+```json
+{
+  "type": "torrent-updated",
+  "uploadId": "upload123",
+  "torrentStatus": "REMOVED"
 }
 ```
 

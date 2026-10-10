@@ -27,6 +27,10 @@ services:
       - RIP_QUIET_MINUTES=${RIP_QUIET_MINUTES:-10}
       - RIP_MIN_LENGTH=${RIP_MIN_LENGTH:-2700}
       - RIP_LANGUAGE=${RIP_LANGUAGE:-it}
+    # Lets the backend reach qBittorrent on this machine as http://host.docker.internal:8080
+    # (built into Docker Desktop, needed on Linux)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # Folder where MakeMKV saves the .mkv files (set MAKEMKV_OUTPUT_DIR in .env).
       # Writable: rips are moved in, uploaded files deleted (DELETE_AFTER_UPLOAD)

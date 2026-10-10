@@ -124,7 +124,8 @@ function DetailsCell({ rip, wrap }: { rip: Rip; wrap?: boolean }) {
           <span className="w-9 shrink-0 text-right text-xs tabular text-muted-foreground">{rip.progress}%</span>
           {title && (
             <span className="truncate text-xs text-muted-foreground">
-              Title {title.index} · {formatRuntime(title.durationSec)}
+              {rip.engine === 'remux' ? `Without MakeMKV · ${title.name ?? `Title ${title.index}`}` : `Title ${title.index}`} ·{' '}
+              {formatRuntime(title.durationSec)}
             </span>
           )}
         </div>
@@ -161,7 +162,9 @@ function DetailsCell({ rip, wrap }: { rip: Rip; wrap?: boolean }) {
             ? 'Waiting to unpack the archive'
             : isArchivedMkv(rip)
               ? 'Handing the film over to the upload'
-              : 'Waiting for MakeMKV'}
+              : rip.engine === 'remux'
+                ? 'Waiting to rip without MakeMKV'
+                : 'Waiting for MakeMKV'}
         </span>
       );
     case 'SCANNING':

@@ -1,5 +1,5 @@
 import { toast } from 'sonner';
-import { ripsApi, serversApi, uploadsApi } from './api';
+import { clientsApi, ripsApi, serversApi, uploadsApi } from './api';
 import { useAppStore } from './store';
 import { errorMessage } from './utils';
 
@@ -52,6 +52,16 @@ export async function retryRip(id: string) {
   }
 }
 
+export async function remuxRip(id: string) {
+  try {
+    await ripsApi.remuxRip(id);
+    await useAppStore.getState().refreshRip(id);
+    toast.success('Ripping without MakeMKV', { description: 'The disc is read again with mkvmerge or ffmpeg' });
+  } catch (err) {
+    toast.error('Rip without MakeMKV failed', { description: errorMessage(err) });
+  }
+}
+
 export async function skipRip(id: string) {
   try {
     await ripsApi.skipRip(id);
@@ -59,6 +69,26 @@ export async function skipRip(id: string) {
     toast.success('Rip skipped');
   } catch (err) {
     toast.error('Skip failed', { description: errorMessage(err) });
+  }
+}
+
+export async function removeRip(id: string) {
+  try {
+    await ripsApi.removeRip(id);
+    useAppStore.getState().removeRip(id);
+    toast.success('Removed from the list');
+  } catch (err) {
+    toast.error('Remove failed', { description: errorMessage(err) });
+  }
+}
+
+export async function clearSkippedRips() {
+  try {
+    const { data } = await ripsApi.clearSkippedRips();
+    await useAppStore.getState().loadRips();
+    toast.success(data.removed === 1 ? '1 skipped rip removed' : `${data.removed} skipped rips removed`);
+  } catch (err) {
+    toast.error('Remove failed', { description: errorMessage(err) });
   }
 }
 
@@ -93,5 +123,52 @@ export async function deleteServer(id: string): Promise<boolean> {
   } catch (err) {
     toast.error('Delete failed', { description: errorMessage(err) });
     return false;
+  }
+}
+
+export async function testClient(id: string) {
+  const name = useAppStore.getState().clients.find((c) => c.id === id)?.name ?? 'Client';
+  const pending = toast.loading(`Testing ${name}…`, { description: 'qBittorrent WebUI login' });
+  try {
+    const { data } = await clientsApi.testClient(id);
+    toast.success(`${name} is working`, {
+      id: pending,
+      description: `qBittorrent ${data.version} · ${data.completedTorrents} finished torrents in scope`,
+    });
+  } catch (err) {
+    toast.error(`${name} test failed`, { id: pending, description: errorMessage(err) });
+  }
+}
+
+export async function deleteClient(id: string): Promise<boolean> {
+  try {
+    await clientsApi.deleteClient(id);
+    await useAppStore.getState().loadClients();
+    toast.success('Client removed');
+    return true;
+  } catch (err) {
+    toast.error('Delete failed', { description: errorMessage(err) });
+    return false;
+  }
+}
+
+export async function checkTorrent(id: string) {
+  const pending = toast.loading('Looking for the torrent…');
+  try {
+    await uploadsApi.checkTorrent(id);
+    await useAppStore.getState().refreshUpload(id);
+    toast.dismiss(pending);
+  } catch (err) {
+    toast.error('Torrent check failed', { id: pending, description: errorMessage(err) });
+  }
+}
+
+export async function removeTorrent(id: string) {
+  try {
+    await uploadsApi.removeTorrent(id);
+    await useAppStore.getState().refreshUpload(id);
+    toast.success('Torrent removed from the client');
+  } catch (err) {
+    toast.error('Could not remove the torrent', { description: errorMessage(err) });
   }
 }

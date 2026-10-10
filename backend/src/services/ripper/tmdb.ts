@@ -162,3 +162,29 @@ export const matchMovie = async (name: ParsedName): Promise<TmdbMatch> => {
       : `"${name.title}" not found on TMDB: search it by hand`,
   };
 };
+
+interface ApiTitles {
+  title?: string;
+  original_title?: string;
+  alternative_titles?: { titles?: { title: string }[] };
+  translations?: { translations?: { data?: { title?: string } }[] };
+}
+
+/**
+ * Every title the film is known by: original, localized, translations, alternative
+ * titles. Used to recognize a torrent named in another language than the MKV
+ * ("The.Godfather.1972.BluRay" for "Il padrino (1972).mkv").
+ */
+export const getMovieTitles = async (id: number): Promise<string[]> => {
+  const data = await request<ApiTitles>(`/movie/${id}`, {
+    language: config.RIP.TMDB_LANGUAGE,
+    append_to_response: 'alternative_titles,translations',
+  });
+  const titles = [
+    data.title,
+    data.original_title,
+    ...(data.alternative_titles?.titles ?? []).map((t) => t.title),
+    ...(data.translations?.translations ?? []).map((t) => t.data?.title),
+  ];
+  return [...new Set(titles.filter((t): t is string => Boolean(t)))];
+};
