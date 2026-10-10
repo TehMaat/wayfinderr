@@ -26,7 +26,7 @@ import { parseReleaseName } from '../ripper/releaseName.js';
 import { MediaInfo } from '../../types/index.js';
 import { analyze, buildReleaseName, isAutoHybrid, ReleaseAnalysis, ReleaseFlags, validateFlags, VERSIONS } from './name.js';
 import { appendOutput, detectPrompt, exitCode, EXIT_MARKER, parseOutcome, Prompt, withoutMarker } from './output.js';
-import { parseTorrent } from './torrentFile.js';
+import { parseTorrent, TorrentFile, trackerHost } from './torrentFile.js';
 
 const POLL_MS = 1000;
 const SAVE_EVERY_MS = 5000;
@@ -208,18 +208,24 @@ export const archiveDirs = async (sftp: SFTPWrapper, home: string, log: string):
 
 /**
  * The .torrent of this file in the archive folders, in one of their tracker
- * folders (<archive>/<TRACKER>/<file name>.torrent) or right in them: only one
- * made for this very file (same name and size). The tracker that accepted the
- * upload wins, else the newest.
+ * folders (<archive>/<TRACKER>/<name>.torrent) or right in them. Unit3Dup names it
+ * after the file without its extension (or after its folder, when given one):
+ * only one made for this very file counts, holding it with the same name and size,
+ * alone or in its folder. The tracker that accepted the upload wins, else the newest.
  */
 export const findTorrent = async (
   sftp: SFTPWrapper,
   dirs: string[],
-  file: { name: string; size: number },
+  file: { path: string; size: number },
   preferTracker?: string | null
 ): Promise<FoundTorrent | null> => {
   const found: FoundTorrent[] = [];
-  const torrentName = `${file.name}.torrent`;
+  const name = path.posix.basename(file.path);
+  const torrentNames = [
+    ...new Set([name, path.posix.basename(name, path.posix.extname(name)), path.posix.basename(path.posix.dirname(file.path))]),
+  ]
+    .filter((n) => n && n !== '.' && n !== '/')
+    .map((n) => `${n}.torrent`);
   for (const dir of dirs) {
     const entries = await sftpCall<{ filename: string; attrs: Stats }[]>((cb) => sftp.readdir(dir, cb)).catch(() => []);
     const places = [
@@ -227,16 +233,18 @@ export const findTorrent = async (
       ...entries.filter((e) => isDir(e.attrs)).map((e) => ({ folder: path.posix.join(dir, e.filename), tracker: e.filename })),
     ];
     for (const { folder, tracker } of places) {
-      const candidate = path.posix.join(folder, torrentName);
-      const stats = await statOf(sftp, candidate);
-      if (!stats || isDir(stats) || stats.size > MAX_TORRENT_BYTES) continue;
-      try {
-        const data = await sftpCall<Buffer>((cb) => sftp.readFile(candidate, cb));
-        const torrent = parseTorrent(data);
-        if (torrent.name !== file.name || torrent.size !== file.size) continue;
-        found.push({ path: candidate, tracker, infoHash: torrent.infoHash, data, mtime: stats.mtime });
-      } catch (error) {
-        logger.warn({ path: candidate, error: (error as Error).message }, 'Unreadable .torrent');
+      for (const torrentName of torrentNames) {
+        const candidate = path.posix.join(folder, torrentName);
+        const stats = await statOf(sftp, candidate);
+        if (!stats || isDir(stats) || stats.size > MAX_TORRENT_BYTES) continue;
+        try {
+          const data = await sftpCall<Buffer>((cb) => sftp.readFile(candidate, cb));
+          const torrent = parseTorrent(data);
+          if (!torrent.files.some((f) => f.path === name && f.length === file.size)) continue;
+          found.push({ path: candidate, tracker, infoHash: torrent.infoHash, data, mtime: stats.mtime });
+        } catch (error) {
+          logger.warn({ path: candidate, error: (error as Error).message }, 'Unreadable .torrent');
+        }
       }
     }
   }
@@ -261,10 +269,11 @@ class ReleaseManager extends EventEmitter {
     return { upload, server };
   }
 
-  private update(uploadId: string, data: Parameters<typeof db.updateUpload>[1], prompt?: Prompt | null) {
+  /** linked: the status comes from link(), not from a tracker run (no toast for it) */
+  private update(uploadId: string, data: Parameters<typeof db.updateUpload>[1], prompt?: Prompt | null, linked = false) {
     return db.updateUpload(uploadId, data).then((upload) => {
       if (data.releaseStatus !== undefined) {
-        this.emit('release-updated', { uploadId, releaseStatus: upload.releaseStatus, prompt: prompt ?? null });
+        this.emit('release-updated', { uploadId, releaseStatus: upload.releaseStatus, prompt: prompt ?? null, linked });
       }
       return upload;
     });
@@ -342,7 +351,7 @@ class ReleaseManager extends EventEmitter {
 
       const dirs = await archiveDirs(sftp, home, upload.releaseLog ?? '');
       const accepted = upload.releaseLog ? ACCEPTED_BY.exec(upload.releaseLog)?.[1] : null;
-      torrent = await findTorrent(sftp, dirs, { name: path.posix.basename(file), size }, accepted);
+      torrent = await findTorrent(sftp, dirs, { path: file, size }, accepted);
       if (!torrent) problems.push(`no .torrent of it in ${dirs.join(', ') || 'the Unit3Dup archive'}`);
 
       media = await probe(ssh, file).catch((error: Error) => {
@@ -357,18 +366,66 @@ class ReleaseManager extends EventEmitter {
     const known = upload.releaseStatus === 'CONFIRM' ? null : upload.releaseStatus;
     const found = [`file found: ${file}`, torrent && `.torrent from ${torrent.tracker ?? path.posix.dirname(torrent.path)}`];
     logger.info({ uploadId, file, torrent: torrent?.path, problems }, 'Release linked');
-    return this.update(uploadId, {
-      ...torrentFields(torrent),
-      ...(media ? mediaFields(media) : {}),
-      remotePath: file,
-      remoteFound: true,
-      releaseName: renamed ? path.posix.basename(file) : upload.releaseName,
-      // Found with its .torrent, or released by hand (renamed, no tracker run known): on the
-      // tracker, the .torrent then shows as missing. Else the tracker outcome known stays
-      releaseStatus: torrent || (renamed && (!known || known === 'RENAMED')) ? 'DONE' : known,
-      releaseMessage: `Linked: ${[...found, ...problems].filter(Boolean).join('; ')}`,
-      releaseCompletedAt: upload.releaseCompletedAt ?? new Date(),
-    });
+    return this.update(
+      uploadId,
+      {
+        ...torrentFields(torrent),
+        ...(media ? mediaFields(media) : {}),
+        remotePath: file,
+        remoteFound: true,
+        releaseName: renamed ? path.posix.basename(file) : upload.releaseName,
+        // Found with its .torrent, or released by hand (renamed, no tracker run known): on the
+        // tracker, the .torrent then shows as missing. Else the tracker outcome known stays
+        releaseStatus: torrent || (renamed && (!known || known === 'RENAMED')) ? 'DONE' : known,
+        releaseMessage: `Linked: ${[...found, ...problems].filter(Boolean).join('; ')}`,
+        releaseCompletedAt: upload.releaseCompletedAt ?? new Date(),
+      },
+      null,
+      true
+    );
+  }
+
+  /**
+   * A .torrent given by hand (downloaded from the tracker), when it is not in the
+   * Unit3Dup archive: kept as if found there, once it holds a file of this size.
+   * The file is then on the tracker.
+   */
+  async attachTorrent(uploadId: string, data: Buffer, filename: string): Promise<Upload> {
+    const upload = await db.getUploadById(uploadId);
+    if (!upload) throw new ReleaseError('Upload not found', 404);
+    if (this.isActive(upload)) throw new ReleaseError('The tracker upload of this file is still running');
+    if (!data.length || data.length > MAX_TORRENT_BYTES) throw new ReleaseError('Not a .torrent file', 400);
+
+    let torrent: TorrentFile;
+    try {
+      torrent = parseTorrent(data);
+    } catch (error) {
+      throw new ReleaseError((error as Error).message, 400);
+    }
+    const size = Number(upload.size);
+    // By size only: the file may have been renamed since the .torrent was made
+    if (!torrent.files.some((f) => f.length === size)) {
+      throw new ReleaseError(`This .torrent is not of this file: none of its files is ${size} bytes`, 400);
+    }
+
+    const name = path.posix.basename(filename.replace(/\\/g, '/')).replace(/[\x00-\x1f"]/g, '').trim();
+    const torrentName = /\.torrent$/i.test(name) ? name : `${torrent.name}.torrent`;
+    logger.info({ uploadId, torrent: torrentName, infoHash: torrent.infoHash }, '.torrent added by hand');
+    return this.update(
+      uploadId,
+      {
+        releaseTracker: trackerHost(torrent.announce),
+        releaseTorrentName: torrentName,
+        releaseTorrentPath: null,
+        releaseTorrentHash: torrent.infoHash,
+        releaseTorrentData: data,
+        releaseStatus: 'DONE',
+        releaseMessage: `.torrent added by hand: ${torrentName}`,
+        releaseCompletedAt: upload.releaseCompletedAt ?? new Date(),
+      },
+      null,
+      true
+    );
   }
 
   /**
@@ -416,7 +473,7 @@ class ReleaseManager extends EventEmitter {
     const sftp = run.sftp;
     const home = await sftpCall<string>((cb) => sftp.realpath('.', cb));
     const dirs = await archiveDirs(sftp, home, log);
-    const file = { name: path.posix.basename(upload.remotePath), size: Number(upload.size) };
+    const file = { path: upload.remotePath, size: Number(upload.size) };
     return findTorrent(sftp, dirs, file, ACCEPTED_BY.exec(log)?.[1]);
   }
 

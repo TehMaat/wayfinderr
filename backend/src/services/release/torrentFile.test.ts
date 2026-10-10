@@ -11,6 +11,8 @@ test('single file: name, size and the SHA-1 of the info dictionary', () => {
     infoHash: createHash('sha1').update(info).digest('hex'),
     name: 'Film.2001.mkv',
     size: 1234,
+    files: [{ path: 'Film.2001.mkv', length: 1234 }],
+    announce: 'https://t.example/a/PASSKEY/an',
   });
 });
 
@@ -18,7 +20,12 @@ test('several files: the size is their sum', () => {
   const multi = 'd5:filesld6:lengthi10e4:pathl5:a.mkveed6:lengthi5e4:pathl5:b.srteee4:name4:Film6:pieces0:e';
   const parsed = parseTorrent(Buffer.from(`d4:info${multi}e`));
   assert.equal(parsed.name, 'Film');
+  assert.equal(parsed.announce, null);
   assert.equal(parsed.size, 15);
+  assert.deepEqual(parsed.files, [
+    { path: 'a.mkv', length: 10 },
+    { path: 'b.srt', length: 5 },
+  ]);
 });
 
 test('an "info" key deeper down is not the info dictionary', () => {

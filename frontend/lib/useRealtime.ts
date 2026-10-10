@@ -141,6 +141,8 @@ export const useRealtime = () => {
             const open = { label: 'Open', onClick: () => routerRef.current.push(`/uploads/${uploadId}`) };
             const upload = useAppStore.getState().uploads.find((u) => u.id === uploadId);
             const name = upload?.releaseName ?? nameOf(uploadId);
+            // A release linked by hand: no tracker run ended, its own toast says what was found
+            if (message.linked) break;
             switch (message.releaseStatus) {
               case 'CONFIRM':
                 toast.info('Confirm the name for the tracker', { description: name, duration: 15_000, action: open });

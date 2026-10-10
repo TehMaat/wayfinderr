@@ -531,13 +531,22 @@ POST /api/uploads/:id/release/dismiss
 
 ### The .torrent
 
-Once the tracker accepts the upload (`DONE`), the .torrent Unit3Dup downloaded back from it is read from the Unit3Dup archive on the server, `<archive>/<TRACKER>/<file name>.torrent`, and stored with its info hash. The archive is the one Unit3Dup printed (`[*.torrent Archive] '...'`), the `TORRENT_ARCHIVE_PATH` of `~/Unit3Dup_config/Unit3Dbot.json`, or `~/Unit3Dup_config/torrent_archive_path`; only a .torrent of this very file counts (same name and size). Not found: `releaseMessage` says so and the upload shows the .torrent as missing.
+Once the tracker accepts the upload (`DONE`), the .torrent Unit3Dup downloaded back from it is read from the Unit3Dup archive on the server, `<archive>/<TRACKER>/<name>.torrent` (the file name without its extension, with it, or the name of its folder), and stored with its info hash. The archive is the one Unit3Dup printed (`[*.torrent Archive] '...'`), the `TORRENT_ARCHIVE_PATH` of `~/Unit3Dup_config/Unit3Dbot.json`, or `~/Unit3Dup_config/torrent_archive_path`; only a .torrent of this very file counts (it holds the file with the same name and size, alone or in its folder). Not found: `releaseMessage` says so and the upload shows the .torrent as missing.
 
 ```
 GET /api/uploads/:id/release/torrent
 ```
 
 The stored .torrent, as a download (`application/x-bittorrent`); `404` when there is none.
+
+```
+PUT /api/uploads/:id/release/torrent?name=Film.2001.1080p.BluRay-TAG.torrent
+Content-Type: application/x-bittorrent
+
+<the .torrent file>
+```
+
+A .torrent given by hand (downloaded from the tracker), when it is not in the archive; it replaces the stored one. Accepted when one of its files has the upload's exact size (`400` otherwise, or when it is not a .torrent). Sets the .torrent fields (`releaseTorrentPath` `null`, `releaseTracker` the announce host, never the passkey) and `releaseStatus` `DONE`. `409` while the tracker command runs.
 
 ### Link a Release Made Before
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { CornerDownLeft, Download, Link2, Loader2, Play, Send, Square, Tags } from 'lucide-react';
+import { CornerDownLeft, Download, FileUp, Link2, Loader2, Play, Send, Square, Tags } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Tooltip } from '@/components/ui/tooltip';
 import { ReleaseDialog } from '@/components/release-dialog';
 import { canRelease, RELEASE_STATUS, releaseRunning } from '@/components/release-badge';
-import { answerRelease, linkRelease, runRelease, stopRelease } from '@/lib/actions';
+import { addReleaseTorrent, answerRelease, linkRelease, runRelease, stopRelease } from '@/lib/actions';
 import { releaseApi } from '@/lib/api';
 import { useAppStore, type ReleasePrompt, type Upload } from '@/lib/store';
 import { formatDate, formatDuration } from '@/lib/utils';
@@ -126,6 +126,7 @@ export function ReleaseCard({ upload }: { upload: Upload }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const logRef = useRef<HTMLPreElement>(null);
+  const torrentInput = useRef<HTMLInputElement>(null);
 
   // Follow the end of the output, unless scrolled up to read it
   useEffect(() => {
@@ -235,6 +236,31 @@ export function ReleaseCard({ upload }: { upload: Upload }) {
               </Button>
             </Tooltip>
           )}
+          {canRelease(upload) && (
+            <Tooltip
+              content={
+                upload.releaseTorrentHash
+                  ? 'Replace the stored .torrent with one downloaded from the tracker'
+                  : 'Not in the Unit3Dup archive? Add the .torrent downloaded from the tracker'
+              }
+            >
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => torrentInput.current?.click()}>
+                <FileUp />
+                {upload.releaseTorrentHash ? 'Replace .torrent…' : 'Add .torrent…'}
+              </Button>
+            </Tooltip>
+          )}
+          <input
+            ref={torrentInput}
+            type="file"
+            accept=".torrent,application/x-bittorrent"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = ''; // the same file can be picked again
+              if (file) run(() => addReleaseTorrent(upload.id, file));
+            }}
+          />
           {canRerun && (
             <Button size="sm" variant="secondary" disabled={busy} onClick={() => run(() => runRelease(upload.id))}>
               <Play />

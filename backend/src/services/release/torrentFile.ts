@@ -8,6 +8,8 @@ export interface TorrentFile {
   infoHash: string; // v1, hex
   name: string;
   size: number; // the single file's length, or the sum of the files
+  files: { path: string; length: number }[]; // a single file: its name; else paths inside the folder
+  announce: string | null; // the tracker's URL, with the passkey
 }
 
 type Value = number | Buffer | Value[] | { [key: string]: Value };
@@ -87,17 +89,22 @@ export const parseTorrent = (buf: Buffer): TorrentFile => {
   const info = root.info;
   if (!Buffer.isBuffer(info.name)) throw new Error('Not a .torrent file: no name');
 
-  const size =
+  const files =
     typeof info.length === 'number'
-      ? info.length
+      ? [{ path: info.name.toString('utf8'), length: info.length }]
       : Array.isArray(info.files)
-        ? info.files.reduce<number>((sum, f) => sum + (isDict(f) && typeof f.length === 'number' ? f.length : 0), 0)
-        : 0;
+        ? info.files.filter(isDict).map((f) => ({
+            path: Array.isArray(f.path) ? f.path.filter(Buffer.isBuffer).map((part) => part.toString('utf8')).join('/') : '',
+            length: typeof f.length === 'number' ? f.length : 0,
+          }))
+        : [];
 
   return {
     infoHash: createHash('sha1').update(buf.subarray(...decoder.info)).digest('hex'),
     name: info.name.toString('utf8'),
-    size,
+    size: files.reduce((sum, f) => sum + f.length, 0),
+    files,
+    announce: Buffer.isBuffer(root.announce) ? root.announce.toString('utf8') : null,
   };
 };
 
