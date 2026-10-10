@@ -101,6 +101,7 @@ export const ripsApi = {
     apiClient.post<Rip>(`/api/rips/${id}/choose`, choice),
   retryRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/retry`),
   remuxRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/remux`),
+  ripAgain: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/rip-again`),
   skipRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/skip`),
   removeRip: (id: string) => apiClient.delete(`/api/rips/${id}`),
   joinRips: (ripIds: string[]) => apiClient.post<Rip[]>('/api/rips/join', { ripIds }),

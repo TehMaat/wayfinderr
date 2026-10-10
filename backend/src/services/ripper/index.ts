@@ -121,6 +121,9 @@ const keptLanguages = () => languageCodes(config.RIP.LANGUAGE);
 
 const isArchive = (rip: Rip) => rip.sourceType === 'RAR';
 
+/** A RAR archive holding an .mkv: unpacked and uploaded, never ripped */
+const isArchivedMkv = (rip: Rip) => isArchive(rip) && rip.contentType === 'MKV';
+
 /** The unpacked film of an archive (null when not unpacked) */
 const unpackedFilm = (rip: Rip) =>
   rip.unpackedTo && rip.contentPath ? path.join(unpackDir(rip.unpackedTo as UnpackDisk, rip.id), rip.contentPath) : null;
@@ -138,6 +141,9 @@ const exists = (file: string) =>
     () => true,
     () => false
   );
+
+// Its upload is not over yet: the file is still needed
+const UPLOAD_RUNNING = ['PENDING', 'QUEUED', 'UPLOADING'];
 
 // Characters not allowed in file names on common filesystems
 const safeFileName = (name: string) =>
@@ -562,12 +568,17 @@ class Ripper extends EventEmitter {
     logger.info({ ripId: rip.id, file: target, uploadId: upload.id }, 'Unpacked film sent to the upload queue');
   }
 
-  /** A file name in dir that is new there and on the servers (current: the file's own name is fine). */
-  private async freeName(dir: string, base: string, current?: string) {
+  /**
+   * A file name in dir that is new there and on the servers (current: the file's
+   * own name is fine; previous: the rip's earlier film, ripped again, whose copy on
+   * the servers the new one replaces).
+   */
+  private async freeName(dir: string, base: string, current?: string, previous?: string | null) {
     // The name must be new on the server too: with DELETE_AFTER_UPLOAD an earlier
     // film with this name is gone from the folder, and the upload would replace it
     const taken = async (file: string) =>
-      (file !== current && (await exists(file))) || (await db.isUploadFileNameUsed(path.basename(file)));
+      (file !== current && (await exists(file))) ||
+      (file !== previous && (await db.isUploadFileNameUsed(path.basename(file))));
     let target = path.join(dir, `${base}.mkv`);
     for (let n = 2; await taken(target); n++) {
       target = path.join(dir, `${base} (${n}).mkv`);
@@ -815,8 +826,9 @@ class Ripper extends EventEmitter {
 
   /** Moves a ripped film into the watch folder (the upload follows): DONE. */
   private async handOver(rip: Rip, file: string) {
-    // Same filesystem: the watcher sees the complete file appear at once
-    const target = await this.freeName(config.WATCH_DIR, outputName(rip));
+    // Same filesystem: the watcher sees the complete file appear at once. Ripped
+    // again: the earlier film's name, so that the upload replaces it on the server
+    const target = await this.freeName(config.WATCH_DIR, outputName(rip), undefined, rip.outputFile);
     await rename(file, target);
     // Ripped: the disc unpacked from an archive is not needed any more
     await this.discardUnpacked(rip);
@@ -1265,6 +1277,54 @@ class Ripper extends EventEmitter {
       originalLanguage: null,
       year: null,
       progress: 0,
+    });
+  }
+
+  /** The disc (an archive: its first volume) is still in the downloads */
+  async sourcePresent(rip: Rip) {
+    return exists(path.join(config.RIP.SOURCE_DIR, rip.sourcePath));
+  }
+
+  /** A done rip whose disc is still in the downloads: it can be ripped again */
+  async canRipAgain(rip: Rip) {
+    return rip.status === 'DONE' && !isArchivedMkv(rip) && (await this.sourcePresent(rip));
+  }
+
+  /**
+   * Rips a done film again from its disc, still in the downloads, with the
+   * current settings (the tracks kept...): same film, title and engine. Its
+   * file in the watch folder is deleted now, so that the watcher takes the new
+   * rip for a new file; that gets the same name, and its upload replaces the
+   * copy on the server. A joined film is ripped again from every disc, then
+   * joined again. An archive is unpacked again.
+   */
+  async ripAgain(id: string) {
+    return this.exclusive(async () => {
+      const rip = await this.visibleRip(id);
+      if (rip.status !== 'DONE') throw new Error(`Rip is ${rip.status}`);
+      if (isArchivedMkv(rip)) throw new Error('The archive holds an .mkv, not a disc');
+      const parts = rip.joinId ? await db.getRipsByJoinId(rip.joinId) : [rip];
+      for (const part of parts) {
+        if (part.status !== 'DONE') throw new Error(`Part ${part.joinPart} of the film is ${part.status}`);
+        if (!(await this.sourcePresent(part))) throw new Error(`The disc is no longer in the downloads: ${part.sourcePath}`);
+      }
+      const upload = rip.outputFile ? await db.getUploadByPath(rip.outputFile) : null;
+      if (upload && UPLOAD_RUNNING.includes(upload.status)) {
+        throw new Error('The film is still being uploaded: wait for the upload to end, or stop it');
+      }
+
+      // Only a film in the watch folder (every rip's is, but the path comes from the database)
+      const relative = rip.outputFile ? path.relative(config.WATCH_DIR, rip.outputFile) : '';
+      const watched = Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
+      if (rip.outputFile && watched) await rm(rip.outputFile, { force: true });
+      const queued: Rip[] = [];
+      for (const part of parts) {
+        queued.push(
+          await this.update(part.id, { status: 'QUEUED', reason: null, progress: 0, jobId: null, startedAt: null, completedAt: null })
+        );
+      }
+      logger.info({ ripId: rip.id, parts: parts.length, deleted: watched ? rip.outputFile : null }, 'Rip again requested');
+      return queued.find((part) => part.id === id)!;
     });
   }
 

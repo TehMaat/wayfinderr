@@ -120,6 +120,8 @@ For each disc Wayfinderr:
 
 It never guesses: when a disc has more than one long title (several films or cuts), many look-alike playlists, no Italian track, more discs in the same download, an unsure TMDB match, or there is not enough space, the rip stops on **Rips** → *Needs attention*: *Choose…* the title and/or the film there and it goes on. A film TMDB doesn't know can be ripped all the same: it keeps every language and is named after the download. When the backend starts, the rips still waiting for their film are looked up on TMDB again (and again 10 minutes later if TMDB does not answer), so an update that recognizes more titles also applies to them: the ones identified go on by themselves, or wait only for the title choice. Downloads already in the folder the first time are listed as skipped (*Rip anyway* from the page, or `RIP_EXISTING=true`).
 
+A film already ripped can be ripped again while its disc is still in the downloads (after a change to the tracks kept, for instance): the rip's menu → *Rip again…* rips the same title as the same film with the current settings. The earlier file in the watch folder is deleted right away; the new one gets the same name, and its upload replaces the copy on the server. A joined film is ripped again from every disc and joined again. Not while its upload is still running.
+
 If the torrent client keeps the downloads in progress in a folder inside the downloads (e.g. qBittorrent's *Keep incomplete torrents in* `/downloads/torrents`) and moves them to the downloads folder once complete, pick that folder in **Rips** → *Exclusions* → *Ignored folders*: it is never searched, and the discs listed from it leave the list. Tick *Downloads arrive complete* too: what appears in the downloads is then handled within a minute or two instead of waiting `RIP_QUIET_MINUTES` without changes.
 
 To keep some discs from being ripped (TV series, extras discs...), add rules in **Rips** → *Exclusions*: a disc whose path in the downloads contains one of them (`Serie TV/`, `S0*E`; `*` matches any text, case doesn't matter) is listed as skipped. The dialog shows which discs each rule matches. A new rule also skips the discs not ripped yet; removing it puts back in the queue the discs it skipped.
@@ -296,6 +298,7 @@ Served through the frontend (`http://localhost:3000/api/...`). Every route excep
 - `POST /api/rips/:id/choose` - Rip with the given `titleIndex` and/or `tmdbId`
 - `POST /api/rips/:id/retry` - Scan and choose again (with MakeMKV)
 - `POST /api/rips/:id/remux` - Rip without MakeMKV (mkvmerge, 7-Zip, ffmpeg)
+- `POST /api/rips/:id/rip-again` - Rip a done film again from its disc (same film and title)
 - `POST /api/rips/:id/skip` - Never rip it (stops a running rip)
 - `GET /api/rips/tmdb/search?query=&year=` - Search a film on TMDB
 

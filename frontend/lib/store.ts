@@ -183,6 +183,7 @@ export interface Rip {
   updatedAt: string;
   upload: { id: string; status: UploadStatus; progress: number } | null;
   suggestion: { title: string; year: number | null }; // parsed from the download name
+  canRipAgain: boolean; // done, and its disc still in the downloads
 }
 
 /** Ripping setup on the backend */
