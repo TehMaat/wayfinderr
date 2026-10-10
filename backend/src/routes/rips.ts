@@ -9,7 +9,8 @@ import logger from '../config/logger.js';
 
 const router = Router();
 
-// Titles as objects, the upload of the ripped file, and what to search on TMDB
+// Titles as objects, the upload of the ripped file, what to search on TMDB, and
+// whether a done rip can be ripped again (its disc still in the downloads)
 const toPublic = async (rip: Rip) => {
   const upload = rip.outputFile ? await db.getUploadByPath(rip.outputFile) : null;
   return {
@@ -17,6 +18,7 @@ const toPublic = async (rip: Rip) => {
     titles: rip.titles ? JSON.parse(rip.titles) : null,
     upload: upload ? { id: upload.id, status: upload.status, progress: upload.progress } : null,
     suggestion: parseReleaseName(rip.downloadName),
+    canRipAgain: await ripper.canRipAgain(rip),
   };
 };
 
@@ -148,6 +150,15 @@ router.post('/:id/retry', async (req: Request, res: Response) => {
     res.json(await toPublic(await ripper.retry(req.params.id)));
   } catch (error) {
     fail(res, error, 'Failed to retry the rip');
+  }
+});
+
+// POST rip a done film again from its disc, with the current settings (same film and title)
+router.post('/:id/rip-again', async (req: Request, res: Response) => {
+  try {
+    res.json(await toPublic(await ripper.ripAgain(req.params.id)));
+  } catch (error) {
+    fail(res, error, 'Failed to rip the film again');
   }
 });
 

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Ban, Combine, ExternalLink, ListChecks, MoreHorizontal, Play, RotateCcw, Trash2, UploadCloud, Wrench } from 'lucide-react';
+import { Ban, Combine, ExternalLink, ListChecks, MoreHorizontal, Play, Repeat, RotateCcw, Trash2, UploadCloud, Wrench } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { RipJoinDialog } from '@/components/rip-join-dialog';
-import { remuxRip, removeRip, retryRip, skipRip } from '@/lib/actions';
+import { remuxRip, removeRip, retryRip, ripAgain, skipRip } from '@/lib/actions';
 import { canJoin, isArchivedMkv, ripName, tmdbUrl } from '@/lib/rips';
 import { useAppStore, type Rip, type RipperStatus } from '@/lib/store';
 
@@ -37,6 +37,7 @@ export const canRemux = (r: Rip, tools: RipperStatus['remux']) => {
 
 export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) => void }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [againOpen, setAgainOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const tools = useAppStore((s) => s.ripStatus?.remux ?? null);
   const remux = canRemux(rip, tools);
@@ -44,6 +45,10 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
   // A part of a join not done yet: skipping it skips every disc of the film
   const joinParts = useAppStore((s) =>
     rip.joinId && rip.status !== 'DONE' ? s.rips.filter((r) => r.joinId === rip.joinId).length : 0
+  );
+  // A joined film done: ripping it again rips every disc of it
+  const joinedDiscs = useAppStore((s) =>
+    rip.joinId && rip.status === 'DONE' ? s.rips.filter((r) => r.joinId === rip.joinId).length : 0
   );
   // After a rip without MakeMKV, Retry goes back to MakeMKV
   const retryLabel = rip.engine === 'remux' ? 'Retry with MakeMKV' : 'Retry';
@@ -56,7 +61,8 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
   // Skipped: "Rip anyway" picks by hand when the disc was scanned, otherwise starts over
   const ripAnyway = () => (rip.titles ? choose() : retryRip(rip.id));
 
-  const hasItems = attention || canRetry(rip) || canSkip(rip) || remux || joinable || rip.upload || rip.tmdbId;
+  const hasItems =
+    attention || canRetry(rip) || canSkip(rip) || remux || joinable || rip.canRipAgain || rip.upload || rip.tmdbId;
 
   return (
     <div className="flex items-center justify-end gap-1">
@@ -118,6 +124,12 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
                   </DropdownMenuItem>
                 )}
               </>
+            )}
+            {rip.canRipAgain && (
+              <DropdownMenuItem onSelect={() => setAgainOpen(true)}>
+                <Repeat />
+                Rip again…
+              </DropdownMenuItem>
             )}
             {remux && (
               <DropdownMenuItem onSelect={() => remuxRip(rip.id)}>
@@ -201,6 +213,21 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
         }
         confirmLabel="Skip"
         onConfirm={() => skipRip(rip.id)}
+      />
+      <ConfirmDialog
+        open={againOpen}
+        onOpenChange={setAgainOpen}
+        title="Rip the film again?"
+        description={
+          <>
+            <span className="font-medium text-foreground">{ripName(rip)}</span> is ripped again from{' '}
+            {joinedDiscs > 0 ? `its ${joinedDiscs} discs, then joined again,` : 'its disc'} with the current settings (same
+            film and title). Its file in the watch folder, if still there, is deleted now: the new rip gets the same name and
+            its upload replaces the copy on the server.
+          </>
+        }
+        confirmLabel="Rip again"
+        onConfirm={() => ripAgain(rip.id)}
       />
       {(joinable || joinOpen) && <RipJoinDialog rip={rip} open={joinOpen} onOpenChange={setJoinOpen} />}
     </div>

@@ -67,6 +67,18 @@ export async function remuxRip(id: string) {
   }
 }
 
+export async function ripAgain(id: string) {
+  try {
+    const { data } = await ripsApi.ripAgain(id);
+    await useAppStore.getState().loadRips();
+    toast.success('Ripping the film again', {
+      description: data.joinId ? 'Every disc is ripped and joined again' : 'Same film and title, with the current settings',
+    });
+  } catch (err) {
+    toast.error('Rip again failed', { description: errorMessage(err) });
+  }
+}
+
 export async function skipRip(id: string) {
   try {
     await ripsApi.skipRip(id);

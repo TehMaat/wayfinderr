@@ -531,13 +531,14 @@ GET /api/rips
       "progress": 0,
       "outputFile": null,
       "upload": null,
-      "suggestion": { "title": "Le Film", "year": 2019 }
+      "suggestion": { "title": "Le Film", "year": 2019 },
+      "canRipAgain": false
     }
   ]
 }
 ```
 
-`status`: `WAITING` (still downloading), `QUEUED`, `UNPACKING` (a RAR archive, `progress` 0-100), `SCANNING`, `RIPPING` (`progress` 0-100), `JOINING` (a part of a join: ripped, waiting for the other parts, or being joined: `progress` 0-100 on the first part), `DONE` (`outputFile` in the watch folder, `upload` once picked up), `NEEDS_ATTENTION` (`reason` says what to choose, or that there is no room to unpack an archive), `FAILED`, `SKIPPED`. `suggestion` is the title and year read from the download name, to search TMDB.
+`status`: `WAITING` (still downloading), `QUEUED`, `UNPACKING` (a RAR archive, `progress` 0-100), `SCANNING`, `RIPPING` (`progress` 0-100), `JOINING` (a part of a join: ripped, waiting for the other parts, or being joined: `progress` 0-100 on the first part), `DONE` (`outputFile` in the watch folder, `upload` once picked up), `NEEDS_ATTENTION` (`reason` says what to choose, or that there is no room to unpack an archive), `FAILED`, `SKIPPED`. `suggestion` is the title and year read from the download name, to search TMDB. `canRipAgain` is true for a `DONE` rip whose disc (an archive: its first volume) is still in the downloads, see *Rip Again*.
 
 A RAR archive has `sourceType` `RAR` and `sourcePath` its first volume. Once listed, `contentType` (`ISO`, `BDMV`, `DVD` or `MKV`) and `contentPath` (inside the archive) tell its film, `unpackBytes` (string) the size of all its files. `unpackedTo` is the disk it is unpacked (or being unpacked) on, `downloads` or `watch`, and `null` once the unpacked copy is deleted. An `.mkv` unpacked next to the downloads is uploaded from there: `outputFile` is in `<downloads>/.wayfinderr/unpack/`.
 
@@ -568,6 +569,14 @@ POST /api/rips/:id/skip
 ```
 
 Retry starts over with MakeMKV (scan and automatic choices; an archive not unpacked yet is listed and unpacked again); not while unpacking, scanning, ripping or joining. A part of a join that failed while joining joins its ripped parts again instead. Skip never rips the disc, stops a running rip or unpacking, and deletes what was unpacked of an archive; on a part of a join it skips every disc of the join and deletes the parts ripped so far.
+
+### Rip Again
+
+```
+POST /api/rips/:id/rip-again
+```
+
+Rips a `DONE` film again from its disc, still in the downloads, with the current settings (the tracks kept...): same film, title and engine, queued as `QUEUED` without a new scan. Its `outputFile` in the watch folder is deleted right away, so that the new rip is picked up as a new file; that gets the same name, and its upload replaces the copy on the server. A joined film is ripped again from every disc and joined again; an archive is unpacked again. Returns the rip. Errors: 404, 409 (rip in another state, `The archive holds an .mkv, not a disc`, `The disc is no longer in the downloads: ...`, `The film is still being uploaded: ...` while its upload is pending, queued or running).
 
 ### Rip without MakeMKV
 
