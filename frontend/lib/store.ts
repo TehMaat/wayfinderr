@@ -109,6 +109,7 @@ export type RipStatus =
   | 'UNPACKING'
   | 'SCANNING'
   | 'RIPPING'
+  | 'JOINING'
   | 'DONE'
   | 'NEEDS_ATTENTION'
   | 'FAILED'
@@ -165,6 +166,9 @@ export interface Rip {
   discName: string | null;
   titles: DiscTitle[] | null; // null until the disc is scanned
   titleIndex: number | null;
+  // Discs of one film joined by hand: the first part's id, and this disc's place (1, 2...)
+  joinId: string | null;
+  joinPart: number | null;
   tmdbId: number | null;
   title: string | null; // localized (Italian) title
   originalTitle: string | null;
@@ -246,7 +250,7 @@ interface AppState {
   loadRips: () => Promise<void>;
   refreshRip: (id: string) => Promise<void>;
   removeRip: (id: string) => void;
-  applyRipProgress: (id: string, progress: number, status?: 'UNPACKING' | 'RIPPING') => void;
+  applyRipProgress: (id: string, progress: number, status?: 'UNPACKING' | 'RIPPING' | 'JOINING') => void;
 }
 
 const UPLOADS_LIMIT = 500;

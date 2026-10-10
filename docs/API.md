@@ -521,6 +521,8 @@ GET /api/rips
         }
       ],
       "titleIndex": null,
+      "joinId": null,
+      "joinPart": null,
       "tmdbId": 101,
       "title": "Il film",
       "originalTitle": "Le Film",
@@ -535,11 +537,13 @@ GET /api/rips
 }
 ```
 
-`status`: `WAITING` (still downloading), `QUEUED`, `UNPACKING` (a RAR archive, `progress` 0-100), `SCANNING`, `RIPPING` (`progress` 0-100), `DONE` (`outputFile` in the watch folder, `upload` once picked up), `NEEDS_ATTENTION` (`reason` says what to choose, or that there is no room to unpack an archive), `FAILED`, `SKIPPED`. `suggestion` is the title and year read from the download name, to search TMDB.
+`status`: `WAITING` (still downloading), `QUEUED`, `UNPACKING` (a RAR archive, `progress` 0-100), `SCANNING`, `RIPPING` (`progress` 0-100), `JOINING` (a part of a join: ripped, waiting for the other parts, or being joined: `progress` 0-100 on the first part), `DONE` (`outputFile` in the watch folder, `upload` once picked up), `NEEDS_ATTENTION` (`reason` says what to choose, or that there is no room to unpack an archive), `FAILED`, `SKIPPED`. `suggestion` is the title and year read from the download name, to search TMDB.
 
 A RAR archive has `sourceType` `RAR` and `sourcePath` its first volume. Once listed, `contentType` (`ISO`, `BDMV`, `DVD` or `MKV`) and `contentPath` (inside the archive) tell its film, `unpackBytes` (string) the size of all its files. `unpackedTo` is the disk it is unpacked (or being unpacked) on, `downloads` or `watch`, and `null` once the unpacked copy is deleted. An `.mkv` unpacked next to the downloads is uploaded from there: `outputFile` is in `<downloads>/.wayfinderr/unpack/`.
 
 `engine` is what rips the disc: `makemkv`, or `remux` after *Rip without MakeMKV* (then `RIPPING` is mkvmerge or ffmpeg running in the backend, and `titles` were read without MakeMKV: a Blu-ray title's `index` is its playlist number, `sourceFile` its `.mpls`; a DVD title's `index` is the DVD's title number).
+
+`joinId` and `joinPart` (1, 2...) are set on the discs joined into one film (see *Join discs*): `joinId` is the first part's `id`.
 
 `status.remux` (with ripping on): which tools of the rip without MakeMKV can be run: `mkvmerge` (Blu-ray), `sevenZip` (ISO images), `dvd` (ffmpeg with the `dvdvideo` input).
 
@@ -563,7 +567,7 @@ POST /api/rips/:id/retry
 POST /api/rips/:id/skip
 ```
 
-Retry starts over with MakeMKV (scan and automatic choices; an archive not unpacked yet is listed and unpacked again); not while unpacking, scanning or ripping. Skip never rips the disc, stops a running rip or unpacking, and deletes what was unpacked of an archive.
+Retry starts over with MakeMKV (scan and automatic choices; an archive not unpacked yet is listed and unpacked again); not while unpacking, scanning, ripping or joining. A part of a join that failed while joining joins its ripped parts again instead. Skip never rips the disc, stops a running rip or unpacking, and deletes what was unpacked of an archive; on a part of a join it skips every disc of the join and deletes the parts ripped so far.
 
 ### Rip without MakeMKV
 
@@ -572,6 +576,17 @@ POST /api/rips/:id/remux
 ```
 
 Rips the disc with mkvmerge (Blu-ray; an ISO extracted with 7-Zip first) or ffmpeg (DVD) in the backend instead of MakeMKV: `engine` becomes `remux` and the rip is queued; its titles are read again, then it goes on like any rip (automatic choice or `NEEDS_ATTENTION`, `RIPPING`, `DONE`). A Blu-ray title chosen on MakeMKV's scan is kept (same playlist). Allowed when the rip is `FAILED`, `NEEDS_ATTENTION`, `SKIPPED` or `QUEUED`; it doesn't need the MakeMKV runner. Errors: 404, 409 (rip in another state, an archive holding an `.mkv`, `Cannot rip without MakeMKV: mkvmerge (Blu-ray) not installed`). A disc that can't be read, a missing or cut clip, or a ripped file shorter than its title ends `FAILED` with the reason.
+
+### Join discs
+
+```
+POST /api/rips/join
+Content-Type: application/json
+
+{ "ripIds": ["rip123", "rip456"] }
+```
+
+Joins discs of one download into one film (a long film over "Disc 1" and "Disc 2"), in the given order. Every disc is queued with `joinId` and `joinPart` and ripped as usual, with MakeMKV or without (a title not certain still waits in `NEEDS_ATTENTION`; the other discs of the download no longer count); once ripped it waits as `JOINING`. When every part is ripped, mkvmerge appends them (`part1.mkv + part2.mkv`) in the work folder and the one film goes to the watch folder: every part is `DONE` with the same `outputFile`. The film of the first identified part is used for all of them, and choosing a film on a part sets it on the others too. The parts must have the same tracks (type, codec, language, in the same order): otherwise, or when the joined file is shorter than the parts together, the first part is `FAILED` with the reason and Retry joins again. Discs already in another join leave it (that join's other discs go back to `NEEDS_ATTENTION`). Allowed for at least two discs of the same download, each `QUEUED`, `NEEDS_ATTENTION`, `FAILED` or `SKIPPED`, none an archive holding an `.mkv`. Returns the parts. Errors: 400 (not a list of ids), 404, 409 (`Choose at least two discs`, `The discs are not in the same download`, a rip in another state). An exclusion rule or ignored folder that takes one of the discs cancels the join.
 
 ### Remove skipped rips from the list
 

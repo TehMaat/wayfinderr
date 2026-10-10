@@ -79,7 +79,7 @@ const ENV_NAMES: Record<string, string> = {
   [config.RIP.FFPROBE_PATH]: 'FFPROBE_PATH',
 };
 
-interface RunResult {
+export interface RunResult {
   code: number | null;
   signal: NodeJS.Signals | null;
   stdout: string;
@@ -87,7 +87,7 @@ interface RunResult {
 }
 
 /** Runs a tool; with onOutput its standard output goes there instead of the result. */
-const run = (
+export const run = (
   command: string,
   args: string[],
   options: { signal?: AbortSignal; timeoutMs?: number; onOutput?: (chunk: string) => void } = {}
@@ -128,13 +128,13 @@ const run = (
   });
 
 /** A tool's own message: the last distinct lines it wrote (libdvdread's chatter about devices left out) */
-const errorText = (text: string) =>
+export const errorText = (text: string) =>
   [...new Set(text.split(/\r?\n/).map((line) => line.replace(/\s+/g, ' ').trim()))]
     .filter((line) => line && !/libdvd(read|nav): /.test(line))
     .slice(-3)
     .join(' · ');
 
-const describeEnd = (tool: string, result: RunResult) =>
+export const describeEnd = (tool: string, result: RunResult) =>
   result.signal || (result.code ?? 0) > 128
     ? `${tool} crashed (${result.signal ?? `exit code ${result.code}`})`
     : `${tool} exit code ${result.code}`;
@@ -461,20 +461,20 @@ export const pickTracks = (tracks: Track[], languages: string[][], keepAll: bool
 
 // --- mkvmerge ---
 
-interface MkvmergeTrack {
+export interface MkvmergeTrack {
   id: number;
   type: 'video' | 'audio' | 'subtitles' | string;
   codec?: string;
   properties?: { language?: string; multiplexed_tracks?: number[] };
 }
 
-interface MkvmergeIdentification {
+export interface MkvmergeIdentification {
   container?: { recognized?: boolean; supported?: boolean; properties?: { duration?: number; playlist?: boolean } };
   errors?: string[];
   tracks?: MkvmergeTrack[];
 }
 
-const identify = async (file: string, signal: AbortSignal): Promise<MkvmergeIdentification> => {
+export const identify = async (file: string, signal: AbortSignal): Promise<MkvmergeIdentification> => {
   const result = await run(config.RIP.MKVMERGE_PATH, ['-J', file], { signal, timeoutMs: SCAN_TIMEOUT_MS });
   let info: MkvmergeIdentification;
   try {
@@ -531,12 +531,16 @@ export const parseMkvmergeProgress = (text: string): number | null => {
   return matches.length > 0 ? Math.min(100, Number(matches[matches.length - 1][1])) : null;
 };
 
+/** mkvmerge's "#GUI#error ..." or "#GUI#warning ..." lines of --gui-mode output. */
+export const guiMessages = (text: string, kind: 'error' | 'warning') =>
+  [...text.matchAll(new RegExp(`#GUI#${kind} (.*)`, 'g'))].map((m) => m[1].trim());
+
 /** The ripped file is the title's length (a damaged clip makes it shorter, with exit code 0). */
-const checkLength = (seconds: number, expected: number) => {
+export const checkLength = (seconds: number, expected: number, what = 'The ripped file') => {
   const tolerance = Math.max(LENGTH_TOLERANCE_SECONDS, expected * LENGTH_TOLERANCE_RATIO);
   if (seconds < expected - tolerance) {
     const format = (s: number) => `${Math.floor(s / 60)}m${String(Math.round(s % 60)).padStart(2, '0')}s`;
-    throw new RemuxError(`The ripped file is ${format(seconds)} long instead of ${format(expected)}: is the download damaged?`);
+    throw new RemuxError(`${what} is ${format(seconds)} long instead of ${format(expected)}: is the download damaged?`);
   }
 };
 
@@ -602,7 +606,7 @@ const remuxBluray = async (job: RemuxJob): Promise<{ file: string; warnings: str
       }
     );
     // 0: done, 1: done with warnings, 2: failed; above 128 a crash
-    const messages = (kind: string) => [...tail.matchAll(new RegExp(`#GUI#${kind} (.*)`, 'g'))].map((m) => m[1].trim());
+    const messages = (kind: 'error' | 'warning') => guiMessages(tail, kind);
     if (result.code !== 0 && result.code !== 1) {
       throw new RemuxError(`mkvmerge failed: ${messages('error').join(' · ') || errorText(result.stderr) || describeEnd('mkvmerge', result)}`);
     }

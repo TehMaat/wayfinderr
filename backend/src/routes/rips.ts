@@ -63,6 +63,20 @@ router.post('/clear-skipped', async (req: Request, res: Response) => {
   }
 });
 
+// POST join discs of one download into one film ({ ripIds }, in order): each is ripped, then mkvmerge appends them
+router.post('/join', async (req: Request, res: Response) => {
+  const ripIds = req.body?.ripIds;
+  if (!Array.isArray(ripIds) || ripIds.length > 20 || !ripIds.every((id) => typeof id === 'string')) {
+    res.status(400).json({ error: 'ripIds must be a list of rip ids' });
+    return;
+  }
+  try {
+    res.json(await Promise.all((await ripper.join(ripIds)).map(toPublic)));
+  } catch (error) {
+    fail(res, error, 'Failed to join the discs');
+  }
+});
+
 // GET the subfolders of a folder of the downloads (?path=, relative; none for the downloads folder)
 router.get('/folders', async (req: Request, res: Response) => {
   const raw = String(req.query.path ?? '');

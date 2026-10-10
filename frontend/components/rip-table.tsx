@@ -7,7 +7,7 @@ import { Progress } from '@/components/ui/progress';
 import { Tooltip } from '@/components/ui/tooltip';
 import { RipActions } from '@/components/rip-actions';
 import { RipStatusBadge, StatusBadge } from '@/components/status-badge';
-import { isArchivedMkv, languageName, ripName, tmdbUrl, UNPACK_DISKS } from '@/lib/rips';
+import { isArchivedMkv, languageName, ripName, sourceLabel, tmdbUrl, UNPACK_DISKS } from '@/lib/rips';
 import { useAppStore, type Rip } from '@/lib/store';
 import { basename, cn, formatBytes, formatRuntime, timeAgo } from '@/lib/utils';
 
@@ -49,15 +49,10 @@ function FilmCell({ rip }: { rip: Rip }) {
   );
 }
 
-/** The disc's path from the download on ("Movie.2001.BluRay/BDMV"), which tells several discs apart */
-const sourceLabel = (rip: Rip) => {
-  const at = rip.sourcePath.lastIndexOf(rip.downloadName);
-  return at >= 0 ? rip.sourcePath.slice(at) : basename(rip.sourcePath);
-};
-
 function SourceCell({ rip }: { rip: Rip }) {
   // An archive: what it holds once listed ("RAR · ISO")
   const content = rip.sourceType === 'RAR' && rip.contentType ? ` · ${rip.contentType}` : '';
+  const parts = useAppStore((s) => (rip.joinId ? s.rips.filter((r) => r.joinId === rip.joinId).length : 0));
   const path =
     content && rip.contentPath && rip.contentPath !== '.' ? `${rip.sourcePath} → ${rip.contentPath}` : rip.sourcePath;
   return (
@@ -66,6 +61,14 @@ function SourceCell({ rip }: { rip: Rip }) {
         {rip.sourceType}
         {content}
       </Badge>
+      {rip.joinPart && (
+        <Tooltip content="Joined with the other discs of the download into one film">
+          <Badge variant="secondary" className="shrink-0 tabular">
+            Part {rip.joinPart}
+            {parts > 1 ? `/${parts}` : ''}
+          </Badge>
+        </Tooltip>
+      )}
       <Tooltip content={<span className="break-all font-mono">{path}</span>} side="bottom">
         <span className="truncate text-xs text-muted-foreground">{sourceLabel(rip)}</span>
       </Tooltip>
@@ -128,6 +131,17 @@ function DetailsCell({ rip, wrap }: { rip: Rip; wrap?: boolean }) {
               {formatRuntime(title.durationSec)}
             </span>
           )}
+        </div>
+      );
+    case 'JOINING':
+      // The first part shows mkvmerge's progress, the others (and a part waiting for the rest) why they wait
+      return rip.reason ? (
+        <Reason rip={rip} wrap={wrap} />
+      ) : (
+        <div className="flex min-w-0 items-center gap-2">
+          <Progress value={rip.progress} animated className={wrap ? 'flex-1' : 'w-28'} />
+          <span className="w-9 shrink-0 text-right text-xs tabular text-muted-foreground">{rip.progress}%</span>
+          <span className="truncate text-xs text-muted-foreground">Joining the parts with mkvmerge</span>
         </div>
       );
     case 'DONE':

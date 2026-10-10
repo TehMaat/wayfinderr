@@ -136,7 +136,7 @@ export const useRealtime = () => {
             store.applyRipProgress(
               message.ripId as string,
               message.progress as number,
-              (message.status as 'UNPACKING' | 'RIPPING' | undefined) ?? 'RIPPING'
+              (message.status as 'UNPACKING' | 'RIPPING' | 'JOINING' | undefined) ?? 'RIPPING'
             );
             break;
 
