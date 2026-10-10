@@ -157,7 +157,7 @@ export function ClientDialog({
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="When matched">
                 <Select name="autoRemove" value={String(form.autoRemove)} onChange={updateFlag}>
-                  <option value="true">Remove automatically if certain</option>
+                  <option value="true">Remove automatically if 100% certain</option>
                   <option value="false">Only suggest, I remove it</option>
                 </Select>
               </Field>

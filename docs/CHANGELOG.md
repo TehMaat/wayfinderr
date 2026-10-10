@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 - Docker images for linux/arm64 too
 
 ### Changed
+- Torrent cleanup removes a torrent without asking only when it is 100% the one: the rip's download, or a name match on the very same title with the same year in both names and no other torrent matching. Titles spelled differently (score 95), names without a year and runner-up matches now wait for "Remove torrent now"
 - Backend image on Node 22 and Alpine 3.24 (`node:22-alpine3.24`): Node 20 is end of life, and Alpine 3.24's ffmpeg reads DVDs
 - The browser only talks to the frontend, which proxies `/api`, `/health` and the `/ws` WebSocket to the backend; the backend port is no longer published. `BACKEND_URL` (frontend build arg, default `http://wayfinderr-backend:3001`) replaces `NEXT_PUBLIC_API_URL`
 - WebSocket only on `/ws` (session cookie required, same site only)

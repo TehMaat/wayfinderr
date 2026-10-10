@@ -432,7 +432,7 @@ Removes the matched torrent from its client now (the "Remove torrent now" button
 |---|---|
 | `torrentStatus` | `null` not checked · `NO_MATCH` · `REVIEW` match found, remove by hand · `WAITING` removal scheduled · `REMOVED` · `ERROR` |
 | `torrentClientId`, `torrentHash`, `torrentName` | The matched torrent |
-| `torrentScore` | Match, 0-100: 100 for a rip of the downloads folder (the torrent holding that download), else the name match (automatic removal needs 95+) |
+| `torrentScore` | Match, 0-100: 100 for a rip of the downloads folder (the torrent holding that download), else the name match (automatic removal needs 100 with the year in both names) |
 | `torrentMessage` | Why it was or was not removed |
 
 ## Clients API (qBittorrent)

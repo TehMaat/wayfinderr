@@ -16,12 +16,12 @@ import { getMovieTitles, matchMovie, tmdbConfigured } from './ripper/tmdb.js';
  * The torrent is found exactly when the MKV comes from a rip of the downloads
  * folder (the torrent's top-level folder or file is the rip's download), else by
  * name: the MKV file and folder names against each finished torrent's name and,
- * with TMDB, every title of its film. A name match is removed automatically only
- * when it is certain and unambiguous; anything else is left to the user.
+ * with TMDB, every title of its film. A torrent is removed automatically only when
+ * it is 100% the one: the rip's download, or a name match on the very same title
+ * and year with no other torrent in sight; anything else is left to the user.
  */
 
-// Score needed to remove a torrent without asking / to suggest it in the UI
-export const AUTO_SCORE = 85;
+// Score needed to suggest a torrent in the UI (automatic removal needs a certain match)
 export const SUGGEST_SCORE = 60;
 // The runner-up must be this far behind, or the match is ambiguous
 const MIN_LEAD = 15;
@@ -49,6 +49,8 @@ interface Candidate {
   torrent: QbitTorrent;
   score: number;
   matched: string;
+  // Both the MKV name and the torrent have a year, and they agree
+  dated?: boolean;
   tmdbLabel?: string;
 }
 
@@ -85,13 +87,18 @@ export const mkvNames = (filepath: string): MatchName[] => {
     .filter((p) => isMeaningfulTitle(p.title));
 };
 
-export const scoreAgainst = (names: MatchName[], torrent: TorrentTitles): { score: number; matched: string } => {
-  let best = { score: 0, matched: '' };
+export const scoreAgainst = (
+  names: MatchName[],
+  torrent: TorrentTitles
+): { score: number; matched: string; dated: boolean } => {
+  let best = { score: 0, matched: '', dated: false };
   for (const name of names) {
     if (name.year && torrent.year && Math.abs(name.year - torrent.year) > 1) continue;
+    const dated = Boolean(name.year && torrent.year);
     for (const title of torrent.titles) {
       const score = titleSimilarity(name.title, title);
-      if (score > best.score) best = { score, matched: title };
+      // Same score: the name whose year confirms the film wins
+      if (score > best.score || (score === best.score && dated && !best.dated)) best = { score, matched: title, dated };
     }
   }
   return best;
@@ -292,12 +299,17 @@ export class TorrentCleanup extends EventEmitter {
       return;
     }
 
-    if (best.score < AUTO_SCORE) {
-      await this.setStatus(upload.id, {
-        ...suggestion,
-        torrentStatus: 'REVIEW',
-        torrentMessage: `Probable match on "${best.matched}"${via}, not certain enough to remove it automatically.`,
-      });
+    // Removed without asking only when 100% the one; else suggested
+    const doubt =
+      best.score < 100
+        ? `Probable match on "${best.matched}"${via}: not the very same title, so not certain enough to remove it automatically.`
+        : !best.dated
+          ? `Same title as "${best.matched}"${via}, but the MKV or the torrent name has no year to rule out another film with that title, so it is not removed automatically.`
+          : second && second.score >= SUGGEST_SCORE
+            ? `Matched on "${best.matched}"${via}, but "${second.torrent.name}" matches too, so it is not removed automatically.`
+            : null;
+    if (doubt) {
+      await this.setStatus(upload.id, { ...suggestion, torrentStatus: 'REVIEW', torrentMessage: `${doubt} Check and remove it by hand.` });
       return;
     }
 
