@@ -116,7 +116,7 @@ export const useRealtime = () => {
 
           case 'torrent-updated':
             await store.refreshUpload(uploadId);
-            if (message.torrentStatus === 'REMOVED') {
+            if (message.torrentStatus === 'REMOVED' && !message.byHand) {
               toast.success('Torrent removed from the client', { description: nameOf(uploadId) });
             }
             break;

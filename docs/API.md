@@ -455,6 +455,17 @@ POST /api/uploads/:id/torrent/remove
 
 Removes the matched torrent from its client now (the "Remove torrent now" button), also while the upload is running. Uses the client's `deleteFiles` setting. Returns the updated upload, `502` if qBittorrent refuses.
 
+### Add the Source .torrent by Hand
+
+```
+PUT /api/uploads/:id/torrent
+Content-Type: application/x-bittorrent
+
+<the .torrent file>
+```
+
+The source torrent's .torrent, when the torrent was not found or was removed before its hash and tracker were kept (the "Add .torrent…" button). Sets `torrentName`, `torrentHash` (its v1 info hash) and `torrentTracker` (the announce host, never the passkey). A `REMOVED` torrent stays `REMOVED`; otherwise the enabled clients are asked for that hash: still in one, it becomes `REVIEW` (remove it by hand, never automatically), else `REMOVED`. Returns the updated upload; `400` when it is not a .torrent, `409` while its removal is scheduled (`WAITING`), `502` when a client cannot be reached to tell. The `torrent-updated` event it sends has `"byHand": true`.
+
 **Torrent fields on an upload:**
 
 | Field | Meaning |
@@ -875,12 +886,13 @@ Upload skipped (no Italian content).
 ```
 
 #### torrent-updated
-The source torrent of an upload was matched, scheduled, removed, or could not be removed.
+The source torrent of an upload was matched, scheduled, removed, or could not be removed; `byHand` is true when its .torrent was added by hand (nothing removed).
 ```json
 {
   "type": "torrent-updated",
   "uploadId": "upload123",
-  "torrentStatus": "REMOVED"
+  "torrentStatus": "REMOVED",
+  "byHand": false
 }
 ```
 

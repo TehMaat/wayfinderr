@@ -83,6 +83,12 @@ export const uploadsApi = {
   probeMedia: (id: string) => apiClient.post(`/api/uploads/${id}/media`, null, { timeout: 60000 }),
   checkTorrent: (id: string) => apiClient.post(`/api/uploads/${id}/torrent/check`, null, { timeout: 120000 }),
   removeTorrent: (id: string) => apiClient.post(`/api/uploads/${id}/torrent/remove`, null, { timeout: 45000 }),
+  // The source .torrent given by hand: the file itself as the body
+  addTorrent: (id: string, file: File) =>
+    apiClient.put<Upload>(`/api/uploads/${id}/torrent`, file, {
+      headers: { 'Content-Type': 'application/x-bittorrent' },
+      timeout: 60000,
+    }),
 };
 
 // Release API: rename on the server, then the tracker command (Unit3Dup)

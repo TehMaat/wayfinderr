@@ -190,6 +190,17 @@ export async function removeTorrent(id: string) {
   }
 }
 
+export async function addSourceTorrent(id: string, file: File) {
+  try {
+    const { data } = await uploadsApi.addTorrent(id, file);
+    toast.success('Source .torrent added', { description: data.torrentName ?? file.name });
+  } catch (err) {
+    toast.error('Could not add the .torrent', { description: errorMessage(err) });
+  } finally {
+    await useAppStore.getState().refreshUpload(id);
+  }
+}
+
 // Release: the tracker command on the renamed file (see the rename dialog for the rename)
 export async function runRelease(id: string) {
   try {

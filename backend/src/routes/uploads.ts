@@ -1,8 +1,8 @@
 import { existsSync } from 'fs';
-import { Router, Request, Response } from 'express';
+import express, { Router, Request, Response } from 'express';
 import { db } from '../services/database.js';
 import { jobQueue } from '../services/jobQueue.js';
-import { torrentCleanup } from '../services/torrentCleanup.js';
+import { torrentCleanup, TorrentError } from '../services/torrentCleanup.js';
 import { describeError } from '../services/qbittorrent.js';
 import { mediaInfoParser } from '../services/mediaInfo.js';
 import { releaseManager, ReleaseError } from '../services/release/index.js';
@@ -154,6 +154,20 @@ router.post('/:id/torrent/remove', async (req: Request, res: Response) => {
   } catch (error) {
     logger.warn({ uploadId: req.params.id, error: describeError(error) }, 'Manual torrent removal failed');
     res.status(502).json({ error: describeError(error) });
+  }
+});
+
+// PUT the source .torrent by hand (the file itself as the body)
+router.put('/:id/torrent', express.raw({ type: () => true, limit: '20mb' }), async (req: Request, res: Response) => {
+  try {
+    res.json(await torrentCleanup.attachTorrent(req.params.id, Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0)));
+  } catch (error) {
+    if (error instanceof TorrentError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+    logger.error({ uploadId: req.params.id, error: describeError(error) }, 'Failed to add the source .torrent');
+    res.status(500).json({ error: `Failed to add the .torrent: ${describeError(error)}` });
   }
 });
 

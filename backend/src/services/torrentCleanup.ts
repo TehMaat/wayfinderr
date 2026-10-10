@@ -6,7 +6,7 @@ import logger from '../config/logger.js';
 import { config } from '../config/index.js';
 import { db } from './database.js';
 import { describeError, getQbitClient, QbitTorrent } from './qbittorrent.js';
-import { trackerHost } from './release/torrentFile.js';
+import { parseTorrent, TorrentFile, trackerHost } from './release/torrentFile.js';
 import { isMeaningfulTitle, MatchName, normalize, parseName, titleSimilarity } from './nameMatch.js';
 import { parseReleaseName } from './ripper/releaseName.js';
 import { getMovieTitles, matchMovie, tmdbConfigured } from './ripper/tmdb.js';
@@ -32,10 +32,18 @@ const RECHECK_MS = 2 * 60 * 1000;
 // An MKV modified this recently means a rip is still running
 const ACTIVITY_WINDOW_MS = 2 * 60 * 1000;
 const TMDB_CONCURRENCY = 4;
+const MAX_TORRENT_BYTES = 20 * 1024 * 1024;
 
 // Rips of a download still to finish: its torrent must stay
 const RIP_UNFINISHED = new Set(['WAITING', 'QUEUED', 'UNPACKING', 'SCANNING', 'RIPPING', 'JOINING', 'NEEDS_ATTENTION']);
 const UPLOAD_UNFINISHED = ['PENDING', 'QUEUED', 'UPLOADING'];
+
+/** Refused input or state, with its HTTP status */
+export class TorrentError extends Error {
+  constructor(message: string, public status = 400) {
+    super(message);
+  }
+}
 
 export type TorrentStatus = 'NO_MATCH' | 'REVIEW' | 'WAITING' | 'REMOVED' | 'ERROR';
 
@@ -184,9 +192,10 @@ export class TorrentCleanup extends EventEmitter {
     torrentName?: string | null;
     torrentScore?: number | null;
     torrentTracker?: string | null;
-  }): Promise<void> {
+  }, byHand = false): Promise<void> {
     await db.updateUpload(uploadId, data);
-    this.emit('torrent-updated', { uploadId, torrentStatus: data.torrentStatus });
+    // byHand: a .torrent given by hand, not a removal (no toast for it)
+    this.emit('torrent-updated', { uploadId, torrentStatus: data.torrentStatus, byHand });
   }
 
   private async setStatusForHash(
@@ -496,6 +505,80 @@ export class TorrentCleanup extends EventEmitter {
       throw new Error('No download client configured');
     }
     await this.findTorrent(upload);
+    return db.getUploadById(uploadId);
+  }
+
+  /**
+   * The source .torrent given by hand, when its torrent could not be found (no match,
+   * removed before its hash or tracker were kept): its name, hash and tracker (host
+   * only) are kept. Still in a client: left there to remove by hand; else removed.
+   */
+  async attachTorrent(uploadId: string, data: Buffer): Promise<Upload | null> {
+    const upload = await db.getUploadById(uploadId);
+    if (!upload) throw new TorrentError('Upload not found', 404);
+    if (!data.length || data.length > MAX_TORRENT_BYTES) throw new TorrentError('Not a .torrent file');
+    let torrent: TorrentFile;
+    try {
+      torrent = parseTorrent(data);
+    } catch (error) {
+      throw new TorrentError((error as Error).message);
+    }
+    const hash = torrent.infoHash;
+    if (upload.torrentStatus === 'WAITING') {
+      throw new TorrentError(`"${upload.torrentName}" is about to be removed: remove it now first, or wait`, 409);
+    }
+
+    const fields = {
+      torrentHash: hash,
+      torrentName: torrent.name,
+      torrentTracker: trackerHost(torrent.announce) ?? (upload.torrentHash === hash ? upload.torrentTracker : null),
+    };
+    const why = 'Added by hand from its .torrent';
+    if (upload.torrentStatus === 'REMOVED') {
+      await this.setStatus(uploadId, {
+        ...fields,
+        torrentStatus: 'REMOVED',
+        torrentMessage: upload.torrentMessage?.startsWith(why) ? upload.torrentMessage : `${why}. ${upload.torrentMessage ?? ''}`.trim(),
+        ...(upload.torrentHash === hash ? {} : { torrentClientId: null, torrentScore: null }),
+      }, true);
+      logger.info({ uploadId, hash, torrent: torrent.name }, 'Source .torrent added by hand');
+      return db.getUploadById(uploadId);
+    }
+
+    // Still in a client? Never removed without asking
+    const unreachable: string[] = [];
+    for (const client of (await db.getTorrentClients()).filter((c) => c.enabled)) {
+      let found: QbitTorrent | null;
+      try {
+        found = await getQbitClient(client).getTorrent(hash);
+      } catch (error) {
+        unreachable.push(`${client.name} (${describeError(error)})`);
+        continue;
+      }
+      if (!found) continue;
+      await this.setStatus(uploadId, {
+        ...fields,
+        torrentTracker: fields.torrentTracker ?? (await this.trackerOf(client, found)),
+        torrentStatus: 'REVIEW',
+        torrentMessage: `${why}: still in ${client.name}. Remove it by hand.`,
+        torrentClientId: client.id,
+        torrentScore: null,
+      }, true);
+      logger.info({ uploadId, hash, torrent: torrent.name, client: client.name }, 'Source .torrent added by hand');
+      return db.getUploadById(uploadId);
+    }
+    if (unreachable.length) {
+      throw new TorrentError(`Cannot tell whether it is still in a client, unreachable: ${unreachable.join('; ')}`, 502);
+    }
+
+    await this.setStatus(uploadId, {
+      ...fields,
+      torrentStatus: 'REMOVED',
+      torrentMessage: `${why}: not in any download client.`,
+      torrentClientId: null,
+      torrentScore: null,
+    }, true);
+    logger.info({ uploadId, hash, torrent: torrent.name }, 'Source .torrent added by hand');
     return db.getUploadById(uploadId);
   }
 
