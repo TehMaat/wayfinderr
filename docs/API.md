@@ -439,7 +439,7 @@ before it could be stopped.
 POST /api/uploads/:id/torrent/check
 ```
 
-Looks for the source torrent again (e.g. after adding a client). Only for `COMPLETED` uploads. Returns the updated upload; see `torrentStatus` below.
+Looks for the source torrent again (e.g. after adding a client). For `COMPLETED` uploads and for uploads still `PENDING`, `QUEUED` or `UPLOADING`: while the upload runs a match is only suggested (`REVIEW`), never removed automatically; once it completes the torrent is matched again as usual. Returns the updated upload; see `torrentStatus` below.
 
 ### Remove the Matched Torrent
 
@@ -447,7 +447,7 @@ Looks for the source torrent again (e.g. after adding a client). Only for `COMPL
 POST /api/uploads/:id/torrent/remove
 ```
 
-Removes the matched torrent from its client now (the "Remove torrent now" button). Uses the client's `deleteFiles` setting. Returns the updated upload, `502` if qBittorrent refuses.
+Removes the matched torrent from its client now (the "Remove torrent now" button), also while the upload is running. Uses the client's `deleteFiles` setting. Returns the updated upload, `502` if qBittorrent refuses.
 
 **Torrent fields on an upload:**
 

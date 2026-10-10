@@ -184,6 +184,12 @@ export class TorrentCleanup extends EventEmitter {
   async handleUploadCompleted(uploadId: string): Promise<void> {
     const upload = await db.getUploadById(uploadId);
     if (!upload || upload.status !== 'COMPLETED') return;
+    await this.findTorrent(upload);
+  }
+
+  /** Matches the upload to its torrent; removal is scheduled only for a completed upload */
+  private async findTorrent(upload: Upload): Promise<void> {
+    const uploadId = upload.id;
     // Already handled (e.g. "check again" on a removed one)
     if (upload.torrentStatus === 'REMOVED') return;
 
@@ -332,6 +338,16 @@ export class TorrentCleanup extends EventEmitter {
       });
       return;
     }
+    // Looked up by hand while the upload runs: never removed without asking until it completes
+    const current = await db.getUploadById(upload.id);
+    if (current?.status !== 'COMPLETED') {
+      await this.setStatus(upload.id, {
+        ...data,
+        torrentStatus: 'REVIEW',
+        torrentMessage: `${why}. The upload is still running: remove it by hand, or it is removed automatically once the upload completes.`,
+      });
+      return;
+    }
     await this.setStatus(upload.id, {
       ...data,
       torrentStatus: 'WAITING',
@@ -440,11 +456,13 @@ export class TorrentCleanup extends EventEmitter {
   async recheck(uploadId: string): Promise<Upload | null> {
     const upload = await db.getUploadById(uploadId);
     if (!upload) throw new Error('Upload not found');
-    if (upload.status !== 'COMPLETED') throw new Error('Only completed uploads are matched to a torrent');
+    if (upload.status !== 'COMPLETED' && !UPLOAD_UNFINISHED.includes(upload.status)) {
+      throw new Error('Only uploads in progress or completed are matched to a torrent');
+    }
     if ((await db.getTorrentClients()).filter((c) => c.enabled).length === 0) {
       throw new Error('No download client configured');
     }
-    await this.handleUploadCompleted(uploadId);
+    await this.findTorrent(upload);
     return db.getUploadById(uploadId);
   }
 
