@@ -29,6 +29,7 @@ import {
   type Track,
   type VideoTrack,
 } from '@/lib/media';
+import { missingInfo, uploadName } from '@/lib/release';
 import { useAppStore, type TorrentStatus, type Upload } from '@/lib/store';
 import { cn, errorMessage, formatBitrate, formatBytes, formatDate, formatDuration, formatSpeed } from '@/lib/utils';
 
@@ -186,6 +187,12 @@ function VideoCard({ tracks }: { tracks: VideoTrack[] }) {
   );
 }
 
+/** A value, or "Missing" in warning color when it could not be found */
+function Missing({ value, mono }: { value: string | null; mono?: boolean }) {
+  if (!value) return <span className="text-warning">Missing</span>;
+  return <span className={cn(mono && 'select-all break-all font-mono text-xs')}>{value}</span>;
+}
+
 const TORRENT_STATUS: Record<TorrentStatus, { label: string; variant: 'success' | 'warning' | 'destructive' | 'info' | 'secondary' }> = {
   WAITING: { label: 'Removal scheduled', variant: 'info' },
   REMOVED: { label: 'Removed', variant: 'success' },
@@ -226,13 +233,21 @@ function TorrentCard({ upload }: { upload: Upload }) {
         {status ? <Badge variant={status.variant}>{status.label}</Badge> : <Badge variant="secondary">Not checked</Badge>}
       </CardHeader>
       <CardContent className="space-y-3">
-        {upload.torrentName && (
+        {(upload.torrentName || upload.torrentHash) && (
           <div className="divide-y divide-border/60">
             <Row label="Torrent">
-              <span className="font-mono text-xs">{upload.torrentName}</span>
+              <span className="font-mono text-xs">{upload.torrentName ?? '–'}</span>
             </Row>
-            <Row label="Client">{clientName ?? '–'}</Row>
-            <Row label="Name match">{upload.torrentScore !== null ? `${upload.torrentScore}%` : '–'}</Row>
+            <Row label="Hash">
+              <Missing value={upload.torrentHash} mono />
+            </Row>
+            <Row label="Tracker">
+              {upload.torrentStatus === 'REMOVED' ? <Missing value={upload.torrentTracker} /> : (upload.torrentTracker ?? '–')}
+            </Row>
+            {upload.torrentStatus !== 'REMOVED' && <Row label="Client">{clientName ?? '–'}</Row>}
+            {upload.torrentStatus !== 'REMOVED' && (
+              <Row label="Name match">{upload.torrentScore !== null ? `${upload.torrentScore}%` : '–'}</Row>
+            )}
           </div>
         )}
         {upload.torrentMessage && <p className="text-sm text-muted-foreground">{upload.torrentMessage}</p>}
@@ -339,6 +354,7 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
     upload.startedAt && upload.completedAt
       ? (new Date(upload.completedAt).getTime() - new Date(upload.startedAt).getTime()) / 1000
       : null;
+  const missing = missingInfo(upload);
   const remotePath =
     upload.remotePath ?? (upload.server?.sshPath ? `${upload.server.sshPath.replace(/\/+$/, '')}/${upload.filename}` : null);
 
@@ -355,7 +371,10 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
             <FileVideo className="h-5 w-5" />
           </div>
           <div className="min-w-0 space-y-1.5">
-            <h1 className="break-all text-lg font-semibold leading-tight">{upload.filename}</h1>
+            <h1 className="break-all text-lg font-semibold leading-tight">{uploadName(upload)}</h1>
+            {upload.releaseName && upload.releaseName !== upload.filename && (
+              <p className="break-all text-xs text-muted-foreground">Uploaded as {upload.filename}</p>
+            )}
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge status={upload.status} />
               <span className="text-xs text-muted-foreground tabular">{formatBytes(upload.size)}</span>
@@ -411,6 +430,16 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
         </div>
       )}
 
+      {missing.length > 0 && (
+        <div className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm text-warning">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            Missing: {missing.join(', ')}.
+            {upload.serverId && ' The tracker card can look for them on the server again.'}
+          </span>
+        </div>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -419,7 +448,11 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
           <CardContent className="divide-y divide-border/60">
             <Row label="Server">{upload.server?.name ?? '–'}</Row>
             <Row label="Remote path">
-              <span className="font-mono text-xs">{remotePath ?? '–'}</span>
+              {upload.remoteFound === false ? (
+                <span className="text-warning">Not found on the server</span>
+              ) : (
+                <span className="font-mono text-xs">{remotePath ?? '–'}</span>
+              )}
             </Row>
             <Row label="Attempts">{upload.status === 'COMPLETED' ? upload.currentRetryCount + 1 : upload.currentRetryCount}</Row>
             <Row label="Duration">{duration !== null ? formatDuration(duration) : '–'}</Row>

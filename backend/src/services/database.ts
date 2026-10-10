@@ -60,12 +60,16 @@ export class DatabaseService {
   }
 
   // Upload queries
-  // The list leaves out the tracker command's output (up to 64 KB each)
-  private listFields = Object.fromEntries(
-    Object.values(Prisma.UploadScalarFieldEnum)
-      .filter((field) => field !== 'releaseLog')
-      .map((field) => [field, true])
-  ) as Record<Prisma.UploadScalarFieldEnum, boolean>;
+  // The .torrent file is only sent on its own; the list also leaves out the
+  // tracker command's output (up to 64 KB each)
+  private uploadFields = (...left: Prisma.UploadScalarFieldEnum[]) =>
+    Object.fromEntries(
+      Object.values(Prisma.UploadScalarFieldEnum)
+        .filter((field) => field !== 'releaseTorrentData' && !left.includes(field))
+        .map((field) => [field, true])
+    ) as Record<Prisma.UploadScalarFieldEnum, boolean>;
+  private listFields = this.uploadFields('releaseLog');
+  private detailFields = this.uploadFields();
 
   async getUploads(
     limit?: number,
@@ -87,8 +91,18 @@ export class DatabaseService {
   async getUploadById(id: string): Promise<Upload | null> {
     return this.prisma.upload.findUnique({
       where: { id },
-      include: { server: { select: { id: true, name: true, sshPath: true } } },
+      select: { ...this.detailFields, server: { select: { id: true, name: true, sshPath: true } } },
+    }) as Promise<Upload | null>;
+  }
+
+  async getUploadTorrent(id: string): Promise<{ name: string; data: Buffer } | null> {
+    const upload = await this.prisma.upload.findUnique({
+      where: { id },
+      select: { releaseTorrentName: true, releaseTorrentData: true },
     });
+    return upload?.releaseTorrentName && upload.releaseTorrentData
+      ? { name: upload.releaseTorrentName, data: Buffer.from(upload.releaseTorrentData) }
+      : null;
   }
 
   async createUpload(data: {
@@ -101,7 +115,7 @@ export class DatabaseService {
   }
 
   async updateUpload(id: string, data: Prisma.UploadUncheckedUpdateInput): Promise<Upload> {
-    return this.prisma.upload.update({ where: { id }, data });
+    return this.prisma.upload.update({ where: { id }, data, select: this.detailFields }) as Promise<Upload>;
   }
 
   async getUploadsByStatus(status: string): Promise<Upload[]> {

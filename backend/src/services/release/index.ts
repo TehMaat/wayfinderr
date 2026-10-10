@@ -7,13 +7,16 @@
  *     Its output goes through `tee` into ~/.wayfinderr/<id>.log, read every second
  *     over SFTP; its questions (see output.ts) are answered from the upload page
  *     with `tmux send-keys`. One command at a time per server.
+ * Once the tracker accepts it, the .torrent it gives back is read from the Unit3Dup
+ * archive (<archive>/<TRACKER>/<file name>.torrent) and kept with its info hash.
+ * Releases made before, or by hand, are linked to their file and .torrent by link().
  */
 import { EventEmitter } from 'events';
 import { existsSync } from 'fs';
 import path from 'path';
 import { StringDecoder } from 'string_decoder';
 import { setTimeout as sleep } from 'timers/promises';
-import { Client as SSHClient, SFTPWrapper } from 'ssh2';
+import { Client as SSHClient, SFTPWrapper, Stats } from 'ssh2';
 import { Server, Upload } from '@prisma/client';
 import logger from '../../config/logger.js';
 import { db } from '../database.js';
@@ -23,6 +26,7 @@ import { parseReleaseName } from '../ripper/releaseName.js';
 import { MediaInfo } from '../../types/index.js';
 import { analyze, buildReleaseName, isAutoHybrid, ReleaseAnalysis, ReleaseFlags, validateFlags, VERSIONS } from './name.js';
 import { appendOutput, detectPrompt, exitCode, EXIT_MARKER, parseOutcome, Prompt, withoutMarker } from './output.js';
+import { parseTorrent } from './torrentFile.js';
 
 const POLL_MS = 1000;
 const SAVE_EVERY_MS = 5000;
@@ -31,6 +35,16 @@ const STOP_GRACE_MS = 10_000;
 const RECONNECT_DELAY_MS = 10_000;
 const MAX_RECONNECTS = 30; // ~5 minutes without the server
 const READ_CHUNK = 256 * 1024;
+const MAX_TORRENT_BYTES = 20 * 1024 * 1024;
+const MAX_LINK_CANDIDATES = 50;
+
+// Unit3Dup's configuration and default .torrent archive, in the SSH home (Linux)
+const UNIT3DUP_CONFIG = 'Unit3Dup_config/Unit3Dbot.json';
+const UNIT3DUP_ARCHIVE = 'Unit3Dup_config/torrent_archive_path';
+// Printed by Unit3Dup when it starts: [*.torrent Archive] '/home/u/Unit3Dup_config/torrent_archive_path'
+const ARCHIVE_LINE = /\[\*\.torrent Archive\]\s*'([^'\n]+)'/;
+// The tracker that accepted the upload: [RESPONSE]-> 'ITT'.....TORRENT UPLOADED
+const ACCEPTED_BY = /\[RESPONSE\]->\s*'([^'\n]+)'\.{2,}/;
 
 const ACTIVE = ['QUEUED', 'RUNNING', 'NEEDS_INPUT'];
 // Wrapper scripts and their logs, relative to the SSH home (where SFTP and exec start)
@@ -135,6 +149,103 @@ const remotePathOf = (upload: Upload, server: Server) =>
 
 const releaseDirOf = (server: Server) => server.releaseDir.replace(/\\/g, '/').replace(/\/+$/, '') || '.';
 
+const probe = async (ssh: SSHClient, remotePath: string): Promise<MediaInfo> => {
+  const result = await exec(ssh, `ffprobe -v error -show_format -show_streams -show_chapters -of json ${shellQuote(remotePath)}`);
+  if (result.code !== 0) {
+    throw new ReleaseError(`ffprobe failed on the server: ${result.stderr.trim() || `exit code ${result.code}`}`, 502);
+  }
+  return fromProbe(JSON.parse(result.stdout) as ProbeData);
+};
+
+const mediaFields = (media: MediaInfo) => ({
+  mediaInfo: JSON.stringify(media),
+  hasItalianAudio: media.hasItalianAudio,
+  hasItalianSubtitles: media.hasItalianSubtitles,
+});
+
+interface FoundTorrent {
+  path: string;
+  tracker: string | null; // the archive folder it is in
+  infoHash: string;
+  data: Buffer;
+  mtime: number;
+}
+
+/** The .torrent fields of an upload: the one found, or none (cleared) */
+const torrentFields = (found: FoundTorrent | null) => ({
+  releaseTracker: found?.tracker ?? null,
+  releaseTorrentName: found ? path.posix.basename(found.path) : null,
+  releaseTorrentPath: found?.path ?? null,
+  releaseTorrentHash: found?.infoHash ?? null,
+  releaseTorrentData: found?.data ?? null,
+});
+
+const isDir = (attrs: { mode: number }) => (attrs.mode & 0o170000) === 0o040000;
+
+const statOf = (sftp: SFTPWrapper, p: string) => sftpCall<Stats>((cb) => sftp.stat(p, cb)).catch(() => null);
+
+/**
+ * The folders Unit3Dup may archive its .torrent files in: the one its output
+ * names, the one in its configuration, and its default one. Absolute paths.
+ */
+export const archiveDirs = async (sftp: SFTPWrapper, home: string, log: string): Promise<string[]> => {
+  const dirs = [ARCHIVE_LINE.exec(log)?.[1]];
+  try {
+    const config = JSON.parse((await sftpCall<Buffer>((cb) => sftp.readFile(UNIT3DUP_CONFIG, cb))).toString('utf8'));
+    dirs.push(config?.user_preferences?.TORRENT_ARCHIVE_PATH);
+  } catch {
+    // No configuration in this home: the default folder only
+  }
+  dirs.push(path.posix.join(home, UNIT3DUP_ARCHIVE));
+  return [
+    ...new Set(
+      dirs
+        .filter((d): d is string => typeof d === 'string' && path.posix.isAbsolute(d) && !d.includes('no_path'))
+        .map((d) => d.replace(/\/+$/, ''))
+    ),
+  ];
+};
+
+/**
+ * The .torrent of this file in the archive folders, in one of their tracker
+ * folders (<archive>/<TRACKER>/<file name>.torrent) or right in them: only one
+ * made for this very file (same name and size). The tracker that accepted the
+ * upload wins, else the newest.
+ */
+export const findTorrent = async (
+  sftp: SFTPWrapper,
+  dirs: string[],
+  file: { name: string; size: number },
+  preferTracker?: string | null
+): Promise<FoundTorrent | null> => {
+  const found: FoundTorrent[] = [];
+  const torrentName = `${file.name}.torrent`;
+  for (const dir of dirs) {
+    const entries = await sftpCall<{ filename: string; attrs: Stats }[]>((cb) => sftp.readdir(dir, cb)).catch(() => []);
+    const places = [
+      { folder: dir, tracker: null },
+      ...entries.filter((e) => isDir(e.attrs)).map((e) => ({ folder: path.posix.join(dir, e.filename), tracker: e.filename })),
+    ];
+    for (const { folder, tracker } of places) {
+      const candidate = path.posix.join(folder, torrentName);
+      const stats = await statOf(sftp, candidate);
+      if (!stats || isDir(stats) || stats.size > MAX_TORRENT_BYTES) continue;
+      try {
+        const data = await sftpCall<Buffer>((cb) => sftp.readFile(candidate, cb));
+        const torrent = parseTorrent(data);
+        if (torrent.name !== file.name || torrent.size !== file.size) continue;
+        found.push({ path: candidate, tracker, infoHash: torrent.infoHash, data, mtime: stats.mtime });
+      } catch (error) {
+        logger.warn({ path: candidate, error: (error as Error).message }, 'Unreadable .torrent');
+      }
+    }
+  }
+  const preferred = preferTracker
+    ? found.filter((f) => f.tracker?.toLowerCase() === preferTracker.toLowerCase())
+    : [];
+  return (preferred.length ? preferred : found).sort((a, b) => b.mtime - a.mtime)[0] ?? null;
+};
+
 class ReleaseManager extends EventEmitter {
   private runs = new Map<string, Run>();
   // The last command of each server: the next one waits for it
@@ -179,28 +290,134 @@ class ReleaseManager extends EventEmitter {
     const stored = parseMedia(upload);
     if (isDetailed(stored)) return stored;
 
-    let media: MediaInfo;
-    if (existsSync(upload.filepath)) {
-      media = await mediaInfoParser.parseFile(upload.filepath);
-    } else {
-      const { ssh } = await this.connect(server);
-      try {
-        const remote = remotePathOf(upload, server);
-        const result = await exec(ssh, `ffprobe -v error -show_format -show_streams -show_chapters -of json ${shellQuote(remote)}`);
-        if (result.code !== 0) {
-          throw new ReleaseError(`ffprobe failed on the server: ${result.stderr.trim() || `exit code ${result.code}`}`, 502);
-        }
-        media = fromProbe(JSON.parse(result.stdout) as ProbeData);
-      } finally {
-        ssh.end();
-      }
-    }
-    await db.updateUpload(upload.id, {
-      mediaInfo: JSON.stringify(media),
-      hasItalianAudio: media.hasItalianAudio,
-      hasItalianSubtitles: media.hasItalianSubtitles,
-    });
+    const media = existsSync(upload.filepath)
+      ? await mediaInfoParser.parseFile(upload.filepath)
+      : await this.probeOnServer(upload, server);
+    await db.updateUpload(upload.id, mediaFields(media));
     return media;
+  }
+
+  private async probeOnServer(upload: Upload, server: Server): Promise<MediaInfo> {
+    const { ssh } = await this.connect(server);
+    try {
+      return await probe(ssh, remotePathOf(upload, server));
+    } finally {
+      ssh.end();
+    }
+  }
+
+  /** The media info read again from the copy on the server (the local file is gone) */
+  async reprobe(uploadId: string): Promise<Upload> {
+    const { upload, server } = await this.load(uploadId);
+    return db.updateUpload(upload.id, mediaFields(await this.probeOnServer(upload, server)));
+  }
+
+  /**
+   * Links a file already released (renamed on the server and uploaded to the tracker,
+   * before Wayfinderr did it or by hand): finds it on the server by its exact size, its
+   * .torrent in the Unit3Dup archive, and reads its media info again from there.
+   * What cannot be found is left empty, and shows as missing.
+   */
+  async link(uploadId: string): Promise<Upload> {
+    const { upload, server } = await this.load(uploadId);
+    if (this.isActive(upload)) throw new ReleaseError('The tracker upload of this file is still running');
+    const size = Number(upload.size);
+
+    const { ssh, sftp, home } = await this.connect(server);
+    const absolute = (p: string) => (path.posix.isAbsolute(p) ? p : path.posix.join(home, p));
+    let file = '';
+    let torrent: FoundTorrent | null = null;
+    let media: MediaInfo | null = null;
+    const problems: string[] = [];
+    try {
+      const located = await this.locate(ssh, sftp, upload, server, absolute);
+      if (!located) {
+        await db.updateUpload(uploadId, { remoteFound: false });
+        throw new ReleaseError(
+          `No file of ${size} bytes on the server, in ${absolute(releaseDirOf(server))} or ${absolute(remoteDirOf(server))}`,
+          404
+        );
+      }
+      file = located;
+
+      const dirs = await archiveDirs(sftp, home, upload.releaseLog ?? '');
+      const accepted = upload.releaseLog ? ACCEPTED_BY.exec(upload.releaseLog)?.[1] : null;
+      torrent = await findTorrent(sftp, dirs, { name: path.posix.basename(file), size }, accepted);
+      if (!torrent) problems.push(`no .torrent of it in ${dirs.join(', ') || 'the Unit3Dup archive'}`);
+
+      media = await probe(ssh, file).catch((error: Error) => {
+        problems.push(`media info: ${error.message}`);
+        return null;
+      });
+    } finally {
+      ssh.end();
+    }
+
+    const renamed = file !== absolute(path.posix.join(remoteDirOf(server), upload.filename));
+    const known = upload.releaseStatus === 'CONFIRM' ? null : upload.releaseStatus;
+    const found = [`file found: ${file}`, torrent && `.torrent from ${torrent.tracker ?? path.posix.dirname(torrent.path)}`];
+    logger.info({ uploadId, file, torrent: torrent?.path, problems }, 'Release linked');
+    return this.update(uploadId, {
+      ...torrentFields(torrent),
+      ...(media ? mediaFields(media) : {}),
+      remotePath: file,
+      remoteFound: true,
+      releaseName: renamed ? path.posix.basename(file) : upload.releaseName,
+      // Found with its .torrent, or released by hand (renamed, no tracker run known): on the
+      // tracker, the .torrent then shows as missing. Else the tracker outcome known stays
+      releaseStatus: torrent || (renamed && (!known || known === 'RENAMED')) ? 'DONE' : known,
+      releaseMessage: `Linked: ${[...found, ...problems].filter(Boolean).join('; ')}`,
+      releaseCompletedAt: upload.releaseCompletedAt ?? new Date(),
+    });
+  }
+
+  /**
+   * The file of this upload on the server: where it was last seen, else the one
+   * file of the same size (and type) in the release or upload folder.
+   */
+  private async locate(
+    ssh: SSHClient,
+    sftp: SFTPWrapper,
+    upload: Upload,
+    server: Server,
+    absolute: (p: string) => string
+  ): Promise<string | null> {
+    const size = Number(upload.size);
+    for (const known of [upload.remotePath, path.posix.join(remoteDirOf(server), upload.filename)]) {
+      if (!known) continue;
+      const stats = await statOf(sftp, absolute(known));
+      if (stats && !isDir(stats) && stats.size === size) return absolute(known);
+    }
+
+    const roots = [...new Set([absolute(releaseDirOf(server)), absolute(remoteDirOf(server))])];
+    // A missing folder makes find exit with 1: what it printed still counts
+    const listed = await exec(ssh, `find ${roots.map(shellQuote).join(' ')} -maxdepth 3 -type f -size ${size}c 2>/dev/null`);
+    const extension = path.posix.extname(upload.filename).toLowerCase();
+    const candidates = listed.stdout
+      .split('\n')
+      .filter((p) => p && !path.posix.basename(p).startsWith('.') && path.posix.extname(p).toLowerCase() === extension)
+      .slice(0, MAX_LINK_CANDIDATES);
+    if (candidates.length <= 1) return candidates[0] ?? null;
+
+    // Several: the released one is in a folder of its own name
+    const released = candidates.filter(
+      (p) => path.posix.basename(path.posix.dirname(p)) === path.posix.basename(p, path.posix.extname(p))
+    );
+    if (released.length === 1) return released[0];
+    throw new ReleaseError(
+      `${candidates.length} files of ${size} bytes on the server, cannot tell which one it is: ${candidates.slice(0, 3).join(', ')}`
+    );
+  }
+
+  /** After the tracker accepted the upload: its .torrent from the Unit3Dup archive (null when not there) */
+  private async collectTorrent(run: Run, log: string): Promise<FoundTorrent | null> {
+    const upload = await db.getUploadById(run.uploadId);
+    if (!run.sftp || !upload?.remotePath) return null;
+    const sftp = run.sftp;
+    const home = await sftpCall<string>((cb) => sftp.realpath('.', cb));
+    const dirs = await archiveDirs(sftp, home, log);
+    const file = { name: path.posix.basename(upload.remotePath), size: Number(upload.size) };
+    return findTorrent(sftp, dirs, file, ACCEPTED_BY.exec(log)?.[1]);
   }
 
   /** What the rename dialog shows: the analysis and the name's prefilled parts */
@@ -296,7 +513,9 @@ class ReleaseManager extends EventEmitter {
 
     const hasCommand = Boolean(server.trackerCommand?.trim());
     const updated = await this.update(uploadId, {
+      ...torrentFields(null),
       remotePath: target,
+      remoteFound: true,
       releaseName: filename,
       releaseStatus: hasCommand ? 'QUEUED' : 'RENAMED',
       releaseMessage: hasCommand ? null : 'Renamed on the server',
@@ -398,6 +617,8 @@ class ReleaseManager extends EventEmitter {
     if (!server.releaseAuto && !upload.releaseStatus && !upload.releaseName) return;
     // A file uploaded again (rip again) starts over from its new copy
     await this.update(uploadId, {
+      ...torrentFields(null),
+      remoteFound: null,
       releaseStatus: server.releaseAuto ? 'CONFIRM' : null,
       releaseName: null,
       releaseMessage: null,
@@ -656,6 +877,17 @@ class ReleaseManager extends EventEmitter {
           ? { status: 'FAILED', message: 'The command stopped without finishing' }
           : parseOutcome(log, code, run.skipped);
 
+    // Accepted by the tracker: the .torrent it gave back, from the Unit3Dup archive
+    let torrent = {};
+    if (outcome.status === 'DONE') {
+      const found = await this.collectTorrent(run, log).catch((error: Error) => {
+        logger.warn({ uploadId: run.uploadId, error: error.message }, 'Cannot read the .torrent');
+        return null;
+      });
+      torrent = torrentFields(found);
+      if (!found) outcome.message += ' (its .torrent was not found in the Unit3Dup archive)';
+    }
+
     // The wrapper script, its log and its session (kept with tmux's remain-on-exit) are no longer needed
     if (run.ssh && run.sftp) {
       await exec(run.ssh, `tmux kill-session -t ${run.session} 2>/dev/null`).catch(() => undefined);
@@ -669,6 +901,7 @@ class ReleaseManager extends EventEmitter {
     logger.info({ uploadId: run.uploadId, code, ...outcome }, 'Tracker command ended');
     this.emit('release-output', { uploadId: run.uploadId, log });
     await this.update(run.uploadId, {
+      ...torrent,
       releaseStatus: outcome.status,
       releaseMessage: outcome.message,
       releaseLog: log,

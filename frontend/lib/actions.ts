@@ -230,3 +230,15 @@ export async function dismissRelease(id: string) {
     toast.error('Failed', { description: errorMessage(err) });
   }
 }
+
+export async function linkRelease(id: string) {
+  const pending = toast.loading('Looking for the file and its .torrent on the server…');
+  try {
+    const { data } = await releaseApi.link(id);
+    toast.success('Release linked', { id: pending, description: data.releaseMessage ?? undefined });
+  } catch (err) {
+    toast.error('Link failed', { id: pending, description: errorMessage(err) });
+  } finally {
+    await useAppStore.getState().refreshUpload(id);
+  }
+}

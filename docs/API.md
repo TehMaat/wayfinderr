@@ -404,7 +404,7 @@ GET /api/uploads/:id
 POST /api/uploads/:id/media
 ```
 
-Runs ffprobe on the local file again and stores the result (the upload detail page calls it for uploads without `container`). Returns the updated upload; `409` when the local file is no longer there.
+Runs ffprobe on the local file again and stores the result (the upload detail page calls it for uploads without `container`). When the local file is gone, a `COMPLETED` upload is probed on the server instead (ffprobe over SSH, on `remotePath`). Returns the updated upload; `409` when the file is in neither place.
 
 ### Retry Failed Upload
 
@@ -463,6 +463,7 @@ Removes the matched torrent from its client now (the "Remove torrent now" button
 | `torrentClientId`, `torrentHash`, `torrentName` | The matched torrent |
 | `torrentScore` | Match, 0-100: 100 for a rip of the downloads folder (the torrent holding that download), else the name match (automatic removal needs 100 with the year in both names) |
 | `torrentMessage` | Why it was or was not removed |
+| `torrentTracker` | The torrent's tracker host (the passkey in its announce URL is never stored); kept with `torrentHash` once the torrent is removed |
 
 ## Release API
 
@@ -528,6 +529,24 @@ POST /api/uploads/:id/release/dismiss
 
 `input` types the text and Enter into the command (`tmux send-keys`). `stop` sends Ctrl-C (Unit3Dup quits cleanly), and the session is killed 10 seconds later if still there; a queued command is just dropped. `run` runs the command again on the renamed file. `dismiss` drops a `CONFIRM` (the name is not wanted now).
 
+### The .torrent
+
+Once the tracker accepts the upload (`DONE`), the .torrent Unit3Dup downloaded back from it is read from the Unit3Dup archive on the server, `<archive>/<TRACKER>/<file name>.torrent`, and stored with its info hash. The archive is the one Unit3Dup printed (`[*.torrent Archive] '...'`), the `TORRENT_ARCHIVE_PATH` of `~/Unit3Dup_config/Unit3Dbot.json`, or `~/Unit3Dup_config/torrent_archive_path`; only a .torrent of this very file counts (same name and size). Not found: `releaseMessage` says so and the upload shows the .torrent as missing.
+
+```
+GET /api/uploads/:id/release/torrent
+```
+
+The stored .torrent, as a download (`application/x-bittorrent`); `404` when there is none.
+
+### Link a Release Made Before
+
+```
+POST /api/uploads/:id/release/link
+```
+
+For a file already renamed on the server and uploaded to the tracker (before Wayfinderr did it, or by hand), and to look again later. Finds the file on the server: where it was last seen, else the only file of the upload's exact size (and extension) within 3 levels of `releaseDir` and the upload folder (`409` when several match and none is in a folder of its own name). Then its .torrent in the Unit3Dup archive (as above), and ffprobe reads its media info again there. Sets `remotePath`, `releaseName` (when renamed), the .torrent fields and `releaseStatus` `DONE` when the .torrent is found or the file was renamed by hand; what is not found is said in `releaseMessage`. `404` when no file of that size is on the server (`remoteFound` becomes `false`).
+
 **Release fields on an upload:**
 
 | Field | Meaning |
@@ -539,6 +558,12 @@ POST /api/uploads/:id/release/dismiss
 | `releaseLog` | The command's output, cleaned, last 64 KB (only in `GET /api/uploads/:id`) |
 | `releaseMessage` | The outcome: the tracker's answer, or the error. Unit3Dup exits with 0 after a tracker error too, so its output decides |
 | `releaseStartedAt`, `releaseCompletedAt` | When the command started and ended |
+| `remoteFound` | `null` not looked for · `true` · `false` not found on the server by `link` |
+| `releaseTracker` | The archive folder the .torrent was in: the tracker's name (e.g. `ITT`) |
+| `releaseTorrentName`, `releaseTorrentPath` | The .torrent's file name and where it is on the server |
+| `releaseTorrentHash` | Its v1 info hash (what the tracker and the clients know it by) |
+
+The upload list shows what could not be found as **Missing …**: the file on the server, the .torrent of a `DONE` upload, the media info (or its video details), the hash and tracker of a removed source torrent. The search box matches the file and release names, the torrent names and both hashes.
 
 ## Clients API (qBittorrent)
 

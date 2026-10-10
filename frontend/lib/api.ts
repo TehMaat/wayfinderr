@@ -96,6 +96,9 @@ export const releaseApi = {
   answer: (id: string, text: string) => apiClient.post(`/api/uploads/${id}/release/input`, { text }, { timeout: 30000 }),
   stop: (id: string) => apiClient.post<Upload>(`/api/uploads/${id}/release/stop`, null, { timeout: 30000 }),
   dismiss: (id: string) => apiClient.post<Upload>(`/api/uploads/${id}/release/dismiss`),
+  // Looks for the file and its .torrent on the server, then probes it there
+  link: (id: string) => apiClient.post<Upload>(`/api/uploads/${id}/release/link`, null, { timeout: 180000 }),
+  torrentUrl: (id: string) => `/api/uploads/${id}/release/torrent`,
 };
 
 // Download clients API (qBittorrent)

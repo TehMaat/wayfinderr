@@ -6,6 +6,7 @@ import logger from '../config/logger.js';
 import { config } from '../config/index.js';
 import { db } from './database.js';
 import { describeError, getQbitClient, QbitTorrent } from './qbittorrent.js';
+import { trackerHost } from './release/torrentFile.js';
 import { isMeaningfulTitle, MatchName, normalize, parseName, titleSimilarity } from './nameMatch.js';
 import { parseReleaseName } from './ripper/releaseName.js';
 import { getMovieTitles, matchMovie, tmdbConfigured } from './ripper/tmdb.js';
@@ -163,6 +164,18 @@ export class TorrentCleanup extends EventEmitter {
     }
   }
 
+  /** The torrent's tracker host: the working one, else the first real one of its list (null when unknown) */
+  private async trackerOf(client: TorrentClient, torrent: QbitTorrent): Promise<string | null> {
+    const working = trackerHost(torrent.tracker);
+    if (working) return working;
+    try {
+      return (await getQbitClient(client).getTrackerUrls(torrent.hash)).map(trackerHost).find(Boolean) ?? null;
+    } catch (error) {
+      logger.warn({ hash: torrent.hash, error: describeError(error) }, 'Cannot read the torrent trackers');
+      return null;
+    }
+  }
+
   private async setStatus(uploadId: string, data: {
     torrentStatus: TorrentStatus;
     torrentMessage: string;
@@ -170,13 +183,20 @@ export class TorrentCleanup extends EventEmitter {
     torrentHash?: string | null;
     torrentName?: string | null;
     torrentScore?: number | null;
+    torrentTracker?: string | null;
   }): Promise<void> {
     await db.updateUpload(uploadId, data);
     this.emit('torrent-updated', { uploadId, torrentStatus: data.torrentStatus });
   }
 
-  private async setStatusForHash(hash: string, from: TorrentStatus[], torrentStatus: TorrentStatus, torrentMessage: string) {
-    const ids = await db.updateUploadsByTorrentHash(hash, from, { torrentStatus, torrentMessage });
+  private async setStatusForHash(
+    hash: string,
+    from: TorrentStatus[],
+    torrentStatus: TorrentStatus,
+    torrentMessage: string,
+    extra: { torrentTracker?: string } = {}
+  ) {
+    const ids = await db.updateUploadsByTorrentHash(hash, from, { torrentStatus, torrentMessage, ...extra });
     ids.forEach((uploadId) => this.emit('torrent-updated', { uploadId, torrentStatus }));
   }
 
@@ -238,6 +258,7 @@ export class TorrentCleanup extends EventEmitter {
           torrentHash: holders[0].torrent.hash,
           torrentName: holders[0].torrent.name,
           torrentScore: 100,
+          torrentTracker: await this.trackerOf(holders[0].client, holders[0].torrent),
         });
         return;
       }
@@ -284,6 +305,7 @@ export class TorrentCleanup extends EventEmitter {
         torrentHash: null,
         torrentName: null,
         torrentScore: best?.score ?? null,
+        torrentTracker: null,
       });
       return;
     }
@@ -294,6 +316,7 @@ export class TorrentCleanup extends EventEmitter {
       torrentHash: best.torrent.hash,
       torrentName: best.torrent.name,
       torrentScore: best.score,
+      torrentTracker: await this.trackerOf(best.client, best.torrent),
     };
 
     if (second && second.score >= SUGGEST_SCORE && best.score - second.score < MIN_LEAD) {
@@ -329,6 +352,7 @@ export class TorrentCleanup extends EventEmitter {
       torrentHash: match.torrent.hash,
       torrentName: match.torrent.name,
       torrentScore: match.score,
+      torrentTracker: await this.trackerOf(match.client, match.torrent),
     };
     if (!match.client.autoRemove) {
       await this.setStatus(upload.id, {
@@ -425,12 +449,21 @@ export class TorrentCleanup extends EventEmitter {
 
   private async remove(client: TorrentClient, hash: string): Promise<void> {
     const qbit = getQbitClient(client);
+    // Its tracker is kept with the hash: once removed, the client can no longer tell
+    const torrent = await qbit.getTorrent(hash);
+    const tracker = torrent ? await this.trackerOf(client, torrent) : null;
     await qbit.deleteTorrent(hash, client.deleteFiles);
     if (await qbit.getTorrent(hash)) {
       throw new Error('qBittorrent did not remove the torrent');
     }
     const what = client.deleteFiles ? 'torrent and downloaded files' : 'torrent only, files kept';
-    await this.setStatusForHash(hash, ['WAITING', 'REVIEW', 'ERROR'], 'REMOVED', `Removed from ${client.name} (${what})`);
+    await this.setStatusForHash(
+      hash,
+      ['WAITING', 'REVIEW', 'ERROR'],
+      'REMOVED',
+      `Removed from ${client.name} (${what})`,
+      tracker ? { torrentTracker: tracker } : {}
+    );
   }
 
   /** "Remove now" from the UI: the user has checked the match */

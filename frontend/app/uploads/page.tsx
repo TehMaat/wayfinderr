@@ -9,6 +9,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { EmptyState } from '@/components/empty-state';
 import { STATUS_META } from '@/components/status-badge';
 import { UploadTable } from '@/components/upload-table';
+import { matchesSearch } from '@/lib/release';
 import { UPLOAD_STATUSES, useAppStore, type Filters } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -92,7 +93,7 @@ export default function UploadsPage() {
       (u) =>
         (filters.status === 'ALL' || u.status === filters.status) &&
         (filters.serverId === 'ALL' || u.serverId === filters.serverId) &&
-        (!q || u.filename.toLowerCase().includes(q))
+        (!q || matchesSearch(u, q))
     );
   }, [uploads, filters]);
 
@@ -185,7 +186,7 @@ export default function UploadsPage() {
               ref={searchRef}
               value={filters.search}
               onChange={(e) => set({ search: e.target.value })}
-              placeholder="Search uploads…"
+              placeholder="Search by file, release or torrent name…"
               className="h-8 pl-8 pr-10"
             />
             <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border bg-muted px-1.5 font-mono text-[10px] text-muted-foreground">

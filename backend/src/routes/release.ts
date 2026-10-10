@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { releaseManager, ReleaseError } from '../services/release/index.js';
 import { ReleaseFlags } from '../services/release/name.js';
+import { db } from '../services/database.js';
 import logger from '../config/logger.js';
 
 // Mounted on /api/uploads/:id/release
@@ -54,6 +55,24 @@ router.post(
 
 // POST stop the tracker command (Ctrl-C)
 router.post('/stop', handle((req) => releaseManager.stop(req.params.id), 'Failed to stop the tracker command'));
+
+// POST link a release made before: its file on the server, its .torrent, its media info from there
+router.post('/link', handle((req) => releaseManager.link(req.params.id), 'Failed to link the release'));
+
+// GET the .torrent the tracker gave back
+router.get('/torrent', async (req: Request, res: Response) => {
+  try {
+    const torrent = await db.getUploadTorrent(req.params.id);
+    if (!torrent) {
+      res.status(404).json({ error: 'No .torrent stored for this upload' });
+      return;
+    }
+    res.attachment(torrent.name).type('application/x-bittorrent').send(torrent.data);
+  } catch (error) {
+    logger.error({ uploadId: req.params.id, error }, 'Failed to send the .torrent');
+    res.status(500).json({ error: 'Failed to send the .torrent' });
+  }
+});
 
 // POST no rename for now (asked on its own after the upload)
 router.post('/dismiss', handle((req) => releaseManager.dismiss(req.params.id), 'Failed to dismiss'));

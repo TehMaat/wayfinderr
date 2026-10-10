@@ -1,4 +1,7 @@
+import { AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip } from '@/components/ui/tooltip';
+import { missingInfo } from '@/lib/release';
 import type { ReleaseStatus, Upload } from '@/lib/store';
 
 export const RELEASE_STATUS: Record<
@@ -27,4 +30,18 @@ export function ReleaseBadge({ upload }: { upload: Upload }) {
   if (!upload.releaseStatus) return null;
   const meta = RELEASE_STATUS[upload.releaseStatus];
   return <Badge variant={meta.variant}>{meta.label}</Badge>;
+}
+
+/** What could not be found for this upload, as one warning badge */
+export function MissingBadge({ upload }: { upload: Upload }) {
+  const missing = missingInfo(upload);
+  if (missing.length === 0) return null;
+  return (
+    <Tooltip content={`Missing: ${missing.join(', ')}`}>
+      <Badge variant="warning">
+        <AlertTriangle />
+        {missing.length === 1 ? `Missing ${missing[0]}` : `Missing ${missing.length}`}
+      </Badge>
+    </Tooltip>
+  );
 }
