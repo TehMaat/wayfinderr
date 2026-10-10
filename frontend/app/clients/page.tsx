@@ -95,7 +95,7 @@ function ClientCard({ client, onEdit }: { client: TorrentClient; onEdit: () => v
         <Detail icon={KeyRound}>{auth}</Detail>
         <Detail icon={Tag}>{client.category ? `Category "${client.category}"` : 'All finished torrents'}</Detail>
         <Detail icon={ShieldCheck}>
-          {client.autoRemove ? 'Removes automatically when the match is certain' : 'Only suggests, you remove'}
+          {client.autoRemove ? 'Removes automatically when 100% certain' : 'Only suggests, you remove'}
         </Detail>
         <Detail icon={FolderOpen}>{client.deleteFiles ? 'Deletes the downloaded files too' : 'Keeps the downloaded files'}</Detail>
       </div>

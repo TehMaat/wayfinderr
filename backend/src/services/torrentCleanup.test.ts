@@ -20,8 +20,18 @@ test('a year far from the torrent year is another film', () => {
   assert.equal(scoreAgainst(names, { titles: ['dune'], year: 1984 }).score, 100);
 });
 
+test('a match is dated only when both names have a year', () => {
+  assert.equal(scoreAgainst([parseName('Dune (1984).mkv')], { titles: ['dune'], year: 1984 }).dated, true);
+  // No year on the MKV: it could be the 1984 or the 2021 film
+  assert.equal(scoreAgainst([parseName('DUNE_t00.mkv')], { titles: ['dune'], year: 2021 }).dated, false);
+  assert.equal(scoreAgainst([parseName('Dune (2021).mkv')], { titles: ['dune'] }).dated, false);
+  // The folder's year confirms the film even when the file name has none
+  const names = [parseName('DUNE_t00.mkv'), parseName('Dune (2021)')];
+  assert.deepEqual(scoreAgainst(names, { titles: ['dune'], year: 2021 }), { score: 100, matched: 'dune', dated: true });
+});
+
 test('the best of the MKV names and torrent titles counts', () => {
   const names = [parseName('IL_PADRINO_t00.mkv')];
   const match = scoreAgainst(names, { titles: ['the godfather', 'il padrino', 'der pate'], year: 1972 });
-  assert.deepEqual(match, { score: 100, matched: 'il padrino' });
+  assert.deepEqual(match, { score: 100, matched: 'il padrino', dated: false });
 });
