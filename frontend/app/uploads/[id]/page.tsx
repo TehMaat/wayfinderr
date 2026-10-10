@@ -77,8 +77,9 @@ function TorrentCard({ upload }: { upload: Upload }) {
   const [busy, setBusy] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  // Nothing to show before the upload is done, or when the feature is not set up
-  if (upload.status !== 'COMPLETED' || (!upload.torrentStatus && !hasClients)) return null;
+  // Shown while the upload runs too (removal by hand only), and when the feature is set up
+  const inProgress = upload.status === 'PENDING' || upload.status === 'QUEUED' || upload.status === 'UPLOADING';
+  if ((upload.status !== 'COMPLETED' && !inProgress) || (!upload.torrentStatus && !hasClients)) return null;
 
   const status = upload.torrentStatus ? TORRENT_STATUS[upload.torrentStatus] : null;
   const canRemove =
@@ -135,7 +136,11 @@ function TorrentCard({ upload }: { upload: Upload }) {
         title="Remove this torrent?"
         description={`"${upload.torrentName}" is removed from ${clientName ?? 'the client'}${
           client?.deleteFiles ? ' together with its downloaded files' : '. Its downloaded files are kept'
-        }.`}
+        }.${
+          inProgress && client?.deleteFiles
+            ? ' The upload is still running: if its file is in this download, the upload fails.'
+            : ''
+        }`}
         confirmLabel="Remove"
         onConfirm={() => run(() => removeTorrent(upload.id))}
       />
