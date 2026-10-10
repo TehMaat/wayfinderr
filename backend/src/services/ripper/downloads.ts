@@ -1,12 +1,13 @@
 import { Dirent } from 'fs';
 import { readdir, stat } from 'fs/promises';
 import path from 'path';
+import { ignoredFolder } from './exclusions.js';
 
 /**
  * Finds film discs in the downloads folder: .iso files and folders holding a
  * Blu-ray (BDMV/index.bdmv) or a DVD (VIDEO_TS/VIDEO_TS.IFO), and RAR archives
  * (which may hold one of them, or an .mkv). Each top-level entry of the folder
- * is one download.
+ * is one download. The ignored folders (see exclusions.ts) are never entered.
  */
 
 export type DiscType = 'ISO' | 'BDMV' | 'DVD';
@@ -43,7 +44,15 @@ export const rarSetName = (name: string): string | null => {
   return match ? match[1].toLowerCase() : null;
 };
 
-const findIn = async (root: string, relative: string, downloadName: string, depth: number, found: DiscSource[]) => {
+const findIn = async (
+  root: string,
+  relative: string,
+  downloadName: string,
+  depth: number,
+  ignored: string[],
+  found: DiscSource[]
+) => {
+  if (ignoredFolder(ignored, relative)) return;
   const dir = path.join(root, relative);
   const entries = await list(dir);
   const sub = (name: string) => (relative ? `${relative}/${name}` : name);
@@ -67,13 +76,13 @@ const findIn = async (root: string, relative: string, downloadName: string, dept
     } else if (entry.isFile() && isFirstRarVolume(entry.name)) {
       found.push({ path: sub(entry.name), type: 'RAR', downloadName });
     } else if (entry.isDirectory() && depth < MAX_DEPTH) {
-      await findIn(root, sub(entry.name), downloadName, depth + 1, found);
+      await findIn(root, sub(entry.name), downloadName, depth + 1, ignored, found);
     }
   }
 };
 
-/** Every disc and archive in the downloads folder (no file contents are read). */
-export const findDiscs = async (root: string): Promise<DiscSource[]> => {
+/** Every disc and archive in the downloads folder, outside the ignored folders (no file contents are read). */
+export const findDiscs = async (root: string, ignored: string[] = []): Promise<DiscSource[]> => {
   const found: DiscSource[] = [];
   for (const entry of await list(root)) {
     if (entry.name.startsWith('.')) continue;
@@ -82,10 +91,26 @@ export const findDiscs = async (root: string): Promise<DiscSource[]> => {
     } else if (entry.isFile() && isFirstRarVolume(entry.name)) {
       found.push({ path: entry.name, type: 'RAR', downloadName: entry.name });
     } else if (entry.isDirectory()) {
-      await findIn(root, entry.name, entry.name, 1, found);
+      await findIn(root, entry.name, entry.name, 1, ignored, found);
     }
   }
   return found;
+};
+
+/**
+ * The subfolders of a folder of the downloads (relative, "" for the downloads
+ * folder itself), for picking the ignored folders. Hidden ones are left out.
+ */
+export const listFolders = async (root: string, relative: string): Promise<string[]> => {
+  const dir = path.resolve(root, relative);
+  const base = path.resolve(root);
+  if (dir !== base && !dir.startsWith(base + path.sep)) throw new Error('The folder is outside the downloads');
+  const info = await stat(dir).catch(() => null);
+  if (!info?.isDirectory()) throw new Error('Folder not found');
+  return (await list(dir))
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 };
 
 /**

@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Rip exclusions: ignored folders, picked by browsing the downloads, are never searched (the torrent client's folder for the downloads in progress), and the rips listed from them are removed; "Downloads arrive complete" handles what appears in the downloads after a minute instead of `RIP_QUIET_MINUTES`. `folders`/`arriveComplete` in `PUT /api/rips/exclusions`, `GET /api/rips/folders`
 - RAR archives in the downloads (`.rar`, `.partN.rar`, `.rNN` volumes) are listed once downloaded and, when they hold one film, unpacked with unrar on the disk with more free space left afterwards, the downloads one or the watch folder one (a disc next to the watch folder counts twice, for its rip): a disc inside is ripped, an `.mkv` is named like a rip and uploaded (from the downloads disk directly, deleted once on the server). `UNPACKING` rip status, `contentType`/`contentPath`/`unpackBytes`/`unpackedTo` rip fields, `status.unpack` in `GET /api/rips`, `UNRAR_PATH`; unrar in the backend image; the backend mounts `<downloads>/.wayfinderr` writable. Archives already in the downloads are listed as skipped
 - The MakeMKV runner reads discs from the work folder too (`root=work` in a job): update the `wayfinderr-makemkv` image with the backend
 - "This machine" card: the downloads disk too, with ripping on

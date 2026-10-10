@@ -424,7 +424,7 @@ GET /api/rips
 ```json
 {
   "status": {
-    "enabled": true, "runnerAlive": true, "tmdbConfigured": true, "language": "it", "minLength": 2700, "exclusions": ["Serie TV/"],
+    "enabled": true, "runnerAlive": true, "tmdbConfigured": true, "language": "it", "minLength": 2700, "exclusions": ["Serie TV/"], "ignoredFolders": ["torrents"], "arriveComplete": true,
     "unpack": {
       "unrar": true,
       "disks": [{ "disk": "watch", "freeBytes": 412316860416 }, { "disk": "downloads", "freeBytes": 1288490188800 }],
@@ -501,12 +501,28 @@ Retry starts over (scan and automatic choices; an archive not unpacked yet is li
 PUT /api/rips/exclusions
 Content-Type: application/json
 
-{ "patterns": ["Serie TV/", "S0*E"] }
+{ "patterns": ["Serie TV/", "S0*E"], "folders": ["torrents"], "arriveComplete": true }
 ```
 
-Replaces the exclusion rules (also listed in `status.exclusions`). A disc whose path in the downloads folder contains a rule is not ripped: it is created as `SKIPPED` with the reason `Excluded by the rule “…”`. Case doesn't matter and `*` matches any text. Saving skips the `WAITING`, `QUEUED` and `NEEDS_ATTENTION` rips a new rule matches, and puts back to `WAITING` the rips a rule skipped that no rule matches any more; rips skipped by hand are left alone. Rules are trimmed, blanks and duplicates dropped; at most 100, of 200 characters each.
+Each field is optional: one left out is kept as it is.
 
-**Response:** 200 OK: `{ "exclusions": ["Serie TV/", "S0*E"], "skipped": 2, "restored": 0 }`. 400 when `patterns` is not an array of strings or is too long.
+`folders` replaces the ignored folders (also in `status.ignoredFolders`): folders of the downloads, relative with `/` separators, that are never searched. Saving removes from the list the rips inside them that are `WAITING`, `QUEUED`, `NEEDS_ATTENTION`, `FAILED` or `SKIPPED` (what was unpacked of an archive is deleted); the ones being ripped or ripped are kept. Leading and trailing `/` are dropped, `.` and `..` refused, a folder inside another ignored one dropped; at most 20.
+
+`arriveComplete` (also in `status.arriveComplete`): the torrent client moves the downloads to the downloads folder once complete, so a download counts as complete after a minute without changes instead of `RIP_QUIET_MINUTES` (files still marked incomplete always wait).
+
+`patterns` replaces the exclusion rules (also listed in `status.exclusions`). A disc whose path in the downloads folder contains a rule is not ripped: it is created as `SKIPPED` with the reason `Excluded by the rule “…”`. Case doesn't matter and `*` matches any text. Saving skips the `WAITING`, `QUEUED` and `NEEDS_ATTENTION` rips a new rule matches, and puts back to `WAITING` the rips a rule skipped that no rule matches any more; rips skipped by hand are left alone. Rules are trimmed, blanks and duplicates dropped; at most 100, of 200 characters each.
+
+**Response:** 200 OK: `{ "exclusions": ["Serie TV/", "S0*E"], "ignoredFolders": ["torrents"], "arriveComplete": true, "removed": 3, "skipped": 2, "restored": 0 }`. 400 when `patterns` or `folders` is not an array of strings, is too long or holds an invalid folder, or `arriveComplete` is not a boolean.
+
+### Download folders
+
+```
+GET /api/rips/folders?path=Serie%20TV
+```
+
+The subfolders of a folder of the downloads (`path` relative, left out for the downloads folder itself), hidden ones left out, for picking the ignored folders.
+
+**Response:** 200 OK: `{ "path": "Serie TV", "folders": ["Show.S01", "Show.S02"] }`. 400 for an invalid path, 404 when the folder does not exist.
 
 ### Search TMDB
 

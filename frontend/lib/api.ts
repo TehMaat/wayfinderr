@@ -89,8 +89,18 @@ export const ripsApi = {
     apiClient.post<Rip>(`/api/rips/${id}/choose`, choice),
   retryRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/retry`),
   skipRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/skip`),
-  setExclusions: (patterns: string[]) =>
-    apiClient.put<{ exclusions: string[]; skipped: number; restored: number }>('/api/rips/exclusions', { patterns }),
+  setExclusions: (settings: { patterns?: string[]; folders?: string[]; arriveComplete?: boolean }) =>
+    apiClient.put<{
+      exclusions: string[];
+      ignoredFolders: string[];
+      arriveComplete: boolean;
+      removed: number;
+      skipped: number;
+      restored: number;
+    }>('/api/rips/exclusions', settings),
+  // Subfolders of a folder of the downloads ("" for the downloads folder)
+  listFolders: (path: string) =>
+    apiClient.get<{ path: string; folders: string[] }>('/api/rips/folders', { params: { path: path || undefined } }),
   searchTmdb: (query: string, year?: number | null) =>
     apiClient.get<TmdbMovie[]>('/api/rips/tmdb/search', { params: { query, year: year || undefined } }),
 };

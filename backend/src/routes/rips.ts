@@ -2,7 +2,7 @@ import { Request, Response, Router } from 'express';
 import { Rip } from '@prisma/client';
 import { db } from '../services/database.js';
 import { ripper } from '../services/ripper/index.js';
-import { normalizeExclusions } from '../services/ripper/exclusions.js';
+import { normalizeExclusions, normalizeFolder, normalizeFolders } from '../services/ripper/exclusions.js';
 import { parseReleaseName } from '../services/ripper/releaseName.js';
 import { searchMovies } from '../services/ripper/tmdb.js';
 import logger from '../config/logger.js';
@@ -53,17 +53,42 @@ router.get('/tmdb/search', async (req: Request, res: Response) => {
   }
 });
 
-// PUT the exclusion rules: discs whose path contains one are not ripped
-router.put('/exclusions', async (req: Request, res: Response) => {
-  let patterns: string[];
+// GET the subfolders of a folder of the downloads (?path=, relative; none for the downloads folder)
+router.get('/folders', async (req: Request, res: Response) => {
+  const raw = String(req.query.path ?? '');
+  let relative = '';
   try {
-    patterns = normalizeExclusions(req.body?.patterns);
+    relative = raw.trim() ? normalizeFolder(raw) : '';
   } catch (error) {
     res.status(400).json({ error: (error as Error).message });
     return;
   }
   try {
-    res.json(await ripper.setExclusions(patterns));
+    res.json({ path: relative, folders: await ripper.folders(relative) });
+  } catch (error) {
+    fail(res, error, 'Failed to list the folder');
+  }
+});
+
+// PUT the exclusion rules (discs whose path contains one are not ripped), the
+// ignored folders (never searched) and whether downloads arrive complete;
+// each one left out is kept as it is
+router.put('/exclusions', async (req: Request, res: Response) => {
+  const body = req.body ?? {};
+  const changes: Parameters<typeof ripper.setExclusions>[0] = {};
+  try {
+    if (body.patterns !== undefined) changes.patterns = normalizeExclusions(body.patterns);
+    if (body.folders !== undefined) changes.folders = normalizeFolders(body.folders);
+    if (body.arriveComplete !== undefined) {
+      if (typeof body.arriveComplete !== 'boolean') throw new Error('arriveComplete must be a boolean');
+      changes.arriveComplete = body.arriveComplete;
+    }
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+    return;
+  }
+  try {
+    res.json(await ripper.setExclusions(changes));
   } catch (error) {
     logger.error(error, 'Failed to save the rip exclusions');
     res.status(500).json({ error: 'Failed to save the rip exclusions' });
