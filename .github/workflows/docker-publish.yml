@@ -74,6 +74,10 @@ jobs:
           context: ./${{ matrix.service }}
           platforms: linux/${{ matrix.arch }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Version shown in the UI (only the frontend uses them): the tag for a release
+          build-args: |
+            APP_VERSION=${{ github.ref_type == 'tag' && github.ref_name || '' }}
+            GIT_COMMIT=${{ github.sha }}
           # No tags here: the merge job tags the multi-platform image.
           # Pull requests only check that the image builds
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}

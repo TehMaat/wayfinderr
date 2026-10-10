@@ -185,6 +185,28 @@ Types:
 - `test`: Test additions/changes
 - `chore`: Build process, dependencies, etc.
 
+## Versioning
+
+Wayfinderr uses [semantic versioning](https://semver.org). The version lives in
+`backend/package.json` and `frontend/package.json` (always the same number) and is
+shown in the sidebar, next to the user.
+
+Every pull request to `main` raises the version, never lowers it:
+
+- **patch** (`0.8.0` → `0.8.1`): bug fixes only
+- **minor** (`0.8.1` → `0.9.0`): new features or changes in behavior
+- **major** (`0.x` → `1.0.0`): only when the maintainer decides
+
+Raise it in both packages with:
+
+```bash
+npm version <new-version> --no-git-tag-version --prefix backend
+npm version <new-version> --no-git-tag-version --prefix frontend
+```
+
+After the merge, tag the release on `main` (`git tag v0.8.1 && git push origin v0.8.1`):
+the Docker workflow publishes the images as `0.8.1` and `0.8`.
+
 ## Pull Request Process
 
 1. Update documentation if needed

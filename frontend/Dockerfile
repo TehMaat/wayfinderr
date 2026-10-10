@@ -12,6 +12,10 @@ COPY . .
 # the backend (next.config.js). The backend URL is compiled in by next build:
 # the default is the compose service name, so the image works with any domain
 ARG BACKEND_URL=http://wayfinderr-backend:3001
+# Shown in the sidebar (next.config.js): the release tag (v1.2.3) and the commit.
+# Empty, next build uses the package.json version
+ARG APP_VERSION=
+ARG GIT_COMMIT=
 
 RUN npm run build && npm prune --omit=dev
 

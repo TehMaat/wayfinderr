@@ -17,6 +17,9 @@ const NAV = [
   { href: '/clients', label: 'Clients', icon: Magnet },
 ];
 
+const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION;
+const APP_COMMIT = process.env.NEXT_PUBLIC_APP_COMMIT;
+
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -124,7 +127,14 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <div className="flex items-center justify-between gap-2 border-t px-3 py-3">
-        <AccountMenu />
+        <div className="flex min-w-0 items-center gap-1.5">
+          <AccountMenu />
+          {APP_VERSION && (
+            <Tooltip content={APP_COMMIT ? `Commit ${APP_COMMIT}` : `Version ${APP_VERSION}`} side="top">
+              <span className="shrink-0 cursor-default text-[11px] text-muted-foreground/70 tabular">v{APP_VERSION}</span>
+            </Tooltip>
+          )}
+        </div>
         <ThemeToggle />
       </div>
     </div>
