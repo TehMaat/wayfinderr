@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { TorrentClient } from '@prisma/client';
 import { db } from '../services/database.js';
 import { describeError, getQbitClient } from '../services/qbittorrent.js';
+import { spaceGuard } from '../services/spaceGuard.js';
 import logger from '../config/logger.js';
 
 const router = Router();
@@ -19,7 +20,7 @@ const SECRET_FIELDS = new Set(['password', 'apiKey']);
 const BOOLEAN_FIELDS = ['enabled', 'autoRemove', 'deleteFiles'] as const;
 
 const parseClientBody = (body: Record<string, unknown>) => {
-  const data: Record<string, string | boolean | null> = {};
+  const data: Record<string, string | boolean | number | null> = {};
   for (const field of STRING_FIELDS) {
     const value = body[field];
     if (typeof value !== 'string') continue;
@@ -33,8 +34,14 @@ const parseClientBody = (body: Record<string, unknown>) => {
   for (const field of BOOLEAN_FIELDS) {
     if (typeof body[field] === 'boolean') data[field] = body[field] as boolean;
   }
+  // Pause every torrent below this many GB free on this machine: null or blank = off
+  if (body.minFreeGB === null || body.minFreeGB === '') data.minFreeGB = null;
+  else if (body.minFreeGB !== undefined) data.minFreeGB = Number(body.minFreeGB);
   return data;
 };
+
+const validMinFree = (value: unknown) =>
+  value === undefined || value === null || (typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= 1_000_000);
 
 const validUrl = (value: unknown) => typeof value === 'string' && /^https?:\/\/[^\s]+$/i.test(value);
 
@@ -54,7 +61,12 @@ router.post('/', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'Name and a http(s) URL are required' });
       return;
     }
+    if (!validMinFree(data.minFreeGB)) {
+      res.status(400).json({ error: 'The minimum free space must be a number of GB above 0' });
+      return;
+    }
     const client = await db.createTorrentClient({ ...data, name: String(data.name), url: String(data.url) });
+    spaceGuard.check();
     res.status(201).json(toPublic(client));
   } catch (error) {
     logger.error(error, 'Failed to create torrent client');
@@ -69,7 +81,14 @@ router.put('/:id', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'Name and a http(s) URL are required' });
       return;
     }
-    res.json(toPublic(await db.updateTorrentClient(req.params.id, data)));
+    if (!validMinFree(data.minFreeGB)) {
+      res.status(400).json({ error: 'The minimum free space must be a number of GB above 0' });
+      return;
+    }
+    const client = await db.updateTorrentClient(req.params.id, data);
+    // A new threshold applies right away
+    spaceGuard.check();
+    res.json(toPublic(client));
   } catch (error) {
     logger.error(error, 'Failed to update torrent client');
     res.status(500).json({ error: 'Failed to update torrent client' });
@@ -95,6 +114,9 @@ router.post('/:id/test', async (req: Request, res: Response) => {
 
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
+    const client = await db.getTorrentClientById(req.params.id);
+    // Torrents paused for low disk space are resumed first
+    if (client) await spaceGuard.release(client);
     res.json(toPublic(await db.deleteTorrentClient(req.params.id)));
   } catch (error) {
     logger.error(error, 'Failed to delete torrent client');

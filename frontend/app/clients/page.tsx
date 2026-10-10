@@ -5,6 +5,7 @@ import {
   Activity,
   Clapperboard,
   FolderOpen,
+  HardDrive,
   KeyRound,
   Link2,
   Magnet,
@@ -14,6 +15,7 @@ import {
   ShieldCheck,
   Tag,
   Trash2,
+  TriangleAlert,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -32,7 +34,7 @@ import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
 import { deleteClient, testClient } from '@/lib/actions';
 import { useAppStore, type TorrentClient } from '@/lib/store';
-import { cn } from '@/lib/utils';
+import { cn, timeAgo } from '@/lib/utils';
 
 function Detail({ icon: Icon, children }: { icon: typeof Magnet; children: React.ReactNode }) {
   return (
@@ -98,7 +100,28 @@ function ClientCard({ client, onEdit }: { client: TorrentClient; onEdit: () => v
           {client.autoRemove ? 'Removes automatically when 100% certain' : 'Only suggests, you remove'}
         </Detail>
         <Detail icon={FolderOpen}>{client.deleteFiles ? 'Deletes the downloaded files too' : 'Keeps the downloaded files'}</Detail>
+        <Detail icon={HardDrive}>
+          {client.minFreeGB ? `Pauses all torrents below ${client.minFreeGB} GB free` : 'No disk space check'}
+        </Detail>
       </div>
+
+      {client.spacePausedAt ? (
+        <div className="flex items-start gap-2 border-t bg-warning/10 px-4 py-3 text-xs text-warning">
+          <TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0" />
+          <span>
+            Torrents paused for low disk space · {timeAgo(client.spacePausedAt)}
+            {client.spaceMessage && <span className="block text-muted-foreground">{client.spaceMessage}</span>}
+          </span>
+        </div>
+      ) : (
+        // Not paused, but the last pause failed (client unreachable)
+        /^(Pause|Resume) failed:/.test(client.spaceMessage ?? '') && (
+          <div className="flex items-start gap-2 border-t bg-destructive/10 px-4 py-3 text-xs text-destructive">
+            <TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0" />
+            <span>{client.spaceMessage}</span>
+          </div>
+        )
+      )}
 
       <div className="mt-auto flex gap-2 border-t p-3">
         <Button

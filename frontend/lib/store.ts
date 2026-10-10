@@ -46,6 +46,10 @@ export interface TorrentClient {
   enabled: boolean;
   autoRemove: boolean;
   deleteFiles: boolean;
+  // Pause every torrent below this many GB free on this machine (null = off)
+  minFreeGB: number | null;
+  spacePausedAt: string | null;
+  spaceMessage: string | null;
   createdAt: string;
 }
 
