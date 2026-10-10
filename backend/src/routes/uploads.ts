@@ -5,6 +5,7 @@ import { jobQueue } from '../services/jobQueue.js';
 import { torrentCleanup } from '../services/torrentCleanup.js';
 import { describeError } from '../services/qbittorrent.js';
 import { mediaInfoParser } from '../services/mediaInfo.js';
+import { releaseManager } from '../services/release/index.js';
 import logger from '../config/logger.js';
 
 const router = Router();
@@ -158,6 +159,10 @@ router.delete('/:id', async (req: Request, res: Response) => {
     }
     if (upload.status === 'QUEUED' || upload.status === 'UPLOADING') {
       res.status(409).json({ error: `Upload is ${upload.status}, cannot delete` });
+      return;
+    }
+    if (releaseManager.isActive(upload)) {
+      res.status(409).json({ error: 'The tracker upload is still running, stop it first' });
       return;
     }
     await db.deleteUpload(upload.id);

@@ -102,6 +102,7 @@ src/
 │   ├── serverManager.ts    # Ultra.cc API client
 │   ├── uploadManager.ts    # SSH/SCP handler
 │   ├── jobQueue.ts         # p-queue job queue
+│   ├── release/            # Rename on the server (moverr.py's name), then the tracker command (Unit3Dup) in tmux
 │   ├── auth.ts             # Account, scrypt hashes, signed session tokens, setup code
 │   ├── loginLimiter.ts     # 5 failures / 15 min per client
 │   └── database.ts         # Prisma wrapper
@@ -113,6 +114,7 @@ src/
 │   ├── auth.ts             # /api/auth endpoints
 │   ├── servers.ts          # Server endpoints
 │   ├── uploads.ts          # Upload endpoints
+│   ├── release.ts          # /api/uploads/:id/release (rename, tracker command)
 │   └── space.ts            # Space info endpoints
 │
 └── types/

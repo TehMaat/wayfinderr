@@ -60,6 +60,13 @@ export class DatabaseService {
   }
 
   // Upload queries
+  // The list leaves out the tracker command's output (up to 64 KB each)
+  private listFields = Object.fromEntries(
+    Object.values(Prisma.UploadScalarFieldEnum)
+      .filter((field) => field !== 'releaseLog')
+      .map((field) => [field, true])
+  ) as Record<Prisma.UploadScalarFieldEnum, boolean>;
+
   async getUploads(
     limit?: number,
     offset?: number
@@ -69,8 +76,8 @@ export class DatabaseService {
         orderBy: { createdAt: 'desc' },
         take: limit || 50,
         skip: offset || 0,
-        include: { server: { select: { id: true, name: true, sshPath: true } } },
-      }),
+        select: { ...this.listFields, server: { select: { id: true, name: true, sshPath: true } } },
+      }) as Promise<Upload[]>,
       this.prisma.upload.count(),
     ]);
 
@@ -102,6 +109,10 @@ export class DatabaseService {
       where: { status },
       include: { server: { select: { id: true, name: true, sshPath: true } } },
     });
+  }
+
+  async getUploadsByReleaseStatus(releaseStatus: string): Promise<Upload[]> {
+    return this.prisma.upload.findMany({ where: { releaseStatus }, orderBy: { updatedAt: 'asc' } });
   }
 
   async deleteUpload(id: string): Promise<Upload> {

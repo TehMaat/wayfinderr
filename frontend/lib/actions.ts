@@ -1,5 +1,5 @@
 import { toast } from 'sonner';
-import { clientsApi, ripsApi, serversApi, uploadsApi } from './api';
+import { clientsApi, releaseApi, ripsApi, serversApi, uploadsApi } from './api';
 import { useAppStore } from './store';
 import { errorMessage } from './utils';
 
@@ -187,5 +187,46 @@ export async function removeTorrent(id: string) {
     toast.success('Torrent removed from the client');
   } catch (err) {
     toast.error('Could not remove the torrent', { description: errorMessage(err) });
+  }
+}
+
+// Release: the tracker command on the renamed file (see the rename dialog for the rename)
+export async function runRelease(id: string) {
+  try {
+    await releaseApi.run(id);
+    await useAppStore.getState().refreshUpload(id);
+    toast.success('Tracker upload queued');
+  } catch (err) {
+    toast.error('Tracker upload failed to start', { description: errorMessage(err) });
+  }
+}
+
+export async function stopRelease(id: string) {
+  try {
+    await releaseApi.stop(id);
+    await useAppStore.getState().refreshUpload(id);
+    toast.info('Stopping the tracker upload…');
+  } catch (err) {
+    toast.error('Stop failed', { description: errorMessage(err) });
+  }
+}
+
+export async function answerRelease(id: string, text: string): Promise<boolean> {
+  try {
+    await releaseApi.answer(id, text);
+    await useAppStore.getState().refreshUpload(id);
+    return true;
+  } catch (err) {
+    toast.error('Answer not sent', { description: errorMessage(err) });
+    return false;
+  }
+}
+
+export async function dismissRelease(id: string) {
+  try {
+    await releaseApi.dismiss(id);
+    await useAppStore.getState().refreshUpload(id);
+  } catch (err) {
+    toast.error('Failed', { description: errorMessage(err) });
   }
 }

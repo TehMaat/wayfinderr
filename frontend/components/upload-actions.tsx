@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Eye, MoreHorizontal, RotateCcw, Square, Trash2 } from 'lucide-react';
+import { Eye, MoreHorizontal, RotateCcw, Square, Tags, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -12,11 +12,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ReleaseDialog } from '@/components/release-dialog';
+import { canRelease, releaseRunning } from '@/components/release-badge';
 import { deleteUpload, retryUpload, stopUpload } from '@/lib/actions';
 import type { Upload } from '@/lib/store';
 
 export const canRetry = (u: Upload) => u.status === 'FAILED' || u.status === 'SKIPPED' || u.status === 'CANCELLED';
-export const canDelete = (u: Upload) => u.status !== 'QUEUED' && u.status !== 'UPLOADING';
+export const canDelete = (u: Upload) => u.status !== 'QUEUED' && u.status !== 'UPLOADING' && !releaseRunning(u);
 export const canStop = (u: Upload) => u.status === 'QUEUED' || u.status === 'UPLOADING';
 
 export function StopUploadDialog({
@@ -52,6 +54,7 @@ export function StopUploadDialog({
 export function UploadActions({ upload, onDeleted }: { upload: Upload; onDeleted?: () => void }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
+  const [releaseOpen, setReleaseOpen] = useState(false);
 
   return (
     <>
@@ -80,6 +83,12 @@ export function UploadActions({ upload, onDeleted }: { upload: Upload; onDeleted
               Stop
             </DropdownMenuItem>
           )}
+          {canRelease(upload) && (
+            <DropdownMenuItem onSelect={() => setReleaseOpen(true)}>
+              <Tags />
+              {upload.releaseName ? 'Rename again…' : 'Rename & upload to tracker…'}
+            </DropdownMenuItem>
+          )}
           {canDelete(upload) && (
             <>
               <DropdownMenuSeparator />
@@ -93,6 +102,7 @@ export function UploadActions({ upload, onDeleted }: { upload: Upload; onDeleted
       </DropdownMenu>
 
       <StopUploadDialog upload={upload} open={stopOpen} onOpenChange={setStopOpen} />
+      {releaseOpen && <ReleaseDialog upload={upload} open={releaseOpen} onOpenChange={setReleaseOpen} />}
 
       <ConfirmDialog
         open={confirmOpen}

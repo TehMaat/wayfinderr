@@ -26,6 +26,13 @@ model Server {
   backoffStrategy      String   @default("exponential") // "exponential" | "linear"
   mediaCheckPolicy     String   @default("SKIP_NO_ITA")  // "SKIP_NO_ITA" | "ALWAYS_UPLOAD"
 
+  // Release on the server (see services/release): the uploaded file is renamed into
+  // releaseDir/<name>/<name>.mkv, then trackerCommand (e.g. Unit3Dup) uploads it to the tracker
+  releaseDir           String   @default("downloads/qbittorrent") // relative to the SSH home, or absolute
+  releaseTag           String?  // "-TAG" at the end of the name (blank = none)
+  trackerCommand       String?  // {path} {folder} {name} are replaced; blank = rename only
+  releaseAuto          Boolean  @default(false) // after each upload, ask for the name right away
+
   // Caching
   lastSpaceCheckAt     DateTime?
   cachedFreeSpaceBytes BigInt?
@@ -75,12 +82,28 @@ model Upload {
   torrentScore         Int?     // 0-100 name match score
   torrentMessage       String?  // Why it was (not) removed
 
+  // Where the file is on the server (set once uploaded; changes when renamed)
+  remotePath           String?
+
+  // Release (see services/release): renamed on the server, then uploaded to the tracker
+  // releaseStatus: null | CONFIRM (name to confirm) | RENAMED | QUEUED | RUNNING | NEEDS_INPUT
+  //                | DONE | SKIPPED | UNKNOWN | FAILED | CANCELLED
+  releaseStatus        String?
+  releaseName          String?  // the file name on the server after the rename
+  releasePrompt        String?  // JSON {kind, text}: the question the tracker command waits on
+  releaseLog           String?  // the command's output (cleaned, last part only)
+  releaseOffset        Int      @default(0) // bytes of the remote output log already read
+  releaseMessage       String?  // outcome, or why it failed
+  releaseStartedAt     DateTime?
+  releaseCompletedAt   DateTime?
+
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
   @@index([status])
   @@index([serverId])
   @@index([torrentStatus])
+  @@index([releaseStatus])
 }
 
 // Download client the source torrents come from (qBittorrent WebUI API)

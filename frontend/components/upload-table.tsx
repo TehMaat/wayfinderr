@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/status-badge';
+import { ReleaseBadge } from '@/components/release-badge';
 import { MediaBadges } from '@/components/media-badges';
 import { UploadActions } from '@/components/upload-actions';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -109,7 +110,10 @@ export function UploadTable({ uploads, compact }: { uploads: Upload[]; compact?:
                 <ProgressCell upload={upload} />
               </td>
               <td>
-                <StatusBadge status={upload.status} />
+                <span className="flex items-center gap-1.5">
+                  <StatusBadge status={upload.status} />
+                  <ReleaseBadge upload={upload} />
+                </span>
               </td>
               <LanguageCells upload={upload} compact={compact} />
               <td className="text-muted-foreground">{upload.server?.name ?? '–'}</td>
