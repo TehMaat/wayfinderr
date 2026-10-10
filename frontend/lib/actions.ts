@@ -242,3 +242,14 @@ export async function linkRelease(id: string) {
     await useAppStore.getState().refreshUpload(id);
   }
 }
+
+export async function addReleaseTorrent(id: string, file: File) {
+  try {
+    const { data } = await releaseApi.addTorrent(id, file);
+    toast.success('.torrent added', { description: data.releaseTorrentName ?? file.name });
+  } catch (err) {
+    toast.error('Could not add the .torrent', { description: errorMessage(err) });
+  } finally {
+    await useAppStore.getState().refreshUpload(id);
+  }
+}

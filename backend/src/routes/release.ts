@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import express, { Router, Request, Response } from 'express';
 import { releaseManager, ReleaseError } from '../services/release/index.js';
 import { ReleaseFlags } from '../services/release/name.js';
 import { db } from '../services/database.js';
@@ -73,6 +73,17 @@ router.get('/torrent', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to send the .torrent' });
   }
 });
+
+// PUT a .torrent by hand (the file itself as the body, its name in ?name=)
+router.put(
+  '/torrent',
+  express.raw({ type: () => true, limit: '20mb' }),
+  handle((req) => {
+    const data = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const name = typeof req.query.name === 'string' ? req.query.name.slice(0, 255) : '';
+    return releaseManager.attachTorrent(req.params.id, data, name);
+  }, 'Failed to add the .torrent')
+);
 
 // POST no rename for now (asked on its own after the upload)
 router.post('/dismiss', handle((req) => releaseManager.dismiss(req.params.id), 'Failed to dismiss'));

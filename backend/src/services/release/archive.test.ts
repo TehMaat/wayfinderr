@@ -47,13 +47,13 @@ test('the .torrent of this very file, in a tracker folder', async () => {
     [`${ARCHIVE}/ITT/${NAME}.torrent`]: { data: torrent(NAME, 1000) },
     [`${ARCHIVE}/ITT/Other.mkv.torrent`]: { data: torrent('Other.mkv', 1000) },
   });
-  const found = await findTorrent(sftp, [ARCHIVE], { name: NAME, size: 1000 });
+  const found = await findTorrent(sftp, [ARCHIVE], { path: `/home/u/downloads/${NAME}`, size: 1000 });
   assert.equal(found?.path, `${ARCHIVE}/ITT/${NAME}.torrent`);
   assert.equal(found?.tracker, 'ITT');
   assert.match(found?.infoHash ?? '', /^[0-9a-f]{40}$/);
   // Same name, another size: another file
-  assert.equal(await findTorrent(sftp, [ARCHIVE], { name: NAME, size: 999 }), null);
-  assert.equal(await findTorrent(sftp, ['/nowhere'], { name: NAME, size: 1000 }), null);
+  assert.equal(await findTorrent(sftp, [ARCHIVE], { path: `/home/u/downloads/${NAME}`, size: 999 }), null);
+  assert.equal(await findTorrent(sftp, ['/nowhere'], { path: `/home/u/downloads/${NAME}`, size: 1000 }), null);
 });
 
 test('in several trackers: the one that accepted the upload, else the newest', async () => {
@@ -61,6 +61,21 @@ test('in several trackers: the one that accepted the upload, else the newest', a
     [`${ARCHIVE}/ITT/${NAME}.torrent`]: { data: torrent(NAME, 5), mtime: 100 },
     [`${ARCHIVE}/SIS/${NAME}.torrent`]: { data: torrent(NAME, 5), mtime: 200 },
   });
-  assert.equal((await findTorrent(sftp, [ARCHIVE], { name: NAME, size: 5 }))?.tracker, 'SIS');
-  assert.equal((await findTorrent(sftp, [ARCHIVE], { name: NAME, size: 5 }, 'itt'))?.tracker, 'ITT');
+  assert.equal((await findTorrent(sftp, [ARCHIVE], { path: `/home/u/downloads/${NAME}`, size: 5 }))?.tracker, 'SIS');
+  assert.equal((await findTorrent(sftp, [ARCHIVE], { path: `/home/u/downloads/${NAME}`, size: 5 }, 'itt'))?.tracker, 'ITT');
+});
+
+test("named as Unit3Dup does: after the file without its extension, or after its folder", async () => {
+  const release = 'Film.2001.1080p.BluRay-TAG';
+  const file = { path: `/home/u/downloads/${release}/${release}.mkv`, size: 7 };
+  const single = fakeSftp({ [`${ARCHIVE}/ITT/${release}.torrent`]: { data: torrent(`${release}.mkv`, 7) } });
+  assert.equal((await findTorrent(single, [ARCHIVE], file))?.path, `${ARCHIVE}/ITT/${release}.torrent`);
+
+  // The whole folder: the file is in it, with its size
+  const multi = Buffer.from(
+    `d4:infod5:filesld6:lengthi7e4:pathl${Buffer.byteLength(`${release}.mkv`)}:${release}.mkveed6:lengthi3e4:pathl8:info.nfoeee4:name${release.length}:${release}ee`
+  );
+  const folder = fakeSftp({ [`${ARCHIVE}/ITT/${release}.torrent`]: { data: multi } });
+  assert.equal((await findTorrent(folder, [ARCHIVE], file))?.tracker, 'ITT');
+  assert.equal(await findTorrent(folder, [ARCHIVE], { ...file, size: 10 }), null);
 });

@@ -192,8 +192,8 @@ jobQueue.on('upload-completed', ({ uploadId }) => {
 
 // Rename and tracker command (see services/release): status changes refetch the
 // upload, the output replaces the shown log
-releaseManager.on('release-updated', ({ uploadId, releaseStatus, prompt }) =>
-  broadcast({ type: 'release-updated', uploadId, releaseStatus, prompt })
+releaseManager.on('release-updated', ({ uploadId, releaseStatus, prompt, linked }) =>
+  broadcast({ type: 'release-updated', uploadId, releaseStatus, prompt, linked })
 );
 releaseManager.on('release-output', ({ uploadId, log }) => broadcast({ type: 'release-output', uploadId, log }));
 

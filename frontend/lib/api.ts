@@ -99,6 +99,13 @@ export const releaseApi = {
   // Looks for the file and its .torrent on the server, then probes it there
   link: (id: string) => apiClient.post<Upload>(`/api/uploads/${id}/release/link`, null, { timeout: 180000 }),
   torrentUrl: (id: string) => `/api/uploads/${id}/release/torrent`,
+  // A .torrent given by hand: the file itself as the body
+  addTorrent: (id: string, file: File) =>
+    apiClient.put<Upload>(`/api/uploads/${id}/release/torrent`, file, {
+      params: { name: file.name },
+      headers: { 'Content-Type': 'application/x-bittorrent' },
+      timeout: 60000,
+    }),
 };
 
 // Download clients API (qBittorrent)

@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - The tracker's .torrent: once Unit3Dup uploads a file, its .torrent (the one it downloaded back from the tracker) is read from the Unit3Dup archive on the server and kept with its info hash; the **Tracker** card of the upload page shows the hash and the tracker and downloads the .torrent. `GET /api/uploads/:id/release/torrent`, `releaseTracker`/`releaseTorrentName`/`releaseTorrentPath`/`releaseTorrentHash` upload fields
+- Add the .torrent by hand ("Add .torrent…" / "Replace .torrent…" in the **Tracker** card), when it is not in the Unit3Dup archive: kept once one of its files has the upload's size, its tracker read from its announce URL (host only). `PUT /api/uploads/:id/release/torrent`
 - Link a release made before ("Link existing release" in the **Tracker** card, "Check on the server" once renamed): finds the file on the server by its exact size, its .torrent in the Unit3Dup archive, and reads its media info again there. `POST /api/uploads/:id/release/link`, `remoteFound` upload field
 - The source torrent keeps its tracker (host only, never the passkey) with its hash once it is removed; the upload page shows both. `torrentTracker` upload field
 - **Missing …** badge in the upload list, and a warning on the upload page, for what could not be found: the file on the server, the .torrent, the media info, the source torrent's hash or tracker
@@ -47,6 +48,8 @@ All notable changes to this project will be documented in this file.
 - Uploads keep 64 SFTP writes of 32 KiB in flight, like OpenSSH: no longer capped at chunk size / round trip time (~2 MiB/s)
 
 ### Fixed
+- The tracker's .torrent was not found in the Unit3Dup archive: Unit3Dup names it after the file without its extension (`<name>.torrent`, not `<name>.mkv.torrent`). It is now looked for under the file name with and without the extension and the folder name, and a .torrent of the whole folder counts too
+- Linking a release showed "Uploaded to the tracker" as well as "Release linked"
 - An upload no longer hangs forever when the SSH connection drops: the attempt fails and is retried
 - An upload fails (and is retried) when the local file changed while it was sent
 - A rip never takes the name of a file uploaded before: with `DELETE_AFTER_UPLOAD` it would have replaced that film on the server
