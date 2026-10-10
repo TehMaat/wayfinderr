@@ -45,7 +45,12 @@ export async function retryRip(id: string) {
     const { data } = await ripsApi.retryRip(id);
     await useAppStore.getState().refreshRip(id);
     // An archive not unpacked yet is read again; once unpacked, its disc is scanned again
-    const again = data.sourceType === 'RAR' && !data.unpackedTo ? 'The archive is read and unpacked again' : 'The disc is scanned again';
+    const again =
+      data.status === 'JOINING'
+        ? 'The ripped parts are joined again'
+        : data.sourceType === 'RAR' && !data.unpackedTo
+          ? 'The archive is read and unpacked again'
+          : 'The disc is scanned again';
     toast.success('Rip queued again', { description: again });
   } catch (err) {
     toast.error('Retry failed', { description: errorMessage(err) });

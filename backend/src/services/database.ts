@@ -219,6 +219,11 @@ export class DatabaseService {
     return this.prisma.rip.findMany({ where: { downloadName } });
   }
 
+  // The parts of a join, in order
+  async getRipsByJoinId(joinId: string): Promise<Rip[]> {
+    return this.prisma.rip.findMany({ where: { joinId }, orderBy: { joinPart: 'asc' } });
+  }
+
   async deleteRip(id: string): Promise<Rip> {
     return this.prisma.rip.delete({ where: { id } });
   }

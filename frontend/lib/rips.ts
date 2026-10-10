@@ -1,11 +1,12 @@
 import type { Rip, RipStatus, UnpackDisk } from './store';
+import { basename } from './utils';
 
 export type RipFilter = 'ALL' | 'ATTENTION' | 'ACTIVE' | 'DONE' | 'FAILED' | 'SKIPPED';
 
 export const RIP_FILTERS: { value: RipFilter; label: string; statuses: RipStatus[] | null }[] = [
   { value: 'ALL', label: 'All', statuses: null },
   { value: 'ATTENTION', label: 'Needs attention', statuses: ['NEEDS_ATTENTION'] },
-  { value: 'ACTIVE', label: 'In progress', statuses: ['WAITING', 'QUEUED', 'UNPACKING', 'SCANNING', 'RIPPING'] },
+  { value: 'ACTIVE', label: 'In progress', statuses: ['WAITING', 'QUEUED', 'UNPACKING', 'SCANNING', 'RIPPING', 'JOINING'] },
   { value: 'DONE', label: 'Done', statuses: ['DONE'] },
   { value: 'FAILED', label: 'Failed', statuses: ['FAILED'] },
   { value: 'SKIPPED', label: 'Skipped', statuses: ['SKIPPED'] },
@@ -28,6 +29,34 @@ export const UNPACK_DISKS: Record<UnpackDisk, string> = {
 /** A RAR archive holding an .mkv: unpacked and uploaded, never ripped */
 export const isArchivedMkv = (rip: Pick<Rip, 'sourceType' | 'contentType'>) =>
   rip.sourceType === 'RAR' && rip.contentType === 'MKV';
+
+/** The disc's path from the download on ("Movie.2001.BluRay/BDMV"), which tells several discs apart */
+export const sourceLabel = (rip: Pick<Rip, 'sourcePath' | 'downloadName'>) => {
+  const at = rip.sourcePath.lastIndexOf(rip.downloadName);
+  return at >= 0 ? rip.sourcePath.slice(at) : basename(rip.sourcePath);
+};
+
+// Joining the discs of one film: not being ripped nor ripped (same as the backend)
+export const JOINABLE: RipStatus[] = ['QUEUED', 'NEEDS_ATTENTION', 'FAILED', 'SKIPPED'];
+
+/** The disc number in its path ("Film/Disc 2/BDMV" -> 2, "Film.CD1.iso" -> 1), or null */
+export const discNumber = (sourcePath: string): number | null => {
+  const matches = [...sourcePath.matchAll(/(?:^|[^a-z])(?:disc|disk|cd|d|part|pt)[\s._-]*(\d{1,2})(?!\d)/gi)];
+  return matches.length > 0 ? Number(matches[matches.length - 1][1]) : null;
+};
+
+const byDisc = (a: Rip, b: Rip) =>
+  (discNumber(a.sourcePath) ?? Infinity) - (discNumber(b.sourcePath) ?? Infinity) ||
+  a.sourcePath.localeCompare(b.sourcePath, undefined, { numeric: true, sensitivity: 'base' });
+
+/** The discs of the rip's download that can be joined with it, in disc order */
+export const joinCandidates = (rip: Rip, rips: Rip[]) =>
+  rips
+    .filter((r) => r.downloadName === rip.downloadName && JOINABLE.includes(r.status) && !isArchivedMkv(r))
+    .sort(byDisc);
+
+export const canJoin = (rip: Rip, rips: Rip[]) =>
+  JOINABLE.includes(rip.status) && !isArchivedMkv(rip) && joinCandidates(rip, rips).length > 1;
 
 // Exclusion rules: same matching as the backend (services/ripper/exclusions.ts)
 export const EXCLUDED_PREFIX = 'Excluded by the rule ';

@@ -33,7 +33,7 @@ const ACTIVITY_WINDOW_MS = 2 * 60 * 1000;
 const TMDB_CONCURRENCY = 4;
 
 // Rips of a download still to finish: its torrent must stay
-const RIP_UNFINISHED = new Set(['WAITING', 'QUEUED', 'UNPACKING', 'SCANNING', 'RIPPING', 'NEEDS_ATTENTION']);
+const RIP_UNFINISHED = new Set(['WAITING', 'QUEUED', 'UNPACKING', 'SCANNING', 'RIPPING', 'JOINING', 'NEEDS_ATTENTION']);
 const UPLOAD_UNFINISHED = ['PENDING', 'QUEUED', 'UPLOADING'];
 
 export type TorrentStatus = 'NO_MATCH' | 'REVIEW' | 'WAITING' | 'REMOVED' | 'ERROR';

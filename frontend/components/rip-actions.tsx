@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Ban, ExternalLink, ListChecks, MoreHorizontal, Play, RotateCcw, Trash2, UploadCloud, Wrench } from 'lucide-react';
+import { Ban, Combine, ExternalLink, ListChecks, MoreHorizontal, Play, RotateCcw, Trash2, UploadCloud, Wrench } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -12,8 +12,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { RipJoinDialog } from '@/components/rip-join-dialog';
 import { remuxRip, removeRip, retryRip, skipRip } from '@/lib/actions';
-import { isArchivedMkv, ripName, tmdbUrl } from '@/lib/rips';
+import { canJoin, isArchivedMkv, ripName, tmdbUrl } from '@/lib/rips';
 import { useAppStore, type Rip, type RipperStatus } from '@/lib/store';
 
 // What the backend allows in each status
@@ -36,8 +37,14 @@ export const canRemux = (r: Rip, tools: RipperStatus['remux']) => {
 
 export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) => void }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
   const tools = useAppStore((s) => s.ripStatus?.remux ?? null);
   const remux = canRemux(rip, tools);
+  const joinable = useAppStore((s) => canJoin(rip, s.rips));
+  // A part of a join not done yet: skipping it skips every disc of the film
+  const joinParts = useAppStore((s) =>
+    rip.joinId && rip.status !== 'DONE' ? s.rips.filter((r) => r.joinId === rip.joinId).length : 0
+  );
   // After a rip without MakeMKV, Retry goes back to MakeMKV
   const retryLabel = rip.engine === 'remux' ? 'Retry with MakeMKV' : 'Retry';
   // Nothing to choose before the disc is scanned (an archive short of space): retry once there is room
@@ -45,11 +52,11 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
   const noRoom = rip.status === 'NEEDS_ATTENTION' && !rip.titles;
   const choose = () => onChoose(rip);
   // Stopping these deletes work in progress
-  const confirmSkip = rip.status === 'RIPPING' || rip.status === 'UNPACKING';
+  const confirmSkip = rip.status === 'RIPPING' || rip.status === 'UNPACKING' || joinParts > 0;
   // Skipped: "Rip anyway" picks by hand when the disc was scanned, otherwise starts over
   const ripAnyway = () => (rip.titles ? choose() : retryRip(rip.id));
 
-  const hasItems = attention || canRetry(rip) || canSkip(rip) || remux || rip.upload || rip.tmdbId;
+  const hasItems = attention || canRetry(rip) || canSkip(rip) || remux || joinable || rip.upload || rip.tmdbId;
 
   return (
     <div className="flex items-center justify-end gap-1">
@@ -118,6 +125,12 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
                 Rip without MakeMKV
               </DropdownMenuItem>
             )}
+            {joinable && (
+              <DropdownMenuItem onSelect={() => setJoinOpen(true)}>
+                <Combine />
+                {rip.joinId ? 'Join discs again…' : 'Join discs…'}
+              </DropdownMenuItem>
+            )}
             {rip.upload && (
               <DropdownMenuItem asChild>
                 <Link href={`/uploads/${rip.upload.id}`}>
@@ -164,9 +177,15 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        title={rip.status === 'UNPACKING' ? 'Stop unpacking?' : 'Stop this rip?'}
+        title={joinParts > 0 ? 'Skip the whole film?' : rip.status === 'UNPACKING' ? 'Stop unpacking?' : 'Stop this rip?'}
         description={
-          rip.status === 'UNPACKING' ? (
+          joinParts > 0 ? (
+            <>
+              This disc is part {rip.joinPart} of <span className="font-medium text-foreground">{ripName(rip)}</span>: all{' '}
+              {joinParts} discs are skipped, and what was ripped of them so far is deleted. You can rip or join them again
+              later.
+            </>
+          ) : rip.status === 'UNPACKING' ? (
             <>
               Unpacking <span className="font-medium text-foreground">{ripName(rip)}</span> stops and the files
               unpacked so far are deleted. You can unpack it later with “Rip anyway”.
@@ -183,6 +202,7 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
         confirmLabel="Skip"
         onConfirm={() => skipRip(rip.id)}
       />
+      {(joinable || joinOpen) && <RipJoinDialog rip={rip} open={joinOpen} onOpenChange={setJoinOpen} />}
     </div>
   );
 }

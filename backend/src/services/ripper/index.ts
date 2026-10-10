@@ -22,6 +22,7 @@ import {
 } from './archive.js';
 import { DiscType, findDiscs, isDownloadComplete, listFolders, makemkvSource } from './downloads.js';
 import { EXCLUDED_PREFIX, excludedReason, ignoredFolder, matchExclusion, parseExclusions, parseFolders } from './exclusions.js';
+import { joinDir, joinParts, partFile } from './join.js';
 import { describeExit, DiscTitle, languageCodes, parseInfo, parseProgress, parseRipResult, selectionRule } from './makemkv.js';
 import { playlistNumber } from './mpls.js';
 import { parseDiscLabel, parseReleaseName } from './releaseName.js';
@@ -64,6 +65,11 @@ import { getMovie, matchMovie, TmdbMovie, tmdbConfigured } from './tmdb.js';
  * remux.ts): its titles are read again, then it goes on as above, RIPPING
  * being mkvmerge or ffmpeg here instead of the MakeMKV runner.
  *
+ * The discs of one film ("Disc 1", "Disc 2") are joined by hand in the UI: each
+ * one is ripped as above, but its film waits in the work folder (JOINING) for
+ * the other parts; once every part is ripped mkvmerge appends them in order
+ * (see join.ts) and the one film goes to the watch folder: every part is DONE.
+ *
  * When the film or its title can't be told for sure, the rip stops in
  * NEEDS_ATTENTION and waits for a choice in the UI (so does an archive without
  * the space to unpack it). FAILED can be retried, SKIPPED is never ripped (by
@@ -78,6 +84,7 @@ export const RIP_STATUSES = [
   'UNPACKING',
   'SCANNING',
   'RIPPING',
+  'JOINING',
   'DONE',
   'NEEDS_ATTENTION',
   'FAILED',
@@ -101,6 +108,8 @@ const ARRIVED_QUIET_MS = 60_000;
 const EXCLUDABLE = ['WAITING', 'QUEUED', 'NEEDS_ATTENTION'];
 // Nothing made of them yet: a new ignored folder removes them from the list
 const REMOVABLE = [...EXCLUDABLE, 'FAILED', 'SKIPPED'];
+// Not being ripped nor ripped: they can be joined
+const JOINABLE = ['QUEUED', 'NEEDS_ATTENTION', 'FAILED', 'SKIPPED'];
 
 export interface ExclusionSettings {
   patterns: string[];
@@ -140,6 +149,15 @@ const safeFileName = (name: string) =>
 
 export const formatBytes = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 
+/** The film of the rip, as TMDB gave it (the rip must be identified) */
+const filmOf = (rip: Rip): TmdbMovie => ({
+  id: rip.tmdbId!,
+  title: rip.title ?? '',
+  originalTitle: rip.originalTitle ?? '',
+  originalLanguage: rip.originalLanguage ?? '',
+  year: rip.year,
+});
+
 /** "Title (Year)": the TMDB title, or the download name when the film was not identified ("Film Test (2001)") */
 const outputName = (rip: Rip) => {
   const film = rip.title || rip.originalTitle ? { title: rip.title || rip.originalTitle, year: rip.year } : parseReleaseName(rip.downloadName);
@@ -158,7 +176,8 @@ interface Unpacking {
   done: Promise<void>;
 }
 
-// The disc being ripped without MakeMKV (mkvmerge, 7-Zip or ffmpeg run here too)
+// The disc being ripped without MakeMKV (mkvmerge, 7-Zip or ffmpeg run here too), or
+// the parts of a film being joined (mkvmerge: ripId is the first part's)
 interface Remuxing extends Unpacking {
   result?: { file: string; warnings: string[] };
 }
@@ -172,6 +191,7 @@ class Ripper extends EventEmitter {
   private lastDiscover = 0;
   private unpacking: Unpacking | null = null;
   private remuxing: Remuxing | null = null;
+  private joining: Remuxing | null = null;
   private identifyTimer: NodeJS.Timeout | null = null;
   // The rip loop and the exclusion rules change the same rips: one at a time
   private lock: Promise<unknown> = Promise.resolve();
@@ -202,6 +222,7 @@ class Ripper extends EventEmitter {
     // unrar, mkvmerge and ffmpeg are children of this process: they would go on writing after it ends
     this.unpacking?.controller.abort();
     this.remuxing?.controller.abort();
+    this.joining?.controller.abort();
     this.identifyTimer = null;
   }
 
@@ -352,6 +373,12 @@ class Ripper extends EventEmitter {
       else await this.poll(active);
       return;
     }
+    // Joining the parts of a film (mkvmerge here) takes a turn like a rip
+    if (this.joining) {
+      await this.pollJoin();
+      return;
+    }
+    if (await this.startReadyJoin()) return;
 
     // Unpacking an archive, moving its .mkv and ripping without MakeMKV don't need MakeMKV
     const queued = await db.getRipsByStatus(['QUEUED']);
@@ -665,9 +692,14 @@ class Ripper extends EventEmitter {
       title = titles.find((t) => t.index === rip.titleIndex) ?? null;
       if (!title) problems.push('The chosen title is not on the disc');
     } else {
-      const siblings = (await db.getRips()).filter((r) => r.downloadName === rip.downloadName && r.status !== 'SKIPPED');
+      // The parts of a join are all ripped: the other discs of the download don't matter
+      const siblings = rip.joinId
+        ? []
+        : (await db.getRips()).filter((r) => r.downloadName === rip.downloadName && r.status !== 'SKIPPED');
       if (siblings.length > 1) {
-        problems.push(`This download has ${siblings.length} discs: choose the film on the right one, skip the others`);
+        problems.push(
+          `This download has ${siblings.length} discs: choose the film on the right one and skip the others, or join the discs of one film`
+        );
       }
       const choice = pickMainTitle(titles, keptLanguages());
       if (choice.title) title = choice.title;
@@ -681,8 +713,13 @@ class Ripper extends EventEmitter {
     const problems: string[] = [];
 
     let movie: TmdbMovie | null = null;
+    const joined = rip.tmdbId === null ? await this.joinFilm(rip) : null;
     if (rip.tmdbId !== null) {
-      movie = { id: rip.tmdbId, title: rip.title ?? '', originalTitle: rip.originalTitle ?? '', originalLanguage: rip.originalLanguage ?? '', year: rip.year };
+      movie = filmOf(rip);
+    } else if (joined) {
+      // The film of the other parts: the same languages are kept on every disc
+      movie = joined;
+      rip = await this.update(rip.id, this.movieFields(movie));
     } else if (!tmdbConfigured()) {
       problems.push('TMDB_API_KEY is not set: confirm the title to rip');
     } else {
@@ -720,6 +757,8 @@ class Ripper extends EventEmitter {
       await this.update(rip.id, { status: 'NEEDS_ATTENTION', reason: 'The chosen title is not on the disc' });
       return;
     }
+    // Ripped again: an earlier part must not be joined if this rip fails
+    if (rip.joinId) await rm(partFile(rip.joinId, rip.joinPart!), { force: true });
     if (rip.engine === 'remux') {
       await this.startRemux(rip, title);
       return;
@@ -769,9 +808,9 @@ class Ripper extends EventEmitter {
       return;
     }
 
-    const target = await this.handOver(rip, files[0]);
+    const target = rip.joinId ? await this.stashPart(rip, files[0]) : await this.handOver(rip, files[0]);
     await removeJob(rip.jobId!);
-    logger.info({ ripId: rip.id, file: target }, 'Rip completed');
+    logger.info({ ripId: rip.id, file: target }, rip.joinId ? 'Part of a join ripped' : 'Rip completed');
   }
 
   /** Moves a ripped film into the watch folder (the upload follows): DONE. */
@@ -913,9 +952,9 @@ class Ripper extends EventEmitter {
       return;
     }
     if (job.result.warnings.length > 0) logger.warn({ ripId: rip.id, warnings: job.result.warnings }, 'Ripped without MakeMKV, with warnings');
-    const target = await this.handOver(rip, job.result.file);
+    const target = rip.joinId ? await this.stashPart(rip, job.result.file) : await this.handOver(rip, job.result.file);
     await rm(remuxDir(rip.id), { recursive: true, force: true });
-    logger.info({ ripId: rip.id, file: target }, 'Rip without MakeMKV completed');
+    logger.info({ ripId: rip.id, file: target }, rip.joinId ? 'Part of a join ripped without MakeMKV' : 'Rip without MakeMKV completed');
   }
 
   /** Stops the rip without MakeMKV of this rip, if running, and deletes its files. */
@@ -926,6 +965,179 @@ class Ripper extends EventEmitter {
       this.remuxing = null;
     }
     await rm(remuxDir(rip.id), { recursive: true, force: true });
+  }
+
+  /** Stops whatever rips this disc (MakeMKV or not), deleting its partial file. */
+  private async stopRip(rip: Rip) {
+    if (rip.jobId) {
+      await cancelJob(rip.jobId);
+      // The runner leaves an .exit file; the job's files are removed with it
+      setTimeout(() => removeJob(rip.jobId!).catch(() => undefined), 30_000);
+    }
+    await this.discardRemux(rip);
+  }
+
+  // --- Discs of one film, joined (join.ts) ---
+
+  /** The film of another part of the rip's join, null when none is identified (or not a join). */
+  private async joinFilm(rip: Rip): Promise<TmdbMovie | null> {
+    if (!rip.joinId) return null;
+    const part = (await db.getRipsByJoinId(rip.joinId)).find((p) => p.tmdbId !== null);
+    return part ? filmOf(part) : null;
+  }
+
+  /** A part of a join ripped: kept in the join's folder until every part is there. */
+  private async stashPart(rip: Rip, file: string) {
+    const target = partFile(rip.joinId!, rip.joinPart!);
+    // Same filesystem as the rips: a rename
+    await mkdir(joinDir(rip.joinId!), { recursive: true });
+    await rename(file, target);
+    // Ripped: the disc unpacked from an archive is not needed any more
+    await this.discardUnpacked(rip);
+    await this.update(rip.id, { status: 'JOINING', jobId: null, progress: 0, reason: null });
+    await this.waitingReasons(rip.joinId!);
+    return target;
+  }
+
+  /** "Part 1 of 2 ripped: waiting for part 2" on the ripped parts of a join. */
+  private async waitingReasons(joinId: string) {
+    const parts = await db.getRipsByJoinId(joinId);
+    const missing = parts.filter((p) => p.status !== 'JOINING').map((p) => p.joinPart);
+    for (const part of parts) {
+      if (part.status !== 'JOINING') continue;
+      const reason =
+        `Part ${part.joinPart} of ${parts.length} ripped: ` +
+        (missing.length > 0 ? `waiting for part${missing.length > 1 ? 's' : ''} ${missing.join(', ')}` : 'waiting to join the parts');
+      if (part.reason !== reason) await this.update(part.id, { reason });
+    }
+  }
+
+  /** Joins the parts of a film once all of them are ripped: true when mkvmerge started. */
+  private async startReadyJoin() {
+    const ripped = await db.getRipsByStatus(['JOINING']);
+    for (const joinId of new Set(ripped.map((rip) => rip.joinId))) {
+      if (!joinId) continue;
+      const parts = await db.getRipsByJoinId(joinId);
+      if (parts.every((part) => part.status === 'JOINING') && (await this.startJoin(parts))) return true;
+    }
+    return false;
+  }
+
+  private async startJoin(parts: Rip[]) {
+    const [first] = parts;
+    const joinId = first.joinId!;
+    const files = parts.map((part) => partFile(joinId, part.joinPart!));
+    let needs = 0;
+    for (const [i, file] of files.entries()) {
+      const info = await stat(file).catch(() => null);
+      if (!info) {
+        // Deleted meanwhile: that disc is ripped again (with the same title)
+        logger.warn({ ripId: parts[i].id, file }, 'A ripped part of a join is gone: ripping it again');
+        await this.update(parts[i].id, { status: 'QUEUED', reason: null, progress: 0 });
+        await this.waitingReasons(joinId);
+        return false;
+      }
+      needs += info.size;
+    }
+
+    // Until there is room: the queue goes on meanwhile
+    const { bavail, bsize } = await statfs(config.RIP.WORK_DIR);
+    const free = bavail * bsize;
+    if (free < needs + SPACE_MARGIN_BYTES) {
+      const reason = `Not enough free space to join the parts: ${formatBytes(needs)} needed, ${formatBytes(free)} free`;
+      if (first.reason !== reason) await this.update(first.id, { reason });
+      return false;
+    }
+
+    const output = path.join(joinDir(joinId), 'film.mkv');
+    await rm(output, { force: true });
+    // The first part shows the progress
+    await this.update(first.id, { reason: null, progress: 0, startedAt: new Date() });
+    for (const part of parts.slice(1)) await this.update(part.id, { reason: 'Being joined to part 1', progress: 0 });
+
+    const ripId = first.id;
+    const controller = new AbortController();
+    const job = { ripId, controller, progress: 0, finished: false } as Remuxing;
+    job.done = joinParts({
+      parts: files,
+      output,
+      signal: controller.signal,
+      onProgress: (progress) => {
+        if (progress === job.progress) return;
+        job.progress = progress;
+        this.emit('rip-progress', { ripId, progress, status: 'JOINING' });
+      },
+    })
+      .then((result) => {
+        job.result = result;
+      })
+      .catch((error: Error) => {
+        job.error = error;
+      })
+      .finally(() => {
+        job.finished = true;
+      });
+    this.joining = job;
+    logger.info({ ripId, parts: parts.length, size: formatBytes(needs), film: first.title }, 'Joining the parts of a film');
+    return true;
+  }
+
+  private async pollJoin() {
+    const job = this.joining!;
+    const first = await db.getRipById(job.ripId);
+    if (!first?.joinId || first.status !== 'JOINING') {
+      // Cancelled meanwhile (cancelJoin stops it first): nothing left to do
+      job.controller.abort();
+      await job.done;
+      this.joining = null;
+      return;
+    }
+    if (!job.finished) {
+      if (job.progress !== first.progress) await db.updateRip(first.id, { progress: job.progress });
+      return;
+    }
+    this.joining = null;
+
+    if (job.error || !job.result) {
+      // The parts stay: Retry joins them again
+      const message = job.error?.message ?? 'no file';
+      logger.warn({ ripId: first.id, error: message }, 'Joining the parts failed');
+      await rm(path.join(joinDir(first.joinId), 'film.mkv'), { force: true });
+      await this.update(first.id, { status: 'FAILED', progress: 0, reason: `Joining the parts failed: ${message}` });
+      await this.waitingReasons(first.joinId);
+      return;
+    }
+    if (job.result.warnings.length > 0) logger.warn({ ripId: first.id, warnings: job.result.warnings }, 'Parts joined, with warnings');
+
+    const joinId = first.joinId;
+    const target = await this.handOver(first, job.result.file);
+    // Every part is DONE with the one film (and its upload)
+    for (const part of await db.getRipsByJoinId(joinId)) {
+      if (part.id === first.id) continue;
+      await this.update(part.id, { status: 'DONE', progress: 100, reason: null, outputFile: target, completedAt: new Date() });
+    }
+    await rm(joinDir(joinId), { recursive: true, force: true });
+    logger.info({ ripId: first.id, file: target }, 'Parts joined');
+  }
+
+  /**
+   * Undoes a join not done yet: what rips or joins its parts is stopped, its
+   * ripped parts deleted, and every part leaves it with `status` and `reason`.
+   */
+  private async cancelJoin(joinId: string, status: 'SKIPPED' | 'NEEDS_ATTENTION', reason: string) {
+    if (this.joining?.ripId === joinId) {
+      this.joining.controller.abort();
+      await this.joining.done;
+      this.joining = null;
+    }
+    for (const part of await db.getRipsByJoinId(joinId)) {
+      if (part.status === 'DONE') continue;
+      await this.stopRip(part);
+      if (status === 'SKIPPED') await this.discardUnpacked(part);
+      await this.update(part.id, { status, reason, jobId: null, progress: 0, joinId: null, joinPart: null });
+    }
+    await rm(joinDir(joinId), { recursive: true, force: true });
+    logger.info({ joinId, status, reason }, 'Join cancelled');
   }
 
   // --- Actions from the UI ---
@@ -946,11 +1158,58 @@ class Ripper extends EventEmitter {
       throw new Error('No such title on the disc');
     }
     const movie = choice.tmdbId !== undefined ? await getMovie(choice.tmdbId) : null;
-    return this.update(id, {
+    const updated = await this.update(id, {
       status: 'QUEUED',
       reason: null,
       ...(choice.titleIndex !== undefined ? { titleIndex: choice.titleIndex } : {}),
       ...(movie ? this.movieFields(movie) : {}),
+    });
+    // A part of a join: one film for every part
+    if (movie && rip.joinId) {
+      for (const part of await db.getRipsByJoinId(rip.joinId)) {
+        if (part.id !== id) await this.update(part.id, this.movieFields(movie));
+      }
+    }
+    return updated;
+  }
+
+  /**
+   * Joins discs of one download into one film, in the given order: each one is
+   * ripped as usual (with the title chosen on it, if any; the film is the first
+   * identified part's), then mkvmerge appends them. Discs in another join leave
+   * it, and so do that join's other discs.
+   */
+  async join(ripIds: string[]) {
+    return this.exclusive(async () => {
+      if (ripIds.length < 2 || new Set(ripIds).size !== ripIds.length) throw new Error('Choose at least two discs');
+      const rips: Rip[] = [];
+      for (const id of ripIds) rips.push(await this.visibleRip(id));
+      if (new Set(rips.map((rip) => rip.downloadName)).size > 1) throw new Error('The discs are not in the same download');
+      for (const rip of rips) {
+        if (!JOINABLE.includes(rip.status)) throw new Error(`Rip is ${rip.status}`);
+        if (isArchive(rip) && rip.contentType === 'MKV') throw new Error('The archive holds an .mkv, not a disc');
+      }
+      for (const joinId of new Set(rips.map((rip) => rip.joinId))) {
+        if (joinId) await this.cancelJoin(joinId, 'NEEDS_ATTENTION', 'Its discs were joined again in another way');
+      }
+
+      const film = rips.find((rip) => rip.tmdbId !== null);
+      const joinId = rips[0].id;
+      const parts: Rip[] = [];
+      for (const [i, rip] of rips.entries()) {
+        parts.push(
+          await this.update(rip.id, {
+            status: 'QUEUED',
+            reason: null,
+            progress: 0,
+            joinId,
+            joinPart: i + 1,
+            ...(film ? this.movieFields(filmOf(film)) : {}),
+          })
+        );
+      }
+      logger.info({ joinId, parts: rips.map((rip) => rip.sourcePath) }, 'Discs joined into one film');
+      return parts;
     });
   }
 
@@ -988,7 +1247,11 @@ class Ripper extends EventEmitter {
   /** Starts over with MakeMKV: scan and automatic choices again (an archive not unpacked yet is listed again). */
   async retry(id: string) {
     const rip = await this.visibleRip(id);
-    if (['UNPACKING', 'SCANNING', 'RIPPING'].includes(rip.status)) throw new Error('Rip in progress');
+    if (['UNPACKING', 'SCANNING', 'RIPPING', 'JOINING'].includes(rip.status)) throw new Error('Rip in progress');
+    // Joining failed: the disc is ripped already, only the join is tried again
+    if (rip.status === 'FAILED' && rip.joinId && (await exists(partFile(rip.joinId, rip.joinPart!)))) {
+      return this.update(id, { status: 'JOINING', reason: null, progress: 0 });
+    }
     return this.update(id, {
       engine: 'makemkv',
       status: 'QUEUED',
@@ -1009,12 +1272,12 @@ class Ripper extends EventEmitter {
   async skip(id: string) {
     return this.exclusive(async () => {
       const rip = await this.visibleRip(id);
-      if (rip.jobId) {
-        await cancelJob(rip.jobId);
-        // The runner leaves an .exit file; the job's files are removed with it
-        setTimeout(() => removeJob(rip.jobId!).catch(() => undefined), 30_000);
+      // A part of a join: the film is skipped, every disc of it
+      if (rip.joinId && rip.status !== 'DONE') {
+        await this.cancelJoin(rip.joinId, 'SKIPPED', 'Skipped');
+        return db.getRipById(id) as Promise<Rip>;
       }
-      await this.discardRemux(rip);
+      await this.stopRip(rip);
       await this.discardUnpacked(rip);
       return this.update(id, { status: 'SKIPPED', reason: 'Skipped', jobId: null, progress: 0 });
     });
@@ -1084,6 +1347,7 @@ class Ripper extends EventEmitter {
       let removed = 0;
       for (const rip of await db.getRipsByStatus(REMOVABLE)) {
         if (!ignoredFolder(folders, rip.sourcePath)) continue;
+        if (rip.joinId) await this.cancelJoin(rip.joinId, 'NEEDS_ATTENTION', 'Join cancelled: one of its discs is in an ignored folder');
         // Deleted, not hidden: a folder no longer ignored is searched from scratch
         await this.discardRemux(rip);
         await this.discardUnpacked(rip);
@@ -1099,6 +1363,7 @@ class Ripper extends EventEmitter {
         if (rip.status !== 'SKIPPED') {
           const rule = matchExclusion(added, rip.sourcePath);
           if (!rule) continue;
+          if (rip.joinId) await this.cancelJoin(rip.joinId, 'NEEDS_ATTENTION', 'Join cancelled: one of its discs is excluded');
           await this.discardUnpacked(rip);
           await this.update(rip.id, { status: 'SKIPPED', reason: excludedReason(rule) });
           skipped++;

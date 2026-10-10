@@ -103,6 +103,7 @@ export const ripsApi = {
   remuxRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/remux`),
   skipRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/skip`),
   removeRip: (id: string) => apiClient.delete(`/api/rips/${id}`),
+  joinRips: (ripIds: string[]) => apiClient.post<Rip[]>('/api/rips/join', { ripIds }),
   clearSkippedRips: () => apiClient.post<{ removed: number }>('/api/rips/clear-skipped'),
   setExclusions: (settings: { patterns?: string[]; folders?: string[]; arriveComplete?: boolean }) =>
     apiClient.put<{
