@@ -202,7 +202,7 @@ model Upload {
   filepath        String
   size            BigInt
   
-  mediaInfo       Json      # { audioTracks: [...], subtitles: [...] }
+  mediaInfo       Json      # { container, videoTracks: [...], audioTracks: [...], subtitles: [...] }
   hasItalianAudio Boolean
   hasItalianSubtitles Boolean
   
