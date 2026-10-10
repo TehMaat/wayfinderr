@@ -1,17 +1,59 @@
 // Media information types
-export interface AudioTrack {
-  language: string;
-  codec: string;
-  index: number;
+// Fields beyond language/codec/index are optional: uploads probed by earlier
+// versions only have those (the detail page probes them again on demand)
+interface StreamFlags {
+  title?: string | null;
+  default?: boolean;
+  forced?: boolean;
+  bitrate?: number | null; // bits per second
 }
 
-export interface SubtitleTrack {
+export interface VideoTrack extends StreamFlags {
+  index: number;
+  codec: string;
+  profile: string | null;
+  width: number;
+  height: number;
+  aspectRatio: string | null; // display aspect ratio, "16:9"
+  frameRate: number | null;
+  bitDepth: number | null;
+  pixelFormat: string | null;
+  colorSpace: string | null; // bt709, bt2020nc
+  hdr: string | null; // HDR10, HDR10+, HLG, Dolby Vision (+ its profile)
+  language: string;
+}
+
+export interface AudioTrack extends StreamFlags {
   language: string;
   codec: string;
   index: number;
+  profile?: string | null; // DTS-HD MA, LC
+  channels?: number | null;
+  channelLayout?: string | null; // 5.1(side)
+  sampleRate?: number | null;
+  bitDepth?: number | null;
+  atmos?: boolean;
+}
+
+export interface SubtitleTrack extends StreamFlags {
+  language: string;
+  codec: string;
+  index: number;
+  hearingImpaired?: boolean;
+  elements?: number | null; // number of captions (mkvmerge statistics tags)
+}
+
+export interface ContainerInfo {
+  format: string; // "Matroska / WebM"
+  title: string | null;
+  duration: number | null; // seconds
+  bitrate: number | null; // overall, bits per second
+  chapters: number;
 }
 
 export interface MediaInfo {
+  container?: ContainerInfo;
+  videoTracks?: VideoTrack[];
   audioTracks: AudioTrack[];
   subtitles: SubtitleTrack[];
   hasItalianAudio: boolean;

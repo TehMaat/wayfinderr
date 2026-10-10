@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowLeft, AudioLines, Captions, FileVideo, Magnet, RotateCcw, Search, Square, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, AudioLines, Captions, Clapperboard, FileVideo, Film, Magnet, RotateCcw, Search, Square, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,10 +13,23 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { StatusBadge } from '@/components/status-badge';
 import { StopUploadDialog, canDelete, canRetry, canStop } from '@/components/upload-actions';
+import { uploadsApi } from '@/lib/api';
 import { checkTorrent, deleteUpload, removeTorrent, retryUpload } from '@/lib/actions';
-import { isItalian, uploadTracks, type Track } from '@/lib/media';
+import {
+  aspectLabel,
+  audioCodecLabel,
+  channelsLabel,
+  isItalian,
+  resolutionLabel,
+  subtitleCodecLabel,
+  uploadMedia,
+  videoCodecLabel,
+  type ContainerInfo,
+  type Track,
+  type VideoTrack,
+} from '@/lib/media';
 import { useAppStore, type TorrentStatus, type Upload } from '@/lib/store';
-import { cn, formatBytes, formatDate, formatDuration, formatSpeed } from '@/lib/utils';
+import { cn, errorMessage, formatBitrate, formatBytes, formatDate, formatDuration, formatSpeed } from '@/lib/utils';
 
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -28,7 +41,30 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function TrackList({ title, icon: Icon, tracks }: { title: string; icon: typeof AudioLines; tracks: Track[] }) {
+/** Default / forced / SDH, as small badges after the language */
+function TrackFlags({ track }: { track: Track }) {
+  return (
+    <>
+      {track.default && <Badge variant="outline">Default</Badge>}
+      {track.forced && <Badge variant="info">Forced</Badge>}
+      {track.hearingImpaired && <Badge variant="outline">SDH</Badge>}
+    </>
+  );
+}
+
+function TrackList({
+  title,
+  icon: Icon,
+  tracks,
+  codecLabel,
+  details,
+}: {
+  title: string;
+  icon: typeof AudioLines;
+  tracks: Track[];
+  codecLabel: (t: Track) => string;
+  details: (t: Track) => (string | null)[];
+}) {
   return (
     <Card>
       <CardHeader>
@@ -43,19 +79,106 @@ function TrackList({ title, icon: Icon, tracks }: { title: string; icon: typeof 
           <p className="text-sm text-muted-foreground">None</p>
         ) : (
           <div className="divide-y divide-border/60">
-            {tracks.map((t) => (
-              <div key={t.index} className="flex items-center justify-between py-2 text-sm">
-                <span className="flex items-center gap-2">
-                  <span className="w-6 text-xs tabular text-muted-foreground">#{t.index}</span>
-                  <span className={cn('font-medium uppercase', isItalian(t.language) && 'text-success')}>
-                    {t.language}
-                  </span>
-                  {isItalian(t.language) && <Badge variant="success">ITA</Badge>}
-                </span>
-                <span className="font-mono text-xs text-muted-foreground">{t.codec}</span>
-              </div>
-            ))}
+            {tracks.map((t) => {
+              const extra = details(t).filter(Boolean);
+              return (
+                <div key={t.index} className="space-y-1 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span className="w-6 text-xs tabular text-muted-foreground">#{t.index}</span>
+                      <span className={cn('font-medium uppercase', isItalian(t.language) && 'text-success')}>
+                        {t.language}
+                      </span>
+                      {isItalian(t.language) && <Badge variant="success">ITA</Badge>}
+                      <TrackFlags track={t} />
+                    </span>
+                    <span className="shrink-0 font-mono text-xs text-muted-foreground">{codecLabel(t)}</span>
+                  </div>
+                  {(t.title || extra.length > 0) && (
+                    <div className="flex items-baseline justify-between gap-3 pl-8 text-xs text-muted-foreground">
+                      <span className="min-w-0 truncate">{t.title}</span>
+                      <span className="shrink-0 tabular">{extra.join(' · ')}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+const audioDetails = (t: Track) => [
+  channelsLabel(t),
+  t.bitrate ? formatBitrate(t.bitrate) : null,
+  t.sampleRate ? `${t.sampleRate / 1000} kHz` : null,
+  t.bitDepth ? `${t.bitDepth}-bit` : null,
+];
+
+const subtitleDetails = (t: Track) => [t.elements ? `${t.elements} ${t.elements === 1 ? 'line' : 'lines'}` : null];
+
+function GeneralCard({ container, size }: { container: ContainerInfo; size: string }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Film className="h-4 w-4 text-muted-foreground" />
+          General
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="divide-y divide-border/60">
+        <Row label="Format">{container.format}</Row>
+        {container.title && <Row label="Title">{container.title}</Row>}
+        <Row label="Duration">{container.duration ? formatDuration(container.duration) : '–'}</Row>
+        <Row label="Size">{formatBytes(size)}</Row>
+        <Row label="Overall bitrate">{formatBitrate(container.bitrate)}</Row>
+        <Row label="Chapters">{container.chapters || 'none'}</Row>
+      </CardContent>
+    </Card>
+  );
+}
+
+function VideoCard({ tracks }: { tracks: VideoTrack[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Clapperboard className="h-4 w-4 text-muted-foreground" />
+          Video
+        </CardTitle>
+        {tracks.length > 1 ? (
+          <span className="text-xs text-muted-foreground">{tracks.length}</span>
+        ) : (
+          tracks[0]?.hdr && <Badge variant="warning">{tracks[0].hdr}</Badge>
+        )}
+      </CardHeader>
+      <CardContent className="divide-y divide-border/60">
+        {tracks.length === 0 ? (
+          <p className="text-sm text-muted-foreground">None</p>
+        ) : (
+          tracks.map((t) => (
+            <div key={t.index} className="divide-y divide-border/60">
+              {tracks.length > 1 && (
+                <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+                  <span className="tabular">#{t.index}</span>
+                  {t.title}
+                  {t.hdr && <Badge variant="warning">{t.hdr}</Badge>}
+                </div>
+              )}
+              <Row label="Codec">{videoCodecLabel(t)}</Row>
+              <Row label="Resolution">
+                {t.width} × {t.height} <span className="text-muted-foreground">· {resolutionLabel(t.width, t.height)}</span>
+              </Row>
+              <Row label="Aspect ratio">{aspectLabel(t) ?? '–'}</Row>
+              <Row label="Frame rate">{t.frameRate ? `${t.frameRate} fps` : '–'}</Row>
+              <Row label="Bit depth">{t.bitDepth ? `${t.bitDepth}-bit` : '–'}</Row>
+              <Row label="Dynamic range">{t.hdr ?? 'SDR'}</Row>
+              {t.colorSpace && <Row label="Color space">{t.colorSpace}</Row>}
+              <Row label="Bitrate">{formatBitrate(t.bitrate)}</Row>
+            </div>
+          ))
         )}
       </CardContent>
     </Card>
@@ -165,7 +288,25 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
   }, [params.id]);
 
   const mediaInfo = upload?.mediaInfo ?? null;
-  const media = useMemo(() => uploadTracks({ mediaInfo }), [mediaInfo]);
+  const media = useMemo(() => uploadMedia({ mediaInfo }), [mediaInfo]);
+
+  // Uploads probed before the video and container details were stored: read
+  // the file again, once, while it is still on this machine
+  const [probe, setProbe] = useState<{ running: boolean; error: string | null; tried: boolean }>({
+    running: false,
+    error: null,
+    tried: false,
+  });
+  const needsProbe = Boolean(upload) && upload?.status !== 'PENDING' && !media.detailed;
+  useEffect(() => {
+    if (!needsProbe || probe.tried) return;
+    setProbe({ running: true, error: null, tried: true });
+    uploadsApi
+      .probeMedia(params.id)
+      .then(() => useAppStore.getState().refreshUpload(params.id))
+      .then(() => setProbe((p) => ({ ...p, running: false })))
+      .catch((err) => setProbe((p) => ({ ...p, running: false, error: errorMessage(err) })));
+  }, [needsProbe, probe.tried, params.id]);
 
   if (!upload) {
     return (
@@ -308,13 +449,40 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
 
       <TorrentCard upload={upload} />
 
-      {media.parsed ? (
+      {media.detailed && media.container ? (
         <div className="grid gap-4 md:grid-cols-2">
-          <TrackList title="Audio tracks" icon={AudioLines} tracks={media.audio} />
-          <TrackList title="Subtitles" icon={Captions} tracks={media.subs} />
+          <GeneralCard container={media.container} size={upload.size} />
+          <VideoCard tracks={media.video} />
+        </div>
+      ) : probe.running ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-48 w-full" />
         </div>
       ) : (
-        <p className="text-sm text-muted-foreground">Media info not available.</p>
+        media.parsed &&
+        probe.error && <p className="text-sm text-muted-foreground">Video details not available. {probe.error}.</p>
+      )}
+
+      {media.parsed ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <TrackList
+            title="Audio tracks"
+            icon={AudioLines}
+            tracks={media.audio}
+            codecLabel={audioCodecLabel}
+            details={audioDetails}
+          />
+          <TrackList
+            title="Subtitles"
+            icon={Captions}
+            tracks={media.subs}
+            codecLabel={(t) => subtitleCodecLabel(t.codec)}
+            details={subtitleDetails}
+          />
+        </div>
+      ) : (
+        !probe.running && <p className="text-sm text-muted-foreground">Media info not available.</p>
       )}
 
       <StopUploadDialog upload={upload} open={stopOpen} onOpenChange={setStopOpen} />

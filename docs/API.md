@@ -360,12 +360,25 @@ GET /api/uploads/:id
   "hasItalianAudio": true,
   "hasItalianSubtitles": true,
   "mediaInfo": {
+    "container": { "format": "Matroska / WebM", "title": "Il padrino", "duration": 10533.4, "bitrate": 38512000, "chapters": 24 },
+    "videoTracks": [
+      {
+        "index": 0, "codec": "hevc", "profile": "Main 10", "width": 3840, "height": 2160, "aspectRatio": "16:9",
+        "frameRate": 23.976, "bitDepth": 10, "pixelFormat": "yuv420p10le", "colorSpace": "bt2020nc",
+        "hdr": "Dolby Vision P8 + HDR10", "language": "und", "title": null, "default": true, "forced": false, "bitrate": 33100000
+      }
+    ],
     "audioTracks": [
-      { "language": "ita", "codec": "aac" }
+      {
+        "index": 1, "language": "ita", "codec": "eac3", "profile": null, "channels": 6, "channelLayout": "5.1(side)",
+        "sampleRate": 48000, "bitDepth": null, "atmos": false, "title": "Italiano DD+ 5.1", "default": true, "forced": false, "bitrate": 768000
+      }
     ],
     "subtitles": [
-      { "language": "ita", "codec": "subrip" }
-    ]
+      { "index": 2, "language": "ita", "codec": "subrip", "title": "Forzati", "default": false, "forced": true, "hearingImpaired": false, "elements": 42, "bitrate": 40 }
+    ],
+    "hasItalianAudio": true,
+    "hasItalianSubtitles": true
   },
   "serverId": "server123",
   "currentRetryCount": 0,
@@ -376,6 +389,16 @@ GET /api/uploads/:id
   "createdAt": "2026-10-04T10:00:00Z"
 }
 ```
+
+`mediaInfo` is the ffprobe summary, stored as a JSON string. Uploads detected by earlier versions only have `language`, `codec` and `index` per track, without `container` and `videoTracks`.
+
+### Read Media Info Again
+
+```
+POST /api/uploads/:id/media
+```
+
+Runs ffprobe on the local file again and stores the result (the upload detail page calls it for uploads without `container`). Returns the updated upload; `409` when the local file is no longer there.
 
 ### Retry Failed Upload
 

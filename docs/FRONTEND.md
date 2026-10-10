@@ -224,8 +224,7 @@ All components follow the existing design system:
 1. **Form Validation**: Basic HTML validation only, could add Zod/Yup
 2. **Toasts/Notifications**: Using alert-style boxes, could add toast library
 3. **Pagination**: Currently loads up to 50 uploads, could add pagination UI
-4. **Upload Detail Page**: Could add more detailed media info visualization
-5. **Settings Page**: Not yet implemented for global app configuration
+4. **Settings Page**: Not yet implemented for global app configuration
 
 ## Recommendations for Future Enhancement
 

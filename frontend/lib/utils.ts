@@ -21,6 +21,13 @@ export function formatSpeed(bytesPerSecond: number): string {
   return `${formatBytes(bytesPerSecond, 1)}/s`;
 }
 
+/** Bits per second -> "24.5 Mb/s", "640 kb/s" */
+export function formatBitrate(bitsPerSecond: number | null | undefined): string {
+  if (!bitsPerSecond || !Number.isFinite(bitsPerSecond) || bitsPerSecond <= 0) return '–';
+  if (bitsPerSecond >= 1_000_000) return `${(bitsPerSecond / 1_000_000).toFixed(1)} Mb/s`;
+  return `${Math.round(bitsPerSecond / 1000)} kb/s`;
+}
+
 /** Seconds -> "1h 04m", "3m 12s", "42s" */
 export function formatDuration(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds < 0) return '∞';

@@ -79,6 +79,8 @@ export const uploadsApi = {
   // The backend waits for the running transfer to stop (up to 10 s)
   cancelUpload: (id: string) => apiClient.post(`/api/uploads/${id}/cancel`, null, { timeout: 30000 }),
   deleteUpload: (id: string) => apiClient.delete(`/api/uploads/${id}`),
+  // ffprobe on the local file; slow on a network share
+  probeMedia: (id: string) => apiClient.post(`/api/uploads/${id}/media`, null, { timeout: 60000 }),
   checkTorrent: (id: string) => apiClient.post(`/api/uploads/${id}/torrent/check`, null, { timeout: 120000 }),
   removeTorrent: (id: string) => apiClient.post(`/api/uploads/${id}/torrent/remove`, null, { timeout: 45000 }),
 };
