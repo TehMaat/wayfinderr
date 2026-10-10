@@ -4,11 +4,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/status-badge';
-import { ReleaseBadge } from '@/components/release-badge';
+import { MissingBadge, ReleaseBadge } from '@/components/release-badge';
 import { MediaBadges } from '@/components/media-badges';
 import { UploadActions } from '@/components/upload-actions';
 import { Tooltip } from '@/components/ui/tooltip';
 import { ripOfUpload, uploadLanguages } from '@/lib/media';
+import { uploadName } from '@/lib/release';
 import { useAppStore, type Upload } from '@/lib/store';
 import { cn, formatBytes, formatDate, formatDuration, formatSpeed } from '@/lib/utils';
 
@@ -99,9 +100,12 @@ export function UploadTable({ uploads, compact }: { uploads: Upload[]; compact?:
               className="cursor-pointer border-b border-border/60 transition-colors last:border-0 hover:bg-accent/50 [&>td]:h-10 [&>td]:whitespace-nowrap [&>td]:px-3"
             >
               <td className="w-full min-w-[10rem] max-w-0">
-                <Tooltip content={upload.filepath} side="bottom">
+                <Tooltip
+                  content={upload.releaseName ? `${upload.filepath} · renamed on the server` : upload.filepath}
+                  side="bottom"
+                >
                   <Link href={`/uploads/${upload.id}`} className="block truncate font-medium hover:text-primary">
-                    {upload.filename}
+                    {uploadName(upload)}
                   </Link>
                 </Tooltip>
               </td>
@@ -113,6 +117,7 @@ export function UploadTable({ uploads, compact }: { uploads: Upload[]; compact?:
                 <span className="flex items-center gap-1.5">
                   <StatusBadge status={upload.status} />
                   <ReleaseBadge upload={upload} />
+                  <MissingBadge upload={upload} />
                 </span>
               </td>
               <LanguageCells upload={upload} compact={compact} />

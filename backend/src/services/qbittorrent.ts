@@ -13,6 +13,7 @@ export interface QbitTorrent {
   state: string;
   size: number;
   completion_on: number;
+  tracker: string; // the current working tracker's URL ('' when none works)
 }
 
 const form = (data: Record<string, string>) => new URLSearchParams(data).toString();
@@ -102,6 +103,16 @@ export class QbitClient {
       params: { hashes: hash },
     });
     return torrents.find((t) => t.hash === hash) ?? null;
+  }
+
+  /** The URLs of the torrent's trackers (qBittorrent's DHT, PeX and LSD entries included) */
+  async getTrackerUrls(hash: string): Promise<string[]> {
+    const trackers = await this.request<{ url: string }[]>({
+      method: 'GET',
+      url: '/api/v2/torrents/trackers',
+      params: { hash },
+    });
+    return trackers.map((t) => t.url);
   }
 
   /** Every torrent of the client, any category and state; with `tag`, only those carrying it */

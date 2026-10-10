@@ -81,9 +81,11 @@ model Upload {
   torrentName          String?
   torrentScore         Int?     // 0-100 name match score
   torrentMessage       String?  // Why it was (not) removed
+  torrentTracker       String?  // the torrent's tracker host (no passkey), kept once it is removed
 
   // Where the file is on the server (set once uploaded; changes when renamed)
   remotePath           String?
+  remoteFound          Boolean? // null: not looked for; false: not found on the server (see release link)
 
   // Release (see services/release): renamed on the server, then uploaded to the tracker
   // releaseStatus: null | CONFIRM (name to confirm) | RENAMED | QUEUED | RUNNING | NEEDS_INPUT
@@ -96,6 +98,13 @@ model Upload {
   releaseMessage       String?  // outcome, or why it failed
   releaseStartedAt     DateTime?
   releaseCompletedAt   DateTime?
+
+  // The .torrent the tracker gave back (from the Unit3Dup archive on the server, see release/index.ts)
+  releaseTracker       String?  // the archive's folder: the tracker's name (e.g. ITT)
+  releaseTorrentName   String?  // file name of the .torrent
+  releaseTorrentPath   String?  // where it is on the server
+  releaseTorrentHash   String?  // v1 info hash
+  releaseTorrentData   Bytes?   // the file itself (left out of the list and the details)
 
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

@@ -92,8 +92,10 @@ export interface Upload {
   torrentName: string | null;
   torrentScore: number | null;
   torrentMessage: string | null;
+  torrentTracker: string | null; // the torrent's tracker host, kept once it is removed
   // Where the file is on the server (null for uploads before it was stored)
   remotePath: string | null;
+  remoteFound: boolean | null; // false: looked for on the server and not found
   // Release: renamed on the server, then uploaded to the tracker
   releaseStatus: ReleaseStatus | null;
   releaseName: string | null;
@@ -102,6 +104,11 @@ export interface Upload {
   releaseMessage: string | null;
   releaseStartedAt: string | null;
   releaseCompletedAt: string | null;
+  // The .torrent the tracker gave back (downloaded with releaseApi.torrentUrl)
+  releaseTracker: string | null;
+  releaseTorrentName: string | null;
+  releaseTorrentPath: string | null;
+  releaseTorrentHash: string | null;
   createdAt: string;
   updatedAt: string;
 }

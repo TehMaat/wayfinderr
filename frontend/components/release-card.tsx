@@ -1,14 +1,16 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { CornerDownLeft, Loader2, Play, Send, Square, Tags } from 'lucide-react';
+import { CornerDownLeft, Download, Link2, Loader2, Play, Send, Square, Tags } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Tooltip } from '@/components/ui/tooltip';
 import { ReleaseDialog } from '@/components/release-dialog';
 import { canRelease, RELEASE_STATUS, releaseRunning } from '@/components/release-badge';
-import { answerRelease, runRelease, stopRelease } from '@/lib/actions';
+import { answerRelease, linkRelease, runRelease, stopRelease } from '@/lib/actions';
+import { releaseApi } from '@/lib/api';
 import { useAppStore, type ReleasePrompt, type Upload } from '@/lib/store';
 import { formatDate, formatDuration } from '@/lib/utils';
 
@@ -74,6 +76,44 @@ function PromptBox({ upload, prompt }: { upload: Upload; prompt: ReleasePrompt |
           )}
         </form>
       )}
+    </div>
+  );
+}
+
+function TorrentRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 py-2 text-sm">
+      <span className="shrink-0 whitespace-nowrap text-muted-foreground">{label}</span>
+      <span className="min-w-0 break-all text-right">{children}</span>
+    </div>
+  );
+}
+
+const missing = <span className="text-warning">Missing</span>;
+
+/** The .torrent the tracker gave back: downloadable, with its info hash */
+function TrackerTorrent({ upload }: { upload: Upload }) {
+  return (
+    <div className="divide-y divide-border/60 rounded-md border px-3">
+      <TorrentRow label=".torrent">
+        {upload.releaseTorrentName ? (
+          <a
+            href={releaseApi.torrentUrl(upload.id)}
+            download={upload.releaseTorrentName}
+            className="inline-flex items-center gap-1.5 font-mono text-xs text-primary hover:underline"
+            title={upload.releaseTorrentPath ?? undefined}
+          >
+            <Download className="h-3.5 w-3.5 shrink-0" />
+            {upload.releaseTorrentName}
+          </a>
+        ) : (
+          missing
+        )}
+      </TorrentRow>
+      <TorrentRow label="Info hash">
+        {upload.releaseTorrentHash ? <span className="select-all font-mono text-xs">{upload.releaseTorrentHash}</span> : missing}
+      </TorrentRow>
+      <TorrentRow label="Tracker">{upload.releaseTracker ?? (upload.releaseTorrentHash ? '–' : missing)}</TorrentRow>
     </div>
   );
 }
@@ -150,6 +190,8 @@ export function ReleaseCard({ upload }: { upload: Upload }) {
           </p>
         )}
 
+        {(upload.releaseStatus === 'DONE' || upload.releaseTorrentHash) && <TrackerTorrent upload={upload} />}
+
         {live && <PromptBox upload={upload} prompt={prompt} />}
 
         {log && (
@@ -178,6 +220,20 @@ export function ReleaseCard({ upload }: { upload: Upload }) {
               <Tags />
               {upload.releaseName ? 'Rename again…' : hasCommand ? 'Rename & upload…' : 'Rename…'}
             </Button>
+          )}
+          {canRelease(upload) && (
+            <Tooltip
+              content={
+                upload.releaseName
+                  ? 'Look for the file and its .torrent on the server again, and read its media info from there'
+                  : 'Already renamed and on the tracker? Find the file on the server (by size) and its .torrent in the Unit3Dup archive'
+              }
+            >
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => run(() => linkRelease(upload.id))}>
+                <Link2 />
+                {upload.releaseName ? 'Check on the server' : 'Link existing release'}
+              </Button>
+            </Tooltip>
           )}
           {canRerun && (
             <Button size="sm" variant="secondary" disabled={busy} onClick={() => run(() => runRelease(upload.id))}>

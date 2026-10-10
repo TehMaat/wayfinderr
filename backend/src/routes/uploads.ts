@@ -5,7 +5,7 @@ import { jobQueue } from '../services/jobQueue.js';
 import { torrentCleanup } from '../services/torrentCleanup.js';
 import { describeError } from '../services/qbittorrent.js';
 import { mediaInfoParser } from '../services/mediaInfo.js';
-import { releaseManager } from '../services/release/index.js';
+import { releaseManager, ReleaseError } from '../services/release/index.js';
 import logger from '../config/logger.js';
 
 const router = Router();
@@ -104,7 +104,7 @@ router.post('/:id/cancel', async (req: Request, res: Response) => {
 });
 
 // POST read the file's media info again (uploads probed before the video and
-// container details were stored); only while the local file is still there
+// container details were stored): from the local file, else from its copy on the server
 router.post('/:id/media', async (req: Request, res: Response) => {
   try {
     const upload = await db.getUploadById(req.params.id);
@@ -113,7 +113,11 @@ router.post('/:id/media', async (req: Request, res: Response) => {
       return;
     }
     if (!existsSync(upload.filepath)) {
-      res.status(409).json({ error: 'The local file is no longer there' });
+      if (upload.status !== 'COMPLETED') {
+        res.status(409).json({ error: 'The local file is no longer there' });
+        return;
+      }
+      res.json(await releaseManager.reprobe(upload.id));
       return;
     }
 
@@ -125,6 +129,10 @@ router.post('/:id/media', async (req: Request, res: Response) => {
     });
     res.json(await db.getUploadById(upload.id));
   } catch (error) {
+    if (error instanceof ReleaseError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
     logger.warn({ uploadId: req.params.id, error }, 'Failed to read media info again');
     res.status(500).json({ error: 'Failed to read the media info' });
   }
