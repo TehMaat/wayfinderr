@@ -29,10 +29,13 @@ const SFTP_CHUNK_SIZE = 32 * 1024;
 // Max wait for the removal of the partial file when an upload is stopped
 const CLEANUP_TIMEOUT_MS = 5000;
 
-const sftpCall = <T = void>(fn: (cb: (err: Error | null | undefined, res?: T) => void) => void) =>
+export const sftpCall = <T = void>(fn: (cb: (err: Error | null | undefined, res?: T) => void) => void) =>
   new Promise<T>((resolve, reject) => {
     fn((err, res) => (err ? reject(err) : resolve(res as T)));
   });
+
+/** The server's upload folder, with forward slashes */
+export const remoteDirOf = (server: Server) => server.sshPath.replace(/\\/g, '/').replace(/\/+$/, '') || '/';
 
 export class UploadManager extends EventEmitter {
   private activeConnections: Set<SSHClient> = new Set();
@@ -58,7 +61,7 @@ export class UploadManager extends EventEmitter {
       progressBytes: 0n,
     });
 
-    const remoteDir = server.sshPath.replace(/\\/g, '/').replace(/\/+$/, '') || '/';
+    const remoteDir = remoteDirOf(server);
     const remotePath = path.posix.join(remoteDir, filename);
     // Upload under a temporary name so the destination never sees a partial file
     const tempPath = path.posix.join(remoteDir, `.${filename}.part`);
@@ -163,6 +166,7 @@ export class UploadManager extends EventEmitter {
             completedAt: new Date(),
             progress: 100,
             error: null,
+            remotePath: path.posix.join(remoteDirOf(server), path.basename(options.filepath)),
           });
           return true;
         }
@@ -217,7 +221,7 @@ export class UploadManager extends EventEmitter {
     return Math.pow(2, attempt) * 5_000;
   }
 
-  private async ensureRemoteDir(sftp: SFTPWrapper, dir: string): Promise<void> {
+  async ensureRemoteDir(sftp: SFTPWrapper, dir: string): Promise<void> {
     const parts = dir.split('/').filter(Boolean);
     let current = dir.startsWith('/') ? '' : '.';
     for (const part of parts) {
@@ -231,7 +235,7 @@ export class UploadManager extends EventEmitter {
     }
   }
 
-  private connect(server: Server): Promise<SSHClient> {
+  connect(server: Server): Promise<SSHClient> {
     const connectConfig: ConnectConfig = {
       host: server.sshHost,
       port: server.sshPort,

@@ -132,6 +132,10 @@ The API token and the SSH password are never returned: `hasApiToken` and `hasSsh
     "sshUsername": "user",
     "maxRetries": 3,
     "backoffStrategy": "exponential",
+    "releaseDir": "downloads/qbittorrent",
+    "releaseTag": "TAG",
+    "trackerCommand": "unit3dup -u {path}",
+    "releaseAuto": false,
     "lastSpaceCheckAt": "2026-10-04T15:30:00Z",
     "createdAt": "2026-10-04T10:00:00Z"
   }
@@ -177,7 +181,9 @@ Content-Type: application/json
 }
 ```
 
-Fields left out or blank keep their saved value (so a blank `apiToken` or `sshPassword` keeps the current one).
+Fields left out or blank keep their saved value (so a blank `apiToken` or `sshPassword` keeps the current one), except `releaseTag` and `trackerCommand`, which a blank clears.
+
+**Release fields** (see [Release API](#release-api)): `releaseDir` the folder renamed files go to, as `<releaseDir>/<name>/<name>.mkv` (relative to the SSH home, or absolute; default `downloads/qbittorrent`); `releaseTag` the `-TAG` at the end of the name (blank = none); `trackerCommand` run on the server after the rename, with `{path}`, `{folder}` and `{name}` replaced by the shell-quoted file path, its folder and its name (the path is appended when none is there; blank = rename only); `releaseAuto` true to ask for the name right after each upload (`releaseStatus` `CONFIRM`).
 
 **Response:** 200 OK
 
@@ -457,6 +463,82 @@ Removes the matched torrent from its client now (the "Remove torrent now" button
 | `torrentClientId`, `torrentHash`, `torrentName` | The matched torrent |
 | `torrentScore` | Match, 0-100: 100 for a rip of the downloads folder (the torrent holding that download), else the name match (automatic removal needs 100 with the year in both names) |
 | `torrentMessage` | Why it was or was not removed |
+
+## Release API
+
+An upload on a server is renamed there as a release, the way moverr.py does (`NAME.YEAR.{VERSION}.{HYBRID}.{REMUX}.RESOLUTION.{VU}.{DV}.{P#}.{HDR}.AUDIO.SUBS-TAG.mkv`, in its own folder), then the server's `trackerCommand` (Unit3Dup) uploads it to the tracker. The command runs over SSH inside tmux (`wf-<uploadId>` session; needs `tmux` and `bash` on the server), so it survives a dropped connection or a restart of Wayfinderr; its output is read from `~/.wayfinderr/<uploadId>.log`. One command at a time per server. Only for `COMPLETED` uploads.
+
+### Rename Proposal
+
+```
+GET /api/uploads/:id/release
+```
+
+The media analysis (video, the best audio codec of each language, subtitles, languages other than ITA/ENG) and the prefilled answers: film name and year from the rip's TMDB match, else from the file name; `remux` true for a ripped disc. Uploads probed before the video details were stored are probed again, from the local file or with ffprobe on the server.
+
+```json
+{
+  "analysis": {
+    "video": { "resolution": "2160P", "width": 3840, "height": 2160, "codec": "HEVC", "dv": true, "dvProfile": 8, "hdr": "HDR10" },
+    "audio": [{ "codec": "DTSHD.MA", "language": "ITA" }, { "codec": "TRUEHD.ATMOS", "language": "ENG" }],
+    "audioStreams": [...],
+    "subtitles": ["ITA", "ENG"],
+    "extraLanguages": { "audio": [], "subtitles": [] }
+  },
+  "defaults": { "title": "Il padrino", "year": "1972", "version": "", "remux": true },
+  "versions": ["Theatrical", "Extended", "Director's Cut", ...],
+  "rip": { "tmdbId": 238, "title": "Il padrino", "year": 1972 },
+  "remotePath": "/home/user/uploads/Il Padrino (1972).mkv",
+  "releaseDir": "downloads/qbittorrent",
+  "releaseTag": "TAG",
+  "hasTrackerCommand": true
+}
+```
+
+### Preview the Name
+
+```
+POST /api/uploads/:id/release/preview
+Content-Type: application/json
+
+{ "title": "Il padrino", "year": "1972", "version": "Extended", "remux": true }
+```
+
+Nothing changes. Returns `{ filename, folder, path, autoHybrid, error }`: `autoHybrid` when a REMUX has a Dolby Vision profile 8 layer (HYBRID, no VU); `error` when the name or the year is missing.
+
+### Rename and Upload to the Tracker
+
+```
+POST /api/uploads/:id/release
+Content-Type: application/json
+
+{ "title": "Il padrino", "year": "1972", "version": "", "remux": true, "overwrite": false }
+```
+
+Moves the file on the server (SFTP rename) into `<releaseDir>/<name>/<name>.mkv`, then queues the tracker command (`releaseStatus` `QUEUED`, or `RENAMED` without a command). `409` with `code: "exists"` when that file is already there: send again with `overwrite: true` to replace it. Renaming again moves the file from its current name (and removes the earlier folder if empty).
+
+### Answer, Stop, Run Again, Dismiss
+
+```
+POST /api/uploads/:id/release/input     { "text": "603" }
+POST /api/uploads/:id/release/stop
+POST /api/uploads/:id/release/run
+POST /api/uploads/:id/release/dismiss
+```
+
+`input` types the text and Enter into the command (`tmux send-keys`). `stop` sends Ctrl-C (Unit3Dup quits cleanly), and the session is killed 10 seconds later if still there; a queued command is just dropped. `run` runs the command again on the renamed file. `dismiss` drops a `CONFIRM` (the name is not wanted now).
+
+**Release fields on an upload:**
+
+| Field | Meaning |
+|---|---|
+| `remotePath` | Where the file is on the server (set once uploaded, updated by the rename) |
+| `releaseStatus` | `null` · `CONFIRM` name to confirm · `RENAMED` (no tracker command) · `QUEUED` · `RUNNING` · `NEEDS_INPUT` the command waits on a question · `DONE` the tracker accepted it · `SKIPPED` duplicate skipped · `UNKNOWN` ended without a tracker answer · `FAILED` · `CANCELLED` |
+| `releaseName` | The file name after the rename |
+| `releasePrompt` | JSON `{ kind, text }` while `NEEDS_INPUT`: `kind` is `tmdb`, `duplicate`, `trailer` (Unit3Dup's questions) or `text` (an unfinished line ending like a question, after 15 s of silence). The TMDB question is answered on its own, once, with the rip's TMDB id |
+| `releaseLog` | The command's output, cleaned, last 64 KB (only in `GET /api/uploads/:id`) |
+| `releaseMessage` | The outcome: the tracker's answer, or the error. Unit3Dup exits with 0 after a tracker error too, so its output decides |
+| `releaseStartedAt`, `releaseCompletedAt` | When the command started and ended |
 
 ## Clients API (qBittorrent)
 
@@ -766,6 +848,13 @@ The source torrent of an upload was matched, scheduled, removed, or could not be
   "uploadId": "upload123",
   "torrentStatus": "REMOVED"
 }
+```
+
+#### release-updated, release-output
+An upload's release changed status (`prompt` is set with `NEEDS_INPUT`), or the tracker command printed something (`log`: the whole cleaned output so far, last 64 KB).
+```json
+{ "type": "release-updated", "uploadId": "upload123", "releaseStatus": "NEEDS_INPUT", "prompt": { "kind": "duplicate", "text": "Press (C) to continue, (S) to SKIP.. (Q) Quit -" } }
+{ "type": "release-output", "uploadId": "upload123", "log": "..." }
 ```
 
 #### client-updated

@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { useAuthStore } from './auth';
-import type { Rip, RipperStatus, TmdbMovie } from './store';
+import type { ReleaseFlags, ReleasePreview, ReleaseProposal, Rip, RipperStatus, TmdbMovie, Upload } from './store';
 
 // Same-origin requests: the frontend server proxies /api to the backend.
 // The session is an HttpOnly cookie the browser sends on its own.
@@ -83,6 +83,19 @@ export const uploadsApi = {
   probeMedia: (id: string) => apiClient.post(`/api/uploads/${id}/media`, null, { timeout: 60000 }),
   checkTorrent: (id: string) => apiClient.post(`/api/uploads/${id}/torrent/check`, null, { timeout: 120000 }),
   removeTorrent: (id: string) => apiClient.post(`/api/uploads/${id}/torrent/remove`, null, { timeout: 45000 }),
+};
+
+// Release API: rename on the server, then the tracker command (Unit3Dup)
+export const releaseApi = {
+  // May probe the file again (on the server for an upload whose local file is gone)
+  proposal: (id: string) => apiClient.get<ReleaseProposal>(`/api/uploads/${id}/release`, { timeout: 120000 }),
+  preview: (id: string, flags: ReleaseFlags) => apiClient.post<ReleasePreview>(`/api/uploads/${id}/release/preview`, flags),
+  confirm: (id: string, flags: ReleaseFlags, overwrite = false) =>
+    apiClient.post<Upload>(`/api/uploads/${id}/release`, { ...flags, overwrite }, { timeout: 60000 }),
+  run: (id: string) => apiClient.post<Upload>(`/api/uploads/${id}/release/run`),
+  answer: (id: string, text: string) => apiClient.post(`/api/uploads/${id}/release/input`, { text }, { timeout: 30000 }),
+  stop: (id: string) => apiClient.post<Upload>(`/api/uploads/${id}/release/stop`, null, { timeout: 30000 }),
+  dismiss: (id: string) => apiClient.post<Upload>(`/api/uploads/${id}/release/dismiss`),
 };
 
 // Download clients API (qBittorrent)

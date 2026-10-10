@@ -11,6 +11,7 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
+import { ReleaseCard } from '@/components/release-card';
 import { StatusBadge } from '@/components/status-badge';
 import { StopUploadDialog, canDelete, canRetry, canStop } from '@/components/upload-actions';
 import { uploadsApi } from '@/lib/api';
@@ -338,7 +339,8 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
     upload.startedAt && upload.completedAt
       ? (new Date(upload.completedAt).getTime() - new Date(upload.startedAt).getTime()) / 1000
       : null;
-  const remotePath = upload.server?.sshPath ? `${upload.server.sshPath.replace(/\/+$/, '')}/${upload.filename}` : null;
+  const remotePath =
+    upload.remotePath ?? (upload.server?.sshPath ? `${upload.server.sshPath.replace(/\/+$/, '')}/${upload.filename}` : null);
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-4 md:p-6">
@@ -448,6 +450,8 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
       </div>
 
       <TorrentCard upload={upload} />
+
+      <ReleaseCard upload={upload} />
 
       {media.detailed && media.container ? (
         <div className="grid gap-4 md:grid-cols-2">

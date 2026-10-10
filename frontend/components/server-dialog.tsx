@@ -28,6 +28,10 @@ const emptyForm = (server?: Server) => ({
   sshPath: server?.sshPath ?? '',
   mediaCheckPolicy: server?.mediaCheckPolicy ?? 'SKIP_NO_ITA',
   maxRetries: String(server?.maxRetries ?? 3),
+  releaseDir: server?.releaseDir ?? 'downloads/qbittorrent',
+  releaseTag: server?.releaseTag ?? '',
+  trackerCommand: server?.trackerCommand ?? '',
+  releaseAuto: String(server?.releaseAuto ?? false),
 });
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
@@ -72,6 +76,7 @@ export function ServerDialog({
       ...form,
       sshPort: parseInt(form.sshPort, 10) || 22,
       maxRetries: parseInt(form.maxRetries, 10) || 3,
+      releaseAuto: form.releaseAuto === 'true',
     };
     try {
       if (server) {
@@ -178,6 +183,36 @@ export function ServerDialog({
             </Field>
             <Field label="Retries">
               <Input name="maxRetries" type="number" min={1} max={10} value={form.maxRetries} onChange={update} />
+            </Field>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tracker release</p>
+            <div className="grid gap-3 sm:grid-cols-[1fr_9rem]">
+              <Field label="Release folder" hint="Renamed files go to <folder>/<name>/; relative to the SSH home">
+                <Input name="releaseDir" value={form.releaseDir} onChange={update} placeholder="downloads/qbittorrent" required />
+              </Field>
+              <Field label="Release tag" hint="Name ends with -TAG">
+                <Input name="releaseTag" value={form.releaseTag} onChange={update} placeholder="TAG" />
+              </Field>
+            </div>
+            <Field
+              label="Tracker command"
+              hint="Runs on the server in tmux after the rename; {path}, {folder}, {name} are replaced. Blank = rename only"
+            >
+              <Input
+                name="trackerCommand"
+                value={form.trackerCommand}
+                onChange={update}
+                placeholder="unit3dup -u {path}"
+                className="font-mono text-xs"
+              />
+            </Field>
+            <Field label="After each upload">
+              <Select name="releaseAuto" value={form.releaseAuto} onChange={update}>
+                <option value="false">Nothing: rename from the upload history</option>
+                <option value="true">Ask for the release name right away</option>
+              </Select>
             </Field>
           </div>
 

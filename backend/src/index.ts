@@ -22,6 +22,8 @@ import ripRoutes from './routes/rips.js';
 import { ripper } from './services/ripper/index.js';
 import systemRoutes from './routes/system.js';
 import clientRoutes from './routes/clients.js';
+import releaseRoutes from './routes/release.js';
+import { releaseManager } from './services/release/index.js';
 
 // Prisma returns BigInt for sizes: serialize them as strings in JSON responses
 (BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function () {
@@ -51,6 +53,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api', requireAuth);
 app.use('/api/servers', serverRoutes);
+app.use('/api/uploads/:id/release', releaseRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/space', spaceRoutes);
 app.use('/api/rips', ripRoutes);
@@ -181,7 +184,18 @@ jobQueue.on('upload-completed', ({ uploadId }) => {
   torrentCleanup
     .handleUploadCompleted(uploadId)
     .catch((error) => logger.error({ uploadId, error }, 'Torrent cleanup failed'));
+  // On the server: the name to confirm (releaseAuto), then the tracker
+  releaseManager
+    .handleUploadCompleted(uploadId)
+    .catch((error) => logger.error({ uploadId, error }, 'Release setup failed'));
 });
+
+// Rename and tracker command (see services/release): status changes refetch the
+// upload, the output replaces the shown log
+releaseManager.on('release-updated', ({ uploadId, releaseStatus, prompt }) =>
+  broadcast({ type: 'release-updated', uploadId, releaseStatus, prompt })
+);
+releaseManager.on('release-output', ({ uploadId, log }) => broadcast({ type: 'release-output', uploadId, log }));
 
 torrentCleanup.on('torrent-updated', ({ uploadId, torrentStatus }) => {
   broadcast({
@@ -317,6 +331,8 @@ const shutdown = async (signal: string) => {
 
     // Drop pending torrent removals (resumed at the next start)
     torrentCleanup.stop();
+    // Tracker commands go on in tmux on the servers, followed again at the next start
+    releaseManager.shutdown();
     spaceGuard.stop();
     // Close the browsers' WebSockets, or the HTTP server would wait for them
     wss.clients.forEach((client) => client.close(1001, 'Server shutting down'));
@@ -353,6 +369,7 @@ const startServer = async () => {
     // Resume uploads left unfinished by a previous run
     await jobQueue.resumePending();
     await torrentCleanup.resumePending();
+    await releaseManager.resumePending();
 
     // Start file watcher
     fileWatcher.start();

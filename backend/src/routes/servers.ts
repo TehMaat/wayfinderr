@@ -24,19 +24,27 @@ const STRING_FIELDS = [
   'sshPath',
   'backoffStrategy',
   'mediaCheckPolicy',
+  'releaseDir',
 ] as const;
 const INT_FIELDS = ['sshPort', 'maxRetries'] as const;
+// Blank clears them
+const NULLABLE_FIELDS = ['releaseTag', 'trackerCommand'] as const;
 
 // Keeps only known fields, converts numbers, drops empty strings
 // (an empty password on edit means "keep the current one")
 const parseServerBody = (body: Record<string, unknown>) => {
-  const data: Record<string, string | number> = {};
+  const data: Record<string, string | number | boolean | null> = {};
   for (const field of STRING_FIELDS) {
     const value = body[field];
     if (typeof value === 'string' && value.trim() !== '') {
       data[field] = value.trim();
     }
   }
+  for (const field of NULLABLE_FIELDS) {
+    const value = body[field];
+    if (typeof value === 'string') data[field] = value.trim() || null;
+  }
+  if (typeof body.releaseAuto === 'boolean') data.releaseAuto = body.releaseAuto;
   for (const field of INT_FIELDS) {
     const value = parseInt(String(body[field] ?? ''), 10);
     if (!Number.isNaN(value)) {

@@ -132,6 +132,40 @@ export const useRealtime = () => {
             scheduleStats();
             break;
 
+          case 'release-output':
+            store.setReleaseLog(uploadId, message.log as string);
+            break;
+
+          case 'release-updated': {
+            await store.refreshUpload(uploadId);
+            const open = { label: 'Open', onClick: () => routerRef.current.push(`/uploads/${uploadId}`) };
+            const upload = useAppStore.getState().uploads.find((u) => u.id === uploadId);
+            const name = upload?.releaseName ?? nameOf(uploadId);
+            switch (message.releaseStatus) {
+              case 'CONFIRM':
+                toast.info('Confirm the name for the tracker', { description: name, duration: 15_000, action: open });
+                break;
+              case 'NEEDS_INPUT':
+                toast.warning('The tracker upload needs an answer', {
+                  description: (message.prompt as { text?: string } | null)?.text ?? name,
+                  duration: 30_000,
+                  action: open,
+                });
+                break;
+              case 'DONE':
+                toast.success('Uploaded to the tracker', { description: upload?.releaseMessage ?? name });
+                break;
+              case 'FAILED':
+              case 'UNKNOWN':
+                toast.error(message.releaseStatus === 'FAILED' ? 'Tracker upload failed' : 'Tracker upload: outcome unknown', {
+                  description: upload?.releaseMessage ?? name,
+                  action: open,
+                });
+                break;
+            }
+            break;
+          }
+
           case 'client-updated': {
             await store.loadClients();
             const name = useAppStore.getState().clients.find((c) => c.id === message.clientId)?.name ?? 'Client';

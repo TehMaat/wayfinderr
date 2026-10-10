@@ -5,6 +5,67 @@ export type UploadStatus = 'PENDING' | 'QUEUED' | 'UPLOADING' | 'COMPLETED' | 'F
 
 export type TorrentStatus = 'NO_MATCH' | 'REVIEW' | 'WAITING' | 'REMOVED' | 'ERROR';
 
+// Rename on the server, then the tracker command (Unit3Dup)
+export type ReleaseStatus =
+  | 'CONFIRM'
+  | 'RENAMED'
+  | 'QUEUED'
+  | 'RUNNING'
+  | 'NEEDS_INPUT'
+  | 'DONE'
+  | 'SKIPPED'
+  | 'UNKNOWN'
+  | 'FAILED'
+  | 'CANCELLED';
+
+// The question the tracker command waits on
+export interface ReleasePrompt {
+  kind: 'tmdb' | 'duplicate' | 'trailer' | 'text';
+  text: string;
+}
+
+export interface ReleaseFlags {
+  title: string;
+  year: string;
+  version: string;
+  remux: boolean;
+}
+
+export interface ReleaseAnalysis {
+  video: {
+    resolution: string | null;
+    width: number;
+    height: number;
+    codec: string | null;
+    dv: boolean;
+    dvProfile: number | null;
+    hdr: string | null;
+  };
+  audio: { codec: string; language: string }[];
+  audioStreams: { index: number; codec: string; language: string; channels: number | null; bitrate: number | null; title: string | null }[];
+  subtitles: string[];
+  extraLanguages: { audio: string[]; subtitles: string[] };
+}
+
+export interface ReleaseProposal {
+  analysis: ReleaseAnalysis;
+  defaults: ReleaseFlags;
+  versions: string[];
+  rip: { tmdbId: number | null; title: string | null; year: number | null } | null;
+  remotePath: string;
+  releaseDir: string;
+  releaseTag: string | null;
+  hasTrackerCommand: boolean;
+}
+
+export interface ReleasePreview {
+  filename: string;
+  folder: string;
+  path: string;
+  autoHybrid: boolean;
+  error: string | null;
+}
+
 export const UPLOAD_STATUSES: UploadStatus[] = ['UPLOADING', 'QUEUED', 'PENDING', 'COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED'];
 
 export interface Upload {
@@ -31,6 +92,16 @@ export interface Upload {
   torrentName: string | null;
   torrentScore: number | null;
   torrentMessage: string | null;
+  // Where the file is on the server (null for uploads before it was stored)
+  remotePath: string | null;
+  // Release: renamed on the server, then uploaded to the tracker
+  releaseStatus: ReleaseStatus | null;
+  releaseName: string | null;
+  releasePrompt: string | null; // JSON ReleasePrompt
+  releaseLog?: string | null; // only from GET /api/uploads/:id
+  releaseMessage: string | null;
+  releaseStartedAt: string | null;
+  releaseCompletedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -66,6 +137,11 @@ export interface Server {
   maxRetries: number;
   backoffStrategy: string;
   mediaCheckPolicy: string;
+  // Release: renamed into releaseDir/<name>/, then trackerCommand runs on it
+  releaseDir: string;
+  releaseTag: string | null;
+  trackerCommand: string | null;
+  releaseAuto: boolean;
   lastSpaceCheckAt: string | null;
   // From /api/space (missing until loaded)
   reachable?: boolean;
@@ -235,6 +311,8 @@ interface AppState {
   disksLoaded: boolean;
   connected: boolean;
   transfers: Record<string, Transfer>;
+  // Live output of the tracker commands (WebSocket), by upload
+  releaseLogs: Record<string, string>;
   filters: Filters;
   rips: Rip[];
   ripsLoaded: boolean;
@@ -250,6 +328,7 @@ interface AppState {
   refreshUpload: (id: string) => Promise<void>;
   removeUpload: (id: string) => void;
   applyProgress: (id: string, progress: number, bytes: number) => void;
+  setReleaseLog: (id: string, log: string) => void;
   setConnected: (connected: boolean) => void;
   setFilters: (filters: Partial<Filters>) => void;
   loadRips: () => Promise<void>;
@@ -273,6 +352,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   disksLoaded: false,
   connected: false,
   transfers: {},
+  releaseLogs: {},
   filters: { status: 'ALL', serverId: 'ALL', search: '' },
   rips: [],
   ripsLoaded: false,
@@ -280,7 +360,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   loadUploads: async () => {
     const { data } = await uploadsApi.listUploads({ limit: UPLOADS_LIMIT });
-    set({ uploads: data.uploads ?? [], uploadsLoaded: true });
+    // The list has no tracker output: keep what an upload page fetched
+    const logs = new Map(get().uploads.filter((u) => u.releaseLog !== undefined).map((u) => [u.id, u.releaseLog]));
+    set({
+      uploads: ((data.uploads ?? []) as Upload[]).map((u) => (logs.has(u.id) ? { ...u, releaseLog: logs.get(u.id) } : u)),
+      uploadsLoaded: true,
+    });
   },
 
   // Server config first (fast), then the space info (calls the Ultra.cc API)
@@ -387,6 +472,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         ),
       };
     }),
+
+  setReleaseLog: (id, log) => set((state) => ({ releaseLogs: { ...state.releaseLogs, [id]: log } })),
 
   setConnected: (connected) => set({ connected }),
 
