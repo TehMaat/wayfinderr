@@ -1,21 +1,22 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowLeft, AudioLines, Captions, Clapperboard, FileVideo, Film, Magnet, RotateCcw, Search, Square, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, AudioLines, Captions, Clapperboard, FilePlus, FileVideo, Film, Magnet, RotateCcw, Search, Square, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tooltip } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { ReleaseCard } from '@/components/release-card';
 import { StatusBadge } from '@/components/status-badge';
 import { StopUploadDialog, canDelete, canRetry, canStop } from '@/components/upload-actions';
 import { uploadsApi } from '@/lib/api';
-import { checkTorrent, deleteUpload, removeTorrent, retryUpload } from '@/lib/actions';
+import { addTorrentFile, checkTorrent, deleteUpload, removeTorrent, retryUpload } from '@/lib/actions';
 import {
   aspectLabel,
   audioCodecLabel,
@@ -207,6 +208,7 @@ function TorrentCard({ upload }: { upload: Upload }) {
   const clientName = client?.name;
   const [busy, setBusy] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   // Shown while the upload runs too (removal by hand only), and when the feature is set up
   const inProgress = upload.status === 'PENDING' || upload.status === 'QUEUED' || upload.status === 'UPLOADING';
@@ -216,6 +218,8 @@ function TorrentCard({ upload }: { upload: Upload }) {
   const canRemove =
     Boolean(upload.torrentHash) && (upload.torrentStatus === 'REVIEW' || upload.torrentStatus === 'WAITING' || upload.torrentStatus === 'ERROR');
   const canCheck = hasClients && upload.torrentStatus !== 'REMOVED' && upload.torrentStatus !== 'WAITING';
+  // Removed before its tracker was kept: the client no longer knows it, its .torrent does
+  const canAddFile = upload.torrentStatus === 'REMOVED' && (!upload.torrentTracker || !upload.torrentHash);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -251,7 +255,7 @@ function TorrentCard({ upload }: { upload: Upload }) {
           </div>
         )}
         {upload.torrentMessage && <p className="text-sm text-muted-foreground">{upload.torrentMessage}</p>}
-        {(canRemove || canCheck) && (
+        {(canRemove || canCheck || canAddFile) && (
           <div className="flex flex-wrap gap-2">
             {canRemove && (
               <Button size="sm" variant={upload.torrentStatus === 'REVIEW' ? 'default' : 'secondary'} disabled={busy} onClick={() => setConfirmOpen(true)}>
@@ -265,6 +269,25 @@ function TorrentCard({ upload }: { upload: Upload }) {
                 {upload.torrentStatus ? 'Check again' : 'Find torrent'}
               </Button>
             )}
+            {canAddFile && (
+              <Tooltip content="The source torrent's .torrent (downloaded again from its tracker): its tracker and hash are read from it, the file itself is not kept">
+                <Button size="sm" variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}>
+                  <FilePlus />
+                  Add .torrent…
+                </Button>
+              </Tooltip>
+            )}
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".torrent,application/x-bittorrent"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) run(() => addTorrentFile(upload.id, file));
+              }}
+            />
           </div>
         )}
       </CardContent>
