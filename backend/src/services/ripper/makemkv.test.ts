@@ -114,7 +114,15 @@ test('selectionRule keeps the given languages, the first one first', () => {
 
 test('selectionRule keeps every language when the original one is unknown', () => {
   const rule = selectionRule([['ita']], true);
-  assert.equal(rule, '-sel:all,+sel:all,-sel:(havemulti|havecore),-sel:mvcvideo,=100:all,-10:ita');
+  assert.equal(rule, '-sel:all,+sel:all,-sel:core,-sel:mvcvideo,=100:all,-10:ita');
+});
+
+test('selectionRule keeps lossless tracks and stereo tracks, drops only lossy cores', () => {
+  // havecore is the lossless track (TrueHD, DTS-HD MA) and havemulti a stereo
+  // track with a multichannel one in its language: neither may be dropped
+  const rule = selectionRule([['ita'], ['eng']]);
+  assert.doesNotMatch(rule, /havecore|havemulti/);
+  assert.match(rule, /-sel:core,/);
 });
 
 test('describeExit names the signal that killed makemkvcon', () => {

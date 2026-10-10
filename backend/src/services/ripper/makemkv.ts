@@ -261,10 +261,13 @@ export const hasLanguage = (title: DiscTitle, type: DiscStream['type'], codes: s
 /**
  * MakeMKV track selection rule (app_DefaultSelectionString) for a rip: the
  * video, audio and subtitles in the kept languages (codes of the first one get
- * priority, so they come first and are the default tracks), without lossy
- * cores of lossless tracks; if no track has one of those languages, the only
- * track of its kind is kept anyway. With `keepAll` (original language unknown)
- * every language is kept, the first one still first.
+ * priority, so they come first and are the default tracks), every one of them:
+ * lossless and lossy, multichannel and stereo/mono. Only the lossy cores of
+ * lossless tracks are dropped (`core`; not `havecore`, which is the lossless
+ * track itself, nor `havemulti`, which drops stereo tracks when there is a
+ * multichannel one: MakeMKV's default rule has both). If no track has one of
+ * those languages, the only track of its kind is kept anyway. With `keepAll`
+ * (original language unknown) every language is kept, the first one still first.
  */
 export const selectionRule = (languages: string[][], keepAll = false): string => {
   const codes = [...new Set(languages.flat())];
@@ -272,7 +275,7 @@ export const selectionRule = (languages: string[][], keepAll = false): string =>
   return [
     '-sel:all',
     keepAll ? '+sel:all' : `+sel:(${[...codes, 'nolang', 'single'].join('|')})`,
-    '-sel:(havemulti|havecore)',
+    '-sel:core',
     '-sel:mvcvideo',
     '=100:all',
     ...first.map((code) => `-10:${code}`),
