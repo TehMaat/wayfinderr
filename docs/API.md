@@ -458,13 +458,17 @@ Removes the matched torrent from its client now (the "Remove torrent now" button
 ### Add the Source .torrent by Hand
 
 ```
-PUT /api/uploads/:id/torrent
+POST /api/uploads/:id/torrent/file
+POST /api/uploads/torrent-file
 Content-Type: application/x-bittorrent
-
-<the .torrent file>
 ```
 
-The source torrent's .torrent, when the torrent was not found or was removed before its hash and tracker were kept (the "Add .torrent…" button). Sets `torrentName`, `torrentHash` (its v1 info hash) and `torrentTracker` (the announce host, never the passkey). A `REMOVED` torrent stays `REMOVED`; otherwise the enabled clients are asked for that hash: still in one, it becomes `REVIEW` (remove it by hand, never automatically), else `REMOVED`. Returns the updated upload; `400` when it is not a .torrent, `409` while its removal is scheduled (`WAITING`), `502` when a client cannot be reached to tell. The `torrent-updated` event it sends has `"byHand": true`.
+For source torrents removed before their tracker was kept, or not found: the body is the source torrent's .torrent file (up to 10 MB), downloaded again from its tracker. Its tracker host (from `announce`, else `announce-list`) goes into `torrentTracker`; the file itself and the passkey in its announce URL are not stored.
+
+- `/:id/torrent/file`: for this upload. `REMOVED`: fills `torrentHash` (and `torrentName`) when unknown; `409` when the upload knows another hash. Any other `torrentStatus` (not checked, `NO_MATCH`, `REVIEW`, `ERROR`) on a `COMPLETED` upload: the .torrent becomes its source torrent (`torrentName`, `torrentHash`, `torrentTracker`, `torrentScore` `null`), and the enabled clients are asked for its hash: still in one, `REVIEW` (removed by hand only, never automatically), in none `REMOVED`. `409` while `WAITING` or before the upload completes, `502` when a client cannot be reached to tell. Returns the updated upload.
+- `/torrent-file`: for every `REMOVED` upload with the .torrent's info hash (several .torrents are sent one per request). Returns `{ name, infoHash, tracker, uploadIds }`, `404` when no removed source torrent has that hash.
+
+`400` when the body is not a .torrent, `415` without the content type, `422` when the .torrent names no tracker. Each upload changed sends `torrent-updated` with `byHand: true`.
 
 **Torrent fields on an upload:**
 
@@ -886,13 +890,12 @@ Upload skipped (no Italian content).
 ```
 
 #### torrent-updated
-The source torrent of an upload was matched, scheduled, removed, or could not be removed; `byHand` is true when its .torrent was added by hand (nothing removed).
+The source torrent of an upload was matched, scheduled, removed, or could not be removed.
 ```json
 {
   "type": "torrent-updated",
   "uploadId": "upload123",
-  "torrentStatus": "REMOVED",
-  "byHand": false
+  "torrentStatus": "REMOVED"
 }
 ```
 

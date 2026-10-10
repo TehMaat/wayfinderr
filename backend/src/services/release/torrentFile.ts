@@ -120,3 +120,12 @@ export const trackerHost = (url: string | null | undefined): string | null => {
     return null;
   }
 };
+
+/** The hosts of a .torrent's trackers (announce, then announce-list), each once: never their passkeys */
+export const torrentTrackers = (buf: Buffer): string[] => {
+  const root = new Decoder(buf).value();
+  if (!isDict(root)) return [];
+  const urls = [root.announce, ...(Array.isArray(root['announce-list']) ? root['announce-list'].flat() : [])];
+  const hosts = urls.map((url) => (Buffer.isBuffer(url) ? trackerHost(url.toString('utf8')) : null));
+  return [...new Set(hosts.filter((host): host is string => Boolean(host)))];
+};

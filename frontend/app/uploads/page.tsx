@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { FolderSearch, ListFilter, RefreshCw, Search, Server as ServerIcon, UploadCloud, X } from 'lucide-react';
+import { FilePlus, FolderSearch, ListFilter, RefreshCw, Search, Server as ServerIcon, UploadCloud, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -9,6 +9,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { EmptyState } from '@/components/empty-state';
 import { STATUS_META } from '@/components/status-badge';
 import { UploadTable } from '@/components/upload-table';
+import { importTorrentFiles } from '@/lib/actions';
 import { matchesSearch } from '@/lib/release';
 import { UPLOAD_STATUSES, useAppStore, type Filters } from '@/lib/store';
 import { cn } from '@/lib/utils';
@@ -58,6 +59,8 @@ export default function UploadsPage() {
   const setFilters = useAppStore((s) => s.setFilters);
   const [refreshing, setRefreshing] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const torrentsRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
 
   // "/" focuses the search box, Esc clears it
   useEffect(() => {
@@ -218,7 +221,27 @@ export default function UploadsPage() {
             </button>
           )}
 
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-1">
+            <Tooltip content="Add source .torrents: each fills the tracker of the removed source torrents with its info hash">
+              <Button variant="ghost" size="icon" disabled={importing} onClick={() => torrentsRef.current?.click()} aria-label="Add source .torrents">
+                <FilePlus />
+              </Button>
+            </Tooltip>
+            <input
+              ref={torrentsRef}
+              type="file"
+              accept=".torrent,application/x-bittorrent"
+              multiple
+              className="hidden"
+              onChange={async (e) => {
+                const files = [...(e.target.files ?? [])];
+                e.target.value = '';
+                if (files.length === 0) return;
+                setImporting(true);
+                await importTorrentFiles(files);
+                setImporting(false);
+              }}
+            />
             <Tooltip content="Refresh">
               <Button variant="ghost" size="icon" onClick={refresh} aria-label="Refresh">
                 <RefreshCw className={cn(refreshing && 'animate-spin')} />
