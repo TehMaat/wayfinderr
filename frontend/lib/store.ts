@@ -189,6 +189,8 @@ export interface RipperStatus {
   language: string; // ISO 639-1, kept with the film's original language
   minLength: number; // seconds
   exclusions: string[]; // discs whose path contains one are not ripped
+  ignoredFolders: string[]; // folders of the downloads never searched (relative, "/" separators)
+  arriveComplete: boolean; // downloads are moved to the downloads folder once complete: no quiet wait
   // RAR archives: unrar installed, the disks they can be unpacked on (one per disk), the downloads writable
   unpack?: {
     unrar: boolean;

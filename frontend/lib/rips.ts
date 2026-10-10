@@ -42,6 +42,20 @@ const exclusionRegExp = (pattern: string) =>
 export const matchExclusion = (patterns: string[], sourcePath: string): string | null =>
   patterns.find((pattern) => exclusionRegExp(pattern).test(sourcePath)) ?? null;
 
+// Ignored folders: never searched (same as the backend)
+// Nothing made of them yet: a new ignored folder removes them from the list
+export const REMOVABLE: RipStatus[] = [...EXCLUDABLE, 'FAILED', 'SKIPPED'];
+
+const isInside = (folder: string, relativePath: string) => {
+  const a = folder.toLowerCase();
+  const b = relativePath.toLowerCase();
+  return b === a || b.startsWith(`${a}/`);
+};
+
+/** The ignored folder holding the disc path, or null */
+export const ignoredFolder = (folders: string[], sourcePath: string): string | null =>
+  folders.find((folder) => isInside(folder, sourcePath)) ?? null;
+
 // ISO 639-1 -> the ISO 639-2 codes MakeMKV may report (same table as the backend)
 const LANGUAGES: Record<string, string[]> = {
   ar: ['ara'], bg: ['bul'], bn: ['ben'], bs: ['bos'], ca: ['cat'], cn: ['chi', 'zho', 'yue'],

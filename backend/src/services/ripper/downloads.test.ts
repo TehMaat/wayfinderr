@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, utimes, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
-import { findDiscs, isDownloadComplete, isFirstRarVolume, rarSetName } from './downloads.js';
+import { findDiscs, isDownloadComplete, isFirstRarVolume, listFolders, rarSetName } from './downloads.js';
 
 test('isFirstRarVolume: .rar and .part1.rar, not the other volumes', () => {
   for (const name of ['film.rar', 'Film.RAR', 'film.part1.rar', 'film.part01.rar', 'film.part001.rar']) {
@@ -53,6 +53,35 @@ test('findDiscs: the first volume of each archive, ignoring the unpack folder', 
       { path: 'Other.2002.COMPLETE.BLURAY-GRP/other.part1.rar', type: 'RAR', downloadName: 'Other.2002.COMPLETE.BLURAY-GRP' },
       { path: 'Top.2003.part1.rar', type: 'RAR', downloadName: 'Top.2003.part1.rar' },
     ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('findDiscs: the ignored folders are never searched', async () => {
+  const root = await tree([
+    'torrents/Film.2001.BluRay/film.iso',
+    'torrents/Other.2002/BDMV/index.bdmv',
+    'Film.2001.BluRay/film.iso',
+    'Serie/Show.S01/Extras/extras.iso',
+    'Serie/Show.S01/show.iso',
+  ]);
+  try {
+    const found = (await findDiscs(root, ['Torrents', 'Serie/Show.S01/Extras'])).map((d) => d.path).sort();
+    assert.deepEqual(found, ['Film.2001.BluRay/film.iso', 'Serie/Show.S01/show.iso']);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('listFolders: the subfolders, without hidden ones and never outside the downloads', async () => {
+  const root = await tree(['torrents/a.iso', 'Film/BDMV/index.bdmv', 'film.iso', '.wayfinderr/x']);
+  try {
+    assert.deepEqual(await listFolders(root, ''), ['Film', 'torrents']);
+    assert.deepEqual(await listFolders(root, 'Film'), ['BDMV']);
+    await assert.rejects(listFolders(root, '..'));
+    await assert.rejects(listFolders(root, 'missing'), /not found/);
+    await assert.rejects(listFolders(root, 'film.iso'), /not found/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

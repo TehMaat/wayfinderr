@@ -47,3 +47,58 @@ export const parseExclusions = (value: string | undefined): string[] => {
     return [];
   }
 };
+
+/**
+ * Ignored folders, picked in the UI: folders of the downloads that are never
+ * searched (the torrent client's folder for the downloads in progress). Paths
+ * relative to the downloads folder, with "/" separators.
+ */
+
+export const MAX_FOLDERS = 20;
+
+/** "torrents", "Film/Extras": no leading or trailing "/", no "." or ".." parts; throws on invalid input */
+export const normalizeFolder = (raw: string): string => {
+  const parts = raw.replace(/\\/g, '/').split('/').map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 0) throw new Error('A folder cannot be empty');
+  if (parts.some((part) => part === '.' || part === '..')) throw new Error(`Invalid folder: ${raw}`);
+  const folder = parts.join('/');
+  if (folder.length > MAX_EXCLUSION_LENGTH) throw new Error(`A folder can be at most ${MAX_EXCLUSION_LENGTH} characters`);
+  return folder;
+};
+
+/** Normalized, without duplicates (case-insensitive) and folders inside another one */
+export const normalizeFolders = (input: unknown): string[] => {
+  if (!Array.isArray(input) || input.some((f) => typeof f !== 'string')) {
+    throw new Error('folders must be an array of strings');
+  }
+  const folders = (input as string[]).filter((raw) => raw.trim()).map(normalizeFolder);
+  const kept: string[] = [];
+  for (const folder of folders) {
+    // Already ignored with a folder holding it
+    if (folders.some((other) => other.length < folder.length && isInside(other, folder))) continue;
+    if (kept.some((k) => k.toLowerCase() === folder.toLowerCase())) continue;
+    kept.push(folder);
+  }
+  if (kept.length > MAX_FOLDERS) throw new Error(`At most ${MAX_FOLDERS} folders`);
+  return kept;
+};
+
+/** The stored setting (JSON array); a broken value counts as no folders */
+export const parseFolders = (value: string | undefined): string[] => {
+  try {
+    return normalizeFolders(JSON.parse(value ?? '[]'));
+  } catch {
+    return [];
+  }
+};
+
+/** Whether the path (relative to the downloads folder) is the folder or inside it, ignoring case */
+export const isInside = (folder: string, relativePath: string) => {
+  const a = folder.toLowerCase();
+  const b = relativePath.toLowerCase();
+  return b === a || b.startsWith(`${a}/`);
+};
+
+/** The ignored folder holding the path, or null */
+export const ignoredFolder = (folders: string[], relativePath: string): string | null =>
+  folders.find((folder) => isInside(folder, relativePath)) ?? null;

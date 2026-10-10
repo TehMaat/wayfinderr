@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { matchExclusion, normalizeExclusions, parseExclusions } from './exclusions.js';
+import { ignoredFolder, matchExclusion, normalizeExclusions, normalizeFolders, parseExclusions, parseFolders } from './exclusions.js';
 
 test('a rule matches anywhere in the path, ignoring case', () => {
   assert.equal(matchExclusion(['s01'], 'Show.S01.COMPLETE.BluRay/Disc1'), 's01');
@@ -38,4 +38,24 @@ test('a broken setting counts as no rules', () => {
   assert.deepEqual(parseExclusions(undefined), []);
   assert.deepEqual(parseExclusions('not json'), []);
   assert.deepEqual(parseExclusions('["S01"]'), ['S01']);
+});
+
+test('ignored folders: "/" separators, no "." or "..", no folder inside another', () => {
+  assert.deepEqual(normalizeFolders([' /torrents/ ', 'Serie TV\\Extras', '', 'TORRENTS', 'torrents/incomplete']), [
+    'torrents',
+    'Serie TV/Extras',
+  ]);
+  assert.deepEqual(normalizeFolders(['a/b', 'a']), ['a']);
+  assert.throws(() => normalizeFolders(['../etc']));
+  assert.throws(() => normalizeFolders(['a/./b']));
+  assert.throws(() => normalizeFolders('torrents'));
+  assert.deepEqual(parseFolders('nope'), []);
+});
+
+test('a path is in an ignored folder when it is the folder or inside it, ignoring case', () => {
+  assert.equal(ignoredFolder(['torrents'], 'Torrents/Film/film.iso'), 'torrents');
+  assert.equal(ignoredFolder(['torrents'], 'torrents'), 'torrents');
+  assert.equal(ignoredFolder(['torrents'], 'torrents-old/film.iso'), null);
+  assert.equal(ignoredFolder(['torrents'], 'Film/torrents/film.iso'), null);
+  assert.equal(ignoredFolder([], 'film.iso'), null);
 });

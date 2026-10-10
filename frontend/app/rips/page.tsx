@@ -213,12 +213,14 @@ export default function RipsPage() {
         actions={
           <>
             {status && (
-              <Tooltip content="Discs in the downloads that are never ripped">
+              <Tooltip content="Folders never searched and discs never ripped">
                 <Button variant="outline" size="sm" onClick={() => setExclusionsOpen(true)}>
                   <ListX />
                   Exclusions
-                  {status.exclusions.length > 0 && (
-                    <span className="text-xs tabular text-muted-foreground">{status.exclusions.length}</span>
+                  {status.exclusions.length + (status.ignoredFolders?.length ?? 0) > 0 && (
+                    <span className="text-xs tabular text-muted-foreground">
+                      {status.exclusions.length + (status.ignoredFolders?.length ?? 0)}
+                    </span>
                   )}
                 </Button>
               </Tooltip>

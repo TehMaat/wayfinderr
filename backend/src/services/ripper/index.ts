@@ -20,8 +20,8 @@ import {
   downloadsUnpackWritable,
   unrarAvailable,
 } from './archive.js';
-import { DiscType, findDiscs, isDownloadComplete, makemkvSource } from './downloads.js';
-import { EXCLUDED_PREFIX, excludedReason, matchExclusion, parseExclusions } from './exclusions.js';
+import { DiscType, findDiscs, isDownloadComplete, listFolders, makemkvSource } from './downloads.js';
+import { EXCLUDED_PREFIX, excludedReason, ignoredFolder, matchExclusion, parseExclusions, parseFolders } from './exclusions.js';
 import { describeExit, DiscTitle, languageCodes, parseInfo, parseProgress, parseRipResult, selectionRule } from './makemkv.js';
 import { playlistNumber } from './mpls.js';
 import { parseDiscLabel, parseReleaseName } from './releaseName.js';
@@ -92,8 +92,21 @@ const IDENTIFY_RETRY_MS = 10 * 60_000;
 const INITIALIZED_KEY = 'rip_initialized';
 const ARCHIVES_KEY = 'rip_archives_initialized';
 const EXCLUSIONS_KEY = 'rip_exclusions';
+const FOLDERS_KEY = 'rip_ignored_folders';
+const ARRIVE_COMPLETE_KEY = 'rip_arrive_complete';
+// Downloads that arrive complete: a short wait all the same, for a client that
+// copies them from another disk instead of moving them
+const ARRIVED_QUIET_MS = 60_000;
 // Not started yet: a new exclusion rule skips them
 const EXCLUDABLE = ['WAITING', 'QUEUED', 'NEEDS_ATTENTION'];
+// Nothing made of them yet: a new ignored folder removes them from the list
+const REMOVABLE = [...EXCLUDABLE, 'FAILED', 'SKIPPED'];
+
+export interface ExclusionSettings {
+  patterns: string[];
+  folders: string[];
+  arriveComplete: boolean;
+}
 
 const keptLanguages = () => languageCodes(config.RIP.LANGUAGE);
 
@@ -222,15 +235,15 @@ class Ripper extends EventEmitter {
 
   /** New discs in the downloads folder, and downloads that finished. */
   private async discover() {
-    const discs = await findDiscs(config.RIP.SOURCE_DIR);
+    const { patterns: exclusions, folders, arriveComplete } = await this.exclusions();
+    const discs = await findDiscs(config.RIP.SOURCE_DIR, folders);
     const known = new Map((await db.getRips()).map((rip) => [rip.sourcePath, rip]));
 
     // The first time, the downloads already there are only listed (RIP_EXISTING to rip them);
     // so are the archives already there when Wayfinderr started unpacking them
-    const settings = await db.getSettings([INITIALIZED_KEY, ARCHIVES_KEY, EXCLUSIONS_KEY]);
+    const settings = await db.getSettings([INITIALIZED_KEY, ARCHIVES_KEY]);
     const initialized = settings[INITIALIZED_KEY];
     const archivesInitialized = settings[ARCHIVES_KEY];
-    const exclusions = parseExclusions(settings[EXCLUSIONS_KEY]);
     for (const disc of discs) {
       if (known.has(disc.path)) continue;
       const rule = matchExclusion(exclusions, disc.path);
@@ -260,7 +273,8 @@ class Ripper extends EventEmitter {
     }
 
     const present = new Set(discs.map((disc) => disc.path));
-    const quietMs = config.RIP.QUIET_MINUTES * 60_000;
+    // Moved here by the torrent client once complete: no need to wait RIP_QUIET_MINUTES
+    const quietMs = Math.min(config.RIP.QUIET_MINUTES * 60_000, arriveComplete ? ARRIVED_QUIET_MS : Infinity);
     for (const rip of await db.getRipsByStatus(['WAITING'])) {
       if (!present.has(rip.sourcePath)) {
         // Deleted before it finished downloading
@@ -1032,21 +1046,52 @@ class Ripper extends EventEmitter {
     this.emit('rip-updated', { ripId: rip.id, status: 'DELETED' });
   }
 
-  async exclusions() {
-    return parseExclusions((await db.getSettings([EXCLUSIONS_KEY]))[EXCLUSIONS_KEY]);
+  async exclusions(): Promise<ExclusionSettings> {
+    const settings = await db.getSettings([EXCLUSIONS_KEY, FOLDERS_KEY, ARRIVE_COMPLETE_KEY]);
+    return {
+      patterns: parseExclusions(settings[EXCLUSIONS_KEY]),
+      folders: parseFolders(settings[FOLDERS_KEY]),
+      arriveComplete: settings[ARRIVE_COMPLETE_KEY] === 'true',
+    };
+  }
+
+  /** The subfolders of a folder of the downloads, for picking the ignored ones */
+  folders(relative: string) {
+    return listFolders(config.RIP.SOURCE_DIR, relative);
   }
 
   /**
-   * Saves the exclusion rules (already normalized, see normalizeExclusions).
-   * A new rule skips the discs not started yet that it matches; the discs a
-   * rule skipped go back to the queue when no rule matches them any more.
-   * Discs ripped or skipped by hand, or removed from the list, are left alone.
+   * Saves the exclusion rules and the ignored folders (already normalized, see
+   * normalizeExclusions and normalizeFolders); what is left out is kept as is.
+   * The discs in a new ignored folder are removed from the list, unless they
+   * are being ripped or were ripped. A new rule skips the discs not started yet
+   * that it matches; the discs a rule skipped go back to the queue when no rule
+   * matches them any more. Discs ripped or skipped by hand, or removed from
+   * the list, are left alone.
    */
-  async setExclusions(patterns: string[]) {
+  async setExclusions(changes: Partial<ExclusionSettings>) {
     return this.exclusive(async () => {
-      const previous = new Set((await this.exclusions()).map((p) => p.toLowerCase()));
+      const current = await this.exclusions();
+      const { patterns, folders, arriveComplete } = { ...current, ...changes };
+      const previous = new Set(current.patterns.map((p) => p.toLowerCase()));
       const added = patterns.filter((p) => !previous.has(p.toLowerCase()));
-      await db.setSettings({ [EXCLUSIONS_KEY]: JSON.stringify(patterns) });
+      await db.setSettings({
+        [EXCLUSIONS_KEY]: JSON.stringify(patterns),
+        [FOLDERS_KEY]: JSON.stringify(folders),
+        [ARRIVE_COMPLETE_KEY]: String(arriveComplete),
+      });
+
+      let removed = 0;
+      for (const rip of await db.getRipsByStatus(REMOVABLE)) {
+        if (!ignoredFolder(folders, rip.sourcePath)) continue;
+        // Deleted, not hidden: a folder no longer ignored is searched from scratch
+        await this.discardRemux(rip);
+        await this.discardUnpacked(rip);
+        await db.deleteRip(rip.id);
+        if (rip.hidden) continue;
+        this.emit('rip-updated', { ripId: rip.id, status: 'DELETED' });
+        removed++;
+      }
 
       let skipped = 0;
       let restored = 0;
@@ -1068,20 +1113,23 @@ class Ripper extends EventEmitter {
           }
         }
       }
-      logger.info({ exclusions: patterns, skipped, restored }, 'Rip exclusions saved');
-      return { exclusions: patterns, skipped, restored };
+      logger.info({ exclusions: patterns, folders, arriveComplete, removed, skipped, restored }, 'Rip exclusions saved');
+      return { exclusions: patterns, ignoredFolders: folders, arriveComplete, removed, skipped, restored };
     });
   }
 
   async status() {
     const enabled = config.RIP.ENABLED;
+    const { patterns, folders, arriveComplete } = await this.exclusions();
     return {
       enabled: config.RIP.ENABLED,
       runnerAlive: config.RIP.ENABLED ? await runnerAlive() : false,
       tmdbConfigured: tmdbConfigured(),
       language: config.RIP.LANGUAGE,
       minLength: config.RIP.MIN_LENGTH,
-      exclusions: await this.exclusions(),
+      exclusions: patterns,
+      ignoredFolders: folders,
+      arriveComplete,
       // RAR archives: unrar installed, and the disks they can be unpacked on
       unpack: {
         unrar: enabled ? await unrarAvailable() : false,
