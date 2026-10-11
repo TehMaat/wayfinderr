@@ -40,6 +40,7 @@ All notable changes to this project will be documented in this file.
 - Docker images for linux/arm64 too
 
 ### Changed
+- New logo, a glass pyramid with a glowing core inspired by the Star Wars wayfinder: in the sidebar, on the login screen, as the browser tab icon and in the README (`docs/assets/logo.svg`, `docs/assets/logo.png`)
 - Renamed uploads show their release name in the list and on their page (the uploaded name below it); the search matches the file and release names, the torrent names and the hashes
 - "Read media info again" (and the upload page's automatic probe) reads the copy on the server when the local file is gone
 - Torrent cleanup removes a torrent without asking only when it is 100% the one: the rip's download, or a name match on the very same title with the same year in both names and no other torrent matching. Titles spelled differently (score 95), names without a year and runner-up matches now wait for "Remove torrent now"

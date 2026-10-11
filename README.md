@@ -1,4 +1,8 @@
-# Wayfinderr 🎬
+<p align="center">
+  <img src="docs/assets/logo.svg" alt="Wayfinderr logo" width="128" height="128">
+</p>
+
+# Wayfinderr
 
 Automated MKV file transfer system with intelligent server selection and real-time monitoring.
 

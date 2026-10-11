@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Compass, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { Input, Label } from '@/components/ui/input';
 import { authApi, checkSession } from '@/lib/api';
@@ -13,9 +14,7 @@ function AuthCard({ description, children }: { description: string; children: Re
     <div className="flex min-h-screen items-center justify-center p-4">
       <div className="w-full max-w-sm rounded-lg border bg-card p-6 text-card-foreground shadow-2xl">
         <div className="mb-1 flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/15 text-primary">
-            <Compass className="h-4 w-4" />
-          </div>
+          <Logo className="h-8 w-8" />
           <span className="text-lg font-semibold tracking-tight">wayfinderr</span>
         </div>
         <p className="mb-5 text-sm text-muted-foreground">{description}</p>
