@@ -82,6 +82,8 @@ model Upload {
   torrentScore         Int?     // 0-100 name match score
   torrentMessage       String?  // Why it was (not) removed
   torrentTracker       String?  // the torrent's tracker host (no passkey), kept once it is removed
+  torrentFileName      String?  // its .torrent, when added by hand: file name
+  torrentFileData      Bytes?   // the file itself (left out of the list and the details)
 
   // Where the file is on the server (set once uploaded; changes when renamed)
   remotePath           String?

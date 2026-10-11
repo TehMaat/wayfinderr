@@ -463,12 +463,18 @@ POST /api/uploads/torrent-file
 Content-Type: application/x-bittorrent
 ```
 
-For source torrents removed before their tracker was kept, or not found: the body is the source torrent's .torrent file (up to 10 MB), downloaded again from its tracker. Its tracker host (from `announce`, else `announce-list`) goes into `torrentTracker`; the file itself and the passkey in its announce URL are not stored.
+For source torrents removed before their tracker was kept, or not found: the body is the source torrent's .torrent file (up to 10 MB), downloaded again from its tracker, its file name in `?name=` (optional, else the torrent's name). Its tracker host (from `announce`, else `announce-list`) goes into `torrentTracker`; the file itself is kept with each upload it is for (`torrentFileName`), replacing the one before.
 
 - `/:id/torrent/file`: for this upload. `REMOVED`: fills `torrentHash` (and `torrentName`) when unknown; `409` when the upload knows another hash. Any other `torrentStatus` (not checked, `NO_MATCH`, `REVIEW`, `ERROR`) on a `COMPLETED` upload: the .torrent becomes its source torrent (`torrentName`, `torrentHash`, `torrentTracker`, `torrentScore` `null`), and the enabled clients are asked for its hash: still in one, `REVIEW` (removed by hand only, never automatically), in none `REMOVED`. `409` while `WAITING` or before the upload completes, `502` when a client cannot be reached to tell. Returns the updated upload.
 - `/torrent-file`: for every `REMOVED` upload with the .torrent's info hash (several .torrents are sent one per request). Returns `{ name, infoHash, tracker, uploadIds }`, `404` when no removed source torrent has that hash.
 
 `400` when the body is not a .torrent, `415` without the content type, `422` when the .torrent names no tracker. Each upload changed sends `torrent-updated` with `byHand: true`.
+
+```
+GET /api/uploads/:id/torrent/file
+```
+
+The source .torrent kept, as a download (`application/x-bittorrent`); `404` when there is none. It is dropped when "Check again" matches the upload to another torrent.
 
 **Torrent fields on an upload:**
 
@@ -478,7 +484,8 @@ For source torrents removed before their tracker was kept, or not found: the bod
 | `torrentClientId`, `torrentHash`, `torrentName` | The matched torrent |
 | `torrentScore` | Match, 0-100: 100 for a rip of the downloads folder (the torrent holding that download), else the name match (automatic removal needs 100 with the year in both names) |
 | `torrentMessage` | Why it was or was not removed |
-| `torrentTracker` | The torrent's tracker host (the passkey in its announce URL is never stored); kept with `torrentHash` once the torrent is removed |
+| `torrentTracker` | The torrent's tracker host; kept with `torrentHash` once the torrent is removed |
+| `torrentFileName` | File name of its .torrent, when added by hand (the file: `GET /api/uploads/:id/torrent/file`) |
 
 ## Release API
 

@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- The source torrent's .torrent added by hand is kept: the **Source torrent** card downloads it (and offers "Replace .torrent…"), next to the tracker's .torrent in the **Tracker** card. Matched to another torrent later, it is dropped. `GET /api/uploads/:id/torrent/file`, `torrentFileName` upload field
 - Source torrent by hand when it was not found: "Add .torrent…" in the **Source torrent** card now also shows for a source torrent not checked, not matched (`NO_MATCH`), to review or in error. The .torrent becomes the upload's source torrent (name, hash, tracker); still in a download client, it is left there to remove by hand, else it counts as removed
 - The tracker's .torrent: once Unit3Dup uploads a file, its .torrent (the one it downloaded back from the tracker) is read from the Unit3Dup archive on the server and kept with its info hash; the **Tracker** card of the upload page shows the hash and the tracker and downloads the .torrent. `GET /api/uploads/:id/release/torrent`, `releaseTracker`/`releaseTorrentName`/`releaseTorrentPath`/`releaseTorrentHash` upload fields
 - Add the .torrent by hand ("Add .torrent…" / "Replace .torrent…" in the **Tracker** card), when it is not in the Unit3Dup archive: kept once one of its files has the upload's size, its tracker read from its announce URL (host only). `PUT /api/uploads/:id/release/torrent`

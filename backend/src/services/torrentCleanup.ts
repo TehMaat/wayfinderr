@@ -46,6 +46,12 @@ export class TorrentFileError extends Error {
   }
 }
 
+/** The name the .torrent was sent with (no folders), else the torrent's own */
+const torrentFileName = (given: string | undefined, torrentName: string): string => {
+  const base = path.basename((given ?? '').replace(/\\/g, '/')).trim().slice(0, 255);
+  return base || `${torrentName.replace(/[\\/:*?"<>|]/g, '_').slice(0, 240)}.torrent`;
+};
+
 interface TorrentTitles {
   titles: string[];
   year?: number;
@@ -191,8 +197,14 @@ export class TorrentCleanup extends EventEmitter {
     torrentName?: string | null;
     torrentScore?: number | null;
     torrentTracker?: string | null;
+    torrentFileName?: string | null;
+    torrentFileData?: Buffer | null;
   }, byHand = false): Promise<void> {
-    await db.updateUpload(uploadId, data);
+    // Matched to another torrent: the .torrent added by hand was not its own
+    const hash = (h: string | null | undefined) => h?.toLowerCase() ?? null;
+    const otherTorrent =
+      !byHand && data.torrentHash !== undefined && hash((await db.getUploadById(uploadId))?.torrentHash) !== hash(data.torrentHash);
+    await db.updateUpload(uploadId, otherTorrent ? { ...data, torrentFileName: null, torrentFileData: null } : data);
     this.emit('torrent-updated', { uploadId, torrentStatus: data.torrentStatus, byHand });
   }
 
@@ -509,10 +521,14 @@ export class TorrentCleanup extends EventEmitter {
   /**
    * The source torrent's .torrent, given by hand: for torrents removed before their
    * tracker was kept. Its info hash tells which uploads it is for (with uploadId, that
-   * upload, which may not know the hash yet). Only the tracker host is kept, never the
-   * file: its announce URLs carry the passkey.
+   * upload, which may not know the hash yet). The file is kept with each upload, to
+   * download again; the tracker host is read from it.
    */
-  async addTorrentFile(data: Buffer, uploadId?: string): Promise<{ name: string; infoHash: string; tracker: string; uploadIds: string[] }> {
+  async addTorrentFile(
+    data: Buffer,
+    uploadId?: string,
+    fileName?: string
+  ): Promise<{ name: string; infoHash: string; tracker: string; uploadIds: string[] }> {
     let torrent: TorrentFile;
     try {
       torrent = parseTorrent(data);
@@ -522,18 +538,19 @@ export class TorrentCleanup extends EventEmitter {
     const { infoHash, name } = torrent;
     const tracker = torrentTrackers(data)[0];
     if (!tracker) throw new TorrentFileError(`"${name}" names no tracker`, 422);
+    const file = { torrentFileName: torrentFileName(fileName, name), torrentFileData: data };
 
     if (uploadId) {
       const upload = await db.getUploadById(uploadId);
       if (!upload) throw new TorrentFileError('Upload not found', 404);
-      if (upload.torrentStatus !== 'REMOVED') return this.matchTorrentFile(upload, torrent, tracker);
+      if (upload.torrentStatus !== 'REMOVED') return this.matchTorrentFile(upload, torrent, tracker, file);
       if (upload.torrentHash && upload.torrentHash.toLowerCase() !== infoHash) {
         throw new TorrentFileError(`Another torrent: "${name}" is ${infoHash}, the source torrent was ${upload.torrentHash}`, 409);
       }
       await db.updateUpload(uploadId, { torrentHash: infoHash, torrentName: upload.torrentName ?? name });
     }
 
-    const uploadIds = await db.updateUploadsByTorrentHash(infoHash, ['REMOVED'], { torrentTracker: tracker });
+    const uploadIds = await db.updateUploadsByTorrentHash(infoHash, ['REMOVED'], { torrentTracker: tracker, ...file });
     if (uploadIds.length === 0) throw new TorrentFileError(`No removed source torrent has the hash of "${name}" (${infoHash})`, 404);
     uploadIds.forEach((id) => this.emit('torrent-updated', { uploadId: id, torrentStatus: 'REMOVED', byHand: true }));
     logger.info({ infoHash, tracker, uploadIds }, 'Source torrent tracker added by hand');
@@ -548,7 +565,8 @@ export class TorrentCleanup extends EventEmitter {
   private async matchTorrentFile(
     upload: Upload,
     { infoHash, name }: TorrentFile,
-    tracker: string
+    tracker: string,
+    file: { torrentFileName: string; torrentFileData: Buffer }
   ): Promise<{ name: string; infoHash: string; tracker: string; uploadIds: string[] }> {
     if (upload.status !== 'COMPLETED') throw new TorrentFileError('Only once the upload has completed', 409);
     if (upload.torrentStatus === 'WAITING') {
@@ -556,7 +574,7 @@ export class TorrentCleanup extends EventEmitter {
     }
 
     const why = 'Added by hand from its .torrent';
-    const fields = { torrentHash: infoHash, torrentName: name, torrentTracker: tracker, torrentScore: null };
+    const fields = { torrentHash: infoHash, torrentName: name, torrentTracker: tracker, torrentScore: null, ...file };
     const unreachable: string[] = [];
     for (const client of (await db.getTorrentClients()).filter((c) => c.enabled)) {
       try {

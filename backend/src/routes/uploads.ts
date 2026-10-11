@@ -158,8 +158,8 @@ router.post('/:id/torrent/remove', async (req: Request, res: Response) => {
 });
 
 // The source torrent's .torrent given by hand (removed before its tracker was kept):
-// the body is the file itself; with an upload id, for that upload, else for every
-// removed source torrent with its info hash
+// the body is the file itself, its name in ?name=; with an upload id, for that upload,
+// else for every removed source torrent with its info hash
 const torrentBody = express.raw({ type: 'application/x-bittorrent', limit: '10mb' });
 const addTorrentFile = async (req: Request, res: Response) => {
   if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
@@ -167,7 +167,8 @@ const addTorrentFile = async (req: Request, res: Response) => {
     return;
   }
   try {
-    const added = await torrentCleanup.addTorrentFile(req.body, req.params.id);
+    const name = typeof req.query.name === 'string' ? req.query.name : undefined;
+    const added = await torrentCleanup.addTorrentFile(req.body, req.params.id, name);
     res.json(req.params.id ? await db.getUploadById(req.params.id) : added);
   } catch (error) {
     if (error instanceof TorrentFileError) {
@@ -180,6 +181,21 @@ const addTorrentFile = async (req: Request, res: Response) => {
 };
 router.post('/torrent-file', torrentBody, addTorrentFile);
 router.post('/:id/torrent/file', torrentBody, addTorrentFile);
+
+// GET the source torrent's .torrent added by hand
+router.get('/:id/torrent/file', async (req: Request, res: Response) => {
+  try {
+    const torrent = await db.getSourceTorrentFile(req.params.id);
+    if (!torrent) {
+      res.status(404).json({ error: 'No source .torrent stored for this upload' });
+      return;
+    }
+    res.attachment(torrent.name).type('application/x-bittorrent').send(torrent.data);
+  } catch (error) {
+    logger.error({ uploadId: req.params.id, error }, 'Failed to send the source .torrent');
+    res.status(500).json({ error: 'Failed to send the source .torrent' });
+  }
+});
 
 // DELETE upload record (history only, the file is not touched)
 router.delete('/:id', async (req: Request, res: Response) => {

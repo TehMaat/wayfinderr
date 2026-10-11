@@ -93,6 +93,7 @@ export interface Upload {
   torrentScore: number | null;
   torrentMessage: string | null;
   torrentTracker: string | null; // the torrent's tracker host, kept once it is removed
+  torrentFileName: string | null; // its .torrent added by hand (downloaded with uploadsApi.torrentFileUrl)
   // Where the file is on the server (null for uploads before it was stored)
   remotePath: string | null;
   remoteFound: boolean | null; // false: looked for on the server and not found
