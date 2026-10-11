@@ -463,9 +463,9 @@ POST /api/uploads/torrent-file
 Content-Type: application/x-bittorrent
 ```
 
-For source torrents removed before their tracker was kept: the body is the source torrent's .torrent file (up to 10 MB), downloaded again from its tracker. Its tracker host (from `announce`, else `announce-list`) goes into `torrentTracker`; the file itself and the passkey in its announce URL are not stored.
+For source torrents removed before their tracker was kept, or not found: the body is the source torrent's .torrent file (up to 10 MB), downloaded again from its tracker. Its tracker host (from `announce`, else `announce-list`) goes into `torrentTracker`; the file itself and the passkey in its announce URL are not stored.
 
-- `/:id/torrent/file`: for this upload, whose `torrentStatus` must be `REMOVED`. Fills `torrentHash` (and `torrentName`) when unknown; `409` when the upload knows another hash. Returns the updated upload.
+- `/:id/torrent/file`: for this upload. `REMOVED`: fills `torrentHash` (and `torrentName`) when unknown; `409` when the upload knows another hash. Any other `torrentStatus` (not checked, `NO_MATCH`, `REVIEW`, `ERROR`) on a `COMPLETED` upload: the .torrent becomes its source torrent (`torrentName`, `torrentHash`, `torrentTracker`, `torrentScore` `null`), and the enabled clients are asked for its hash: still in one, `REVIEW` (removed by hand only, never automatically), in none `REMOVED`. `409` while `WAITING` or before the upload completes, `502` when a client cannot be reached to tell. Returns the updated upload.
 - `/torrent-file`: for every `REMOVED` upload with the .torrent's info hash (several .torrents are sent one per request). Returns `{ name, infoHash, tracker, uploadIds }`, `404` when no removed source torrent has that hash.
 
 `400` when the body is not a .torrent, `415` without the content type, `422` when the .torrent names no tracker. Each upload changed sends `torrent-updated` with `byHand: true`.

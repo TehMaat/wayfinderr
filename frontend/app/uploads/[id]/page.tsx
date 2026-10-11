@@ -218,8 +218,12 @@ function TorrentCard({ upload }: { upload: Upload }) {
   const canRemove =
     Boolean(upload.torrentHash) && (upload.torrentStatus === 'REVIEW' || upload.torrentStatus === 'WAITING' || upload.torrentStatus === 'ERROR');
   const canCheck = hasClients && upload.torrentStatus !== 'REMOVED' && upload.torrentStatus !== 'WAITING';
-  // Removed before its tracker was kept: the client no longer knows it, its .torrent does
-  const canAddFile = upload.torrentStatus === 'REMOVED' && (!upload.torrentTracker || !upload.torrentHash);
+  // Removed before its tracker was kept: the client no longer knows it, its .torrent does.
+  // Not found (or the wrong match): its .torrent tells which one it is
+  const canAddFile =
+    upload.torrentStatus === 'REMOVED'
+      ? !upload.torrentTracker || !upload.torrentHash
+      : upload.status === 'COMPLETED' && upload.torrentStatus !== 'WAITING';
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -270,7 +274,13 @@ function TorrentCard({ upload }: { upload: Upload }) {
               </Button>
             )}
             {canAddFile && (
-              <Tooltip content="The source torrent's .torrent (downloaded again from its tracker): its tracker and hash are read from it, the file itself is not kept">
+              <Tooltip
+                content={
+                  upload.torrentStatus === 'REMOVED'
+                    ? "The source torrent's .torrent (downloaded again from its tracker): its tracker and hash are read from it, the file itself is not kept"
+                    : "Not found? The source torrent's .torrent: its name, hash and tracker are read from it (the file itself is not kept). Still in a client, it is left there to remove by hand"
+                }
+              >
                 <Button size="sm" variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}>
                   <FilePlus />
                   Add .torrent…

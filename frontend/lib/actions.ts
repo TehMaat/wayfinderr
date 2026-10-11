@@ -195,7 +195,7 @@ export async function addTorrentFile(id: string, file: File) {
   try {
     const { data } = await uploadsApi.addTorrentFile(id, file);
     await useAppStore.getState().refreshUpload(id);
-    toast.success('Source tracker added', { description: data.torrentTracker ?? undefined });
+    toast.success('Source torrent added', { description: [data.torrentName, data.torrentTracker].filter(Boolean).join(' · ') || undefined });
   } catch (err) {
     toast.error(`${file.name} not added`, { description: errorMessage(err) });
   }
