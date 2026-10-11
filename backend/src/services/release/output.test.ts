@@ -29,6 +29,8 @@ test('any other question only after a silence', () => {
   assert.equal(detectPrompt(log, 1000), null);
   assert.deepEqual(detectPrompt(log, IDLE_PROMPT_MS), { kind: 'text', text: 'Overwrite the file?' });
   assert.equal(detectPrompt('Uploading screenshots', IDLE_PROMPT_MS), null);
+  // A slow progress bar is still running
+  assert.equal(detectPrompt('Hashing\n  4%|▌         | 4/100 [01:25<28:49, 18.02s/it]', IDLE_PROMPT_MS), null);
 });
 
 test('exit code from the wrapper line', () => {
