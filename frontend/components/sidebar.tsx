@@ -2,10 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ArrowUpFromLine, Compass, Disc3, LayoutDashboard, Magnet, Plus, Server as ServerIcon, UploadCloud } from 'lucide-react';
+import { ArrowUpFromLine, Disc3, LayoutDashboard, Magnet, Plus, Server as ServerIcon, UploadCloud } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
+import { AccentPicker } from '@/components/accent-picker';
 import { AccountMenu } from '@/components/account-menu';
+import { Logo } from '@/components/logo';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Tooltip } from '@/components/ui/tooltip';
 
@@ -40,9 +42,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       <div className="flex h-14 items-center gap-2.5 px-5">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 text-primary">
-          <Compass className="h-4 w-4" />
-        </div>
+        <Logo className="h-7 w-7" />
         <span className="text-[15px] font-semibold tracking-tight text-foreground">wayfinderr</span>
       </div>
 
@@ -135,7 +135,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             </Tooltip>
           )}
         </div>
-        <ThemeToggle />
+        <div className="flex shrink-0 items-center">
+          <AccentPicker />
+          <ThemeToggle />
+        </div>
       </div>
     </div>
   );

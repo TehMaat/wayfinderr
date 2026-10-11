@@ -1,4 +1,8 @@
-# Wayfinderr 🎬
+<p align="center">
+  <img src="docs/assets/logo.svg" alt="Wayfinderr logo" width="128" height="128">
+</p>
+
+# Wayfinderr
 
 Automated MKV file transfer system with intelligent server selection and real-time monitoring.
 
@@ -18,7 +22,7 @@ Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitl
 - 🔄 **Job Queue** - Concurrent uploads (max 2 global, max 1 per server); unfinished uploads resume after a restart
 - 🧲 **Torrent Cleanup** - After the upload, finds the torrent the MKV was ripped from (names + TMDB titles in every language) and removes it from qBittorrent
 - 💾 **Full History** - SQLite-backed persistence with upload tracking
-- 🌐 **Web UI** - Dashboard, server management and upload history
+- 🌐 **Web UI** - Dashboard, server management and upload history; dark or light theme, five accent colors
 - 🔐 **Login** - One password-protected account; the browser only talks to the frontend, which proxies the API, so one HTTPS reverse proxy entry is enough
 - 💿 **Automatic ripping** - Film discs that finish downloading are identified on TMDB and ripped with MakeMKV (main title, Italian + original language), then uploaded; anything unsure waits for a choice in the UI. When MakeMKV fails, unencrypted discs can be ripped without it (mkvmerge, ffmpeg)
 - 📦 **RAR archives** - Downloaded RAR archives are unpacked on whichever disk has more free space (downloads or watch folder): the disc inside is ripped, an .mkv is uploaded
