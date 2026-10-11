@@ -222,7 +222,7 @@ export default function UploadsPage() {
           )}
 
           <div className="ml-auto flex items-center gap-1">
-            <Tooltip content="Add source .torrents: each fills the tracker of the removed source torrents with its info hash">
+            <Tooltip content="Add source .torrents: each is kept with the removed source torrents with its info hash, and fills their tracker">
               <Button variant="ghost" size="icon" disabled={importing} onClick={() => torrentsRef.current?.click()} aria-label="Add source .torrents">
                 <FilePlus />
               </Button>

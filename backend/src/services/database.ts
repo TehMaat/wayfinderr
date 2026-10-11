@@ -60,12 +60,12 @@ export class DatabaseService {
   }
 
   // Upload queries
-  // The .torrent file is only sent on its own; the list also leaves out the
+  // The .torrent files are only sent on their own; the list also leaves out the
   // tracker command's output (up to 64 KB each)
   private uploadFields = (...left: Prisma.UploadScalarFieldEnum[]) =>
     Object.fromEntries(
       Object.values(Prisma.UploadScalarFieldEnum)
-        .filter((field) => field !== 'releaseTorrentData' && !left.includes(field))
+        .filter((field) => field !== 'releaseTorrentData' && field !== 'torrentFileData' && !left.includes(field))
         .map((field) => [field, true])
     ) as Record<Prisma.UploadScalarFieldEnum, boolean>;
   private listFields = this.uploadFields('releaseLog');
@@ -102,6 +102,16 @@ export class DatabaseService {
     });
     return upload?.releaseTorrentName && upload.releaseTorrentData
       ? { name: upload.releaseTorrentName, data: Buffer.from(upload.releaseTorrentData) }
+      : null;
+  }
+
+  async getSourceTorrentFile(id: string): Promise<{ name: string; data: Buffer } | null> {
+    const upload = await this.prisma.upload.findUnique({
+      where: { id },
+      select: { torrentFileName: true, torrentFileData: true },
+    });
+    return upload?.torrentFileName && upload.torrentFileData
+      ? { name: upload.torrentFileName, data: Buffer.from(upload.torrentFileData) }
       : null;
   }
 

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowLeft, AudioLines, Captions, Clapperboard, FilePlus, FileVideo, Film, Magnet, RotateCcw, Search, Square, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, AudioLines, Captions, Clapperboard, Download, FilePlus, FileVideo, Film, Magnet, RotateCcw, Search, Square, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -228,8 +228,8 @@ function TorrentCard({ upload }: { upload: Upload }) {
   const addFileHint =
     addFileBlocked ??
     (upload.torrentStatus === 'REMOVED'
-      ? "The source torrent's .torrent (downloaded again from its tracker): its tracker and hash are read from it, the file itself is not kept"
-      : "Not found? The source torrent's .torrent: its name, hash and tracker are read from it (the file itself is not kept). Still in a client, it is left there to remove by hand");
+      ? "The source torrent's .torrent (downloaded again from its tracker): kept here, its tracker and hash are read from it"
+      : "Not found? The source torrent's .torrent: kept here, its name, hash and tracker are read from it. Still in a client, it is left there to remove by hand");
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -255,6 +255,18 @@ function TorrentCard({ upload }: { upload: Upload }) {
             <Row label="Hash">
               <Missing value={upload.torrentHash} mono />
             </Row>
+            {upload.torrentFileName && (
+              <Row label=".torrent">
+                <a
+                  href={uploadsApi.torrentFileUrl(upload.id)}
+                  download={upload.torrentFileName}
+                  className="inline-flex items-center gap-1.5 font-mono text-xs text-primary hover:underline"
+                >
+                  <Download className="h-3.5 w-3.5 shrink-0" />
+                  {upload.torrentFileName}
+                </a>
+              </Row>
+            )}
             <Row label="Tracker">
               {upload.torrentStatus === 'REMOVED' ? <Missing value={upload.torrentTracker} /> : (upload.torrentTracker ?? '–')}
             </Row>
@@ -283,7 +295,7 @@ function TorrentCard({ upload }: { upload: Upload }) {
             <span className="inline-flex" tabIndex={addFileBlocked ? 0 : -1}>
               <Button size="sm" variant="secondary" disabled={busy || Boolean(addFileBlocked)} onClick={() => fileRef.current?.click()}>
                 <FilePlus />
-                Add .torrent…
+                {upload.torrentFileName ? 'Replace .torrent…' : 'Add .torrent…'}
               </Button>
             </span>
           </Tooltip>

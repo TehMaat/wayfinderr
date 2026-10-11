@@ -85,11 +85,17 @@ export const uploadsApi = {
   removeTorrent: (id: string) => apiClient.post(`/api/uploads/${id}/torrent/remove`, null, { timeout: 45000 }),
   // The source .torrent given by hand: for this upload, or for the uploads with its info hash
   addTorrentFile: (id: string, file: File) =>
-    apiClient.post<Upload>(`/api/uploads/${id}/torrent/file`, file, { headers: { 'Content-Type': 'application/x-bittorrent' } }),
-  importTorrentFile: (file: File) =>
-    apiClient.post<{ name: string; infoHash: string; tracker: string; uploadIds: string[] }>('/api/uploads/torrent-file', file, {
+    apiClient.post<Upload>(`/api/uploads/${id}/torrent/file`, file, {
+      params: { name: file.name },
       headers: { 'Content-Type': 'application/x-bittorrent' },
     }),
+  importTorrentFile: (file: File) =>
+    apiClient.post<{ name: string; infoHash: string; tracker: string; uploadIds: string[] }>('/api/uploads/torrent-file', file, {
+      params: { name: file.name },
+      headers: { 'Content-Type': 'application/x-bittorrent' },
+    }),
+  // The source .torrent kept once added by hand
+  torrentFileUrl: (id: string) => `/api/uploads/${id}/torrent/file`,
 };
 
 // Release API: rename on the server, then the tracker command (Unit3Dup)
