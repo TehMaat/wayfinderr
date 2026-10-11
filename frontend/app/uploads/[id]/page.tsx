@@ -218,12 +218,18 @@ function TorrentCard({ upload }: { upload: Upload }) {
   const canRemove =
     Boolean(upload.torrentHash) && (upload.torrentStatus === 'REVIEW' || upload.torrentStatus === 'WAITING' || upload.torrentStatus === 'ERROR');
   const canCheck = hasClients && upload.torrentStatus !== 'REMOVED' && upload.torrentStatus !== 'WAITING';
-  // Removed before its tracker was kept: the client no longer knows it, its .torrent does.
+  // Always shown. Removed: its .torrent gives back the tracker (and the hash, if missing).
   // Not found (or the wrong match): its .torrent tells which one it is
-  const canAddFile =
-    upload.torrentStatus === 'REMOVED'
-      ? !upload.torrentTracker || !upload.torrentHash
-      : upload.status === 'COMPLETED' && upload.torrentStatus !== 'WAITING';
+  const addFileBlocked = inProgress
+    ? 'Once the upload has completed'
+    : upload.torrentStatus === 'WAITING'
+      ? 'About to be removed: remove it now first, or wait'
+      : null;
+  const addFileHint =
+    addFileBlocked ??
+    (upload.torrentStatus === 'REMOVED'
+      ? "The source torrent's .torrent (downloaded again from its tracker): its tracker and hash are read from it, the file itself is not kept"
+      : "Not found? The source torrent's .torrent: its name, hash and tracker are read from it (the file itself is not kept). Still in a client, it is left there to remove by hand");
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -259,47 +265,40 @@ function TorrentCard({ upload }: { upload: Upload }) {
           </div>
         )}
         {upload.torrentMessage && <p className="text-sm text-muted-foreground">{upload.torrentMessage}</p>}
-        {(canRemove || canCheck || canAddFile) && (
-          <div className="flex flex-wrap gap-2">
-            {canRemove && (
-              <Button size="sm" variant={upload.torrentStatus === 'REVIEW' ? 'default' : 'secondary'} disabled={busy} onClick={() => setConfirmOpen(true)}>
-                <Trash2 />
-                Remove torrent now
+        <div className="flex flex-wrap gap-2">
+          {canRemove && (
+            <Button size="sm" variant={upload.torrentStatus === 'REVIEW' ? 'default' : 'secondary'} disabled={busy} onClick={() => setConfirmOpen(true)}>
+              <Trash2 />
+              Remove torrent now
+            </Button>
+          )}
+          {canCheck && (
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => run(() => checkTorrent(upload.id))}>
+              <Search />
+              {upload.torrentStatus ? 'Check again' : 'Find torrent'}
+            </Button>
+          )}
+          {/* The span keeps the hint on a disabled button, which gets no pointer events */}
+          <Tooltip content={addFileHint}>
+            <span className="inline-flex" tabIndex={addFileBlocked ? 0 : -1}>
+              <Button size="sm" variant="secondary" disabled={busy || Boolean(addFileBlocked)} onClick={() => fileRef.current?.click()}>
+                <FilePlus />
+                Add .torrent…
               </Button>
-            )}
-            {canCheck && (
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => run(() => checkTorrent(upload.id))}>
-                <Search />
-                {upload.torrentStatus ? 'Check again' : 'Find torrent'}
-              </Button>
-            )}
-            {canAddFile && (
-              <Tooltip
-                content={
-                  upload.torrentStatus === 'REMOVED'
-                    ? "The source torrent's .torrent (downloaded again from its tracker): its tracker and hash are read from it, the file itself is not kept"
-                    : "Not found? The source torrent's .torrent: its name, hash and tracker are read from it (the file itself is not kept). Still in a client, it is left there to remove by hand"
-                }
-              >
-                <Button size="sm" variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}>
-                  <FilePlus />
-                  Add .torrent…
-                </Button>
-              </Tooltip>
-            )}
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".torrent,application/x-bittorrent"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = '';
-                if (file) run(() => addTorrentFile(upload.id, file));
-              }}
-            />
-          </div>
-        )}
+            </span>
+          </Tooltip>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".torrent,application/x-bittorrent"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (file) run(() => addTorrentFile(upload.id, file));
+            }}
+          />
+        </div>
       </CardContent>
 
       <ConfirmDialog
