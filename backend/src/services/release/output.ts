@@ -29,7 +29,9 @@ const KNOWN_PROMPTS: [RegExp, PromptKind][] = [
   [/Please digit a valid Youtube ID/i, 'trailer'],
 ];
 
-const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
+const PROGRESS = /\d\s?%/;
+
+const ANSI =/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
 
 /**
  * Appends output to the log: escape codes dropped, a carriage return (progress
@@ -59,6 +61,8 @@ export const detectPrompt = (log: string, idleMs: number): Prompt | null => {
   for (const [pattern, kind] of KNOWN_PROMPTS) {
     if (pattern.test(line)) return { kind, text: line };
   }
+  // A slow progress bar ("4%|▌ | 4/100 [01:25<28:49, 18.02s/it]") is work, not a question
+  if (PROGRESS.test(line)) return null;
   if (idleMs >= IDLE_PROMPT_MS && /[?:>\-)\]]$/.test(line)) return { kind: 'text', text: line };
   return null;
 };
