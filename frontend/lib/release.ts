@@ -21,6 +21,7 @@ export function missingInfo(u: Upload): string[] {
   if (u.torrentStatus === 'REMOVED') {
     if (!u.torrentHash) missing.push('source hash');
     if (!u.torrentTracker) missing.push('source tracker');
+    if (!u.torrentFileName) missing.push('source .torrent');
   }
   return missing;
 }

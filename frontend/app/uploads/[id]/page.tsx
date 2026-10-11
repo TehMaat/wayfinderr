@@ -255,7 +255,7 @@ function TorrentCard({ upload }: { upload: Upload }) {
             <Row label="Hash">
               <Missing value={upload.torrentHash} mono />
             </Row>
-            {upload.torrentFileName && (
+            {upload.torrentFileName ? (
               <Row label=".torrent">
                 <a
                   href={uploadsApi.torrentFileUrl(upload.id)}
@@ -266,6 +266,12 @@ function TorrentCard({ upload }: { upload: Upload }) {
                   {upload.torrentFileName}
                 </a>
               </Row>
+            ) : (
+              upload.torrentStatus === 'REMOVED' && (
+                <Row label=".torrent">
+                  <Missing value={null} />
+                </Row>
+              )
             )}
             <Row label="Tracker">
               {upload.torrentStatus === 'REMOVED' ? <Missing value={upload.torrentTracker} /> : (upload.torrentTracker ?? '–')}
