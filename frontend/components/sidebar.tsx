@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { ArrowUpFromLine, Disc3, LayoutDashboard, Magnet, Plus, Server as ServerIcon, UploadCloud } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
+import { AccentPicker } from '@/components/accent-picker';
 import { AccountMenu } from '@/components/account-menu';
 import { Logo } from '@/components/logo';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -134,7 +135,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             </Tooltip>
           )}
         </div>
-        <ThemeToggle />
+        <div className="flex shrink-0 items-center">
+          <AccentPicker />
+          <ThemeToggle />
+        </div>
       </div>
     </div>
   );

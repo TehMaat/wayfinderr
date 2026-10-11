@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Accent color: violet, red, blue, green or amber, from the palette button next to the theme toggle in the sidebar. It colors the dashboard, the logo and the browser tab icon, and is kept in the browser like the theme
 - The source torrent's .torrent added by hand is kept: the **Source torrent** card downloads it (and offers "Replace .torrent…"), next to the tracker's .torrent in the **Tracker** card. Matched to another torrent later, it is dropped. `GET /api/uploads/:id/torrent/file`, `torrentFileName` upload field
 - Source torrent by hand when it was not found: "Add .torrent…" in the **Source torrent** card now also shows for a source torrent not checked, not matched (`NO_MATCH`), to review or in error. The .torrent becomes the upload's source torrent (name, hash, tracker); still in a download client, it is left there to remove by hand, else it counts as removed
 - The tracker's .torrent: once Unit3Dup uploads a file, its .torrent (the one it downloaded back from the tracker) is read from the Unit3Dup archive on the server and kept with its info hash; the **Tracker** card of the upload page shows the hash and the tracker and downloads the .torrent. `GET /api/uploads/:id/release/torrent`, `releaseTracker`/`releaseTorrentName`/`releaseTorrentPath`/`releaseTorrentHash` upload fields
@@ -40,7 +41,7 @@ All notable changes to this project will be documented in this file.
 - Docker images for linux/arm64 too
 
 ### Changed
-- New logo, a glass pyramid with a glowing core inspired by the Star Wars wayfinder: in the sidebar, on the login screen, as the browser tab icon and in the README (`docs/assets/logo.svg`, `docs/assets/logo.png`)
+- New logo, a glass pyramid with a glowing core inspired by the Star Wars wayfinder: in the sidebar, on the login screen, as the browser tab icon and in the README. In five colors (violet, red, blue, green, amber: `docs/assets/logo-<color>.svg|png`, written by `scripts/logos.mjs`)
 - Renamed uploads show their release name in the list and on their page (the uploaded name below it); the search matches the file and release names, the torrent names and the hashes
 - "Read media info again" (and the upload page's automatic probe) reads the copy on the server when the local file is gone
 - Torrent cleanup removes a torrent without asking only when it is 100% the one: the rip's download, or a name match on the very same title with the same year in both names and no other torrent matching. Titles spelled differently (score 95), names without a year and runner-up matches now wait for "Remove torrent now"

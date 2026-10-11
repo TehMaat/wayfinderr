@@ -57,6 +57,49 @@
     --input: 240 4% 19%;
     --ring: 258 72% 76%;
   }
+
+  /* Accent colors (lib/accents.ts): violet is the default above. The .dark rules
+     come second and are more specific, so they win in the dark theme */
+  [data-accent='red'] {
+    --primary: 0 72% 47%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 0 72% 47%;
+  }
+  .dark[data-accent='red'] {
+    --primary: 0 90% 71%;
+    --primary-foreground: 0 45% 10%;
+    --ring: 0 90% 71%;
+  }
+  [data-accent='blue'] {
+    --primary: 221 83% 53%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 221 83% 53%;
+  }
+  .dark[data-accent='blue'] {
+    --primary: 213 94% 68%;
+    --primary-foreground: 222 47% 11%;
+    --ring: 213 94% 68%;
+  }
+  [data-accent='green'] {
+    --primary: 142 72% 29%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 142 72% 29%;
+  }
+  .dark[data-accent='green'] {
+    --primary: 142 69% 58%;
+    --primary-foreground: 144 61% 10%;
+    --ring: 142 69% 58%;
+  }
+  [data-accent='amber'] {
+    --primary: 26 90% 37%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 26 90% 37%;
+  }
+  .dark[data-accent='amber'] {
+    --primary: 43 96% 56%;
+    --primary-foreground: 26 83% 14%;
+    --ring: 43 96% 56%;
+  }
 }
 
 @layer base {

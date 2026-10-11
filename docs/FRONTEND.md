@@ -134,8 +134,9 @@ The frontend maintains real-time connectivity via WebSocket (lib/useRealtime.ts)
 ## Styling & UI
 
 All components follow the existing design system:
-- Dark theme with slate colors (900-700)
-- Blue accent color (#2563eb) for primary actions
+- Dark and light theme (sun/moon button in the sidebar)
+- Accent color for primary actions and the logo: violet (default), red, blue, green or amber, from the palette button in the sidebar; kept in the browser with the theme. Each accent has `[data-accent]` rules in `app/globals.css`, an entry in `lib/accents.ts` and a tab icon in `public/icons`
+- Logo variants: `node scripts/logos.mjs` writes the logo in every accent (`docs/assets/logo-<accent>.svg`) and the tab icons from one drawing
 - Color-coded status badges
 - Responsive grid layouts (1 col mobile, 2+ col desktop)
 - Consistent spacing and typography
