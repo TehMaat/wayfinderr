@@ -491,6 +491,8 @@ The source .torrent kept, as a download (`application/x-bittorrent`); `404` when
 
 An upload on a server is renamed there as a release, the way moverr.py does (`NAME.YEAR.{VERSION}.{HYBRID}.{REMUX}.RESOLUTION.{VU}.{DV}.{P#}.{HDR}.AUDIO.SUBS-TAG.mkv`, in its own folder), then the server's `trackerCommand` (Unit3Dup) uploads it to the tracker. The command runs over SSH inside tmux (`wf-<uploadId>` session; needs `tmux` and `bash` on the server), so it survives a dropped connection or a restart of Wayfinderr; its output is read from `~/.wayfinderr/<uploadId>.log`. One command at a time per server. Only for `COMPLETED` uploads.
 
+**Local release** (`?local=1` on the proposal, the preview and the rename): an upload not on a server yet (any status but `COMPLETED` and `PENDING`, its local file still there) is released on the machine of a download client with `localRelease` instead (the one of its source torrent, else the first; see [Clients API](#clients-api-qbittorrent)). The same steps run there over SSH: the local file, at the client's `hostWatchDir` plus its path in the watch folder, is moved into the client's `releaseDir`, then its `trackerCommand` runs. The rename stops a queued or running upload first (`409` if it is still stopping after 10 seconds), then sets `status` `COMPLETED`, `serverId` `null` and `localClientId`; from then on every call works without `?local=1`, on that client. `409` when no client is set up for it or the file is gone; `502` when the move fails (the two folders must be on the same disk).
+
 ### Rename Proposal
 
 ```
@@ -514,7 +516,8 @@ The media analysis (video, the best audio codec of each language, subtitles, lan
   "remotePath": "/home/user/uploads/Il Padrino (1972).mkv",
   "releaseDir": "downloads/qbittorrent",
   "releaseTag": "TAG",
-  "hasTrackerCommand": true
+  "hasTrackerCommand": true,
+  "target": { "name": "Server 1", "local": false }
 }
 ```
 
@@ -553,7 +556,7 @@ POST /api/uploads/:id/release/dismiss
 
 ### The .torrent
 
-Once the tracker accepts the upload (`DONE`), the .torrent Unit3Dup downloaded back from it is read from the Unit3Dup archive on the server, `<archive>/<TRACKER>/<name>.torrent` (the file name without its extension, with it, or the name of its folder), and stored with its info hash. The archive is the one Unit3Dup printed (`[*.torrent Archive] '...'`), the `TORRENT_ARCHIVE_PATH` of `~/Unit3Dup_config/Unit3Dbot.json`, or `~/Unit3Dup_config/torrent_archive_path`; only a .torrent of this very file counts (it holds the file with the same name and size, alone or in its folder). Not found: `releaseMessage` says so and the upload shows the .torrent as missing.
+Once the tracker accepts the upload (`DONE`), the .torrent Unit3Dup downloaded back from it is read from the Unit3Dup archive on the server, `<archive>/<TRACKER>/<name>.torrent` (the file name without its extension, with it, or the name of its folder), and stored with its info hash. The archive is the one ITTUP or Unit3Dup printed (`[*.torrent Archive] '...'`), the `TORRENT_ARCHIVE_PATH` of `~/ittup_config/ittup.json` or `~/Unit3Dup_config/Unit3Dbot.json`, or their default `~/ittup_config/torrent_archive_path` and `~/Unit3Dup_config/torrent_archive_path`; only a .torrent of this very file counts (it holds the file with the same name and size, alone or in its folder). Not found: `releaseMessage` says so and the upload shows the .torrent as missing.
 
 ```
 GET /api/uploads/:id/release/torrent
@@ -619,13 +622,24 @@ DELETE /api/clients/:id
   "enabled": true,
   "autoRemove": true,
   "deleteFiles": false,
-  "minFreeGB": 20
+  "minFreeGB": 20,
+  "localRelease": true,
+  "sshHost": "172.19.19.1",
+  "sshPort": 22,
+  "sshUsername": "root",
+  "sshPassword": "secret",
+  "hostWatchDir": "/mnt/data/extracted-mkv",
+  "releaseDir": "/mnt/data/downloads/ittup",
+  "releaseTag": "TAG",
+  "trackerCommand": "ittup -u {path}"
 }
 ```
 
 `username` blank = no login (WebUI auth bypass for this host). `apiKey` (qBittorrent 5.2+) replaces username/password. On update a blank `password`/`apiKey` keeps the stored one; send `"clearPassword": true` / `"clearApiKey": true` to remove it. Responses never include the secrets, only `hasPassword` / `hasApiKey`.
 
 `minFreeGB` (`null` = off): when a disk of this machine holding the watch folder, the downloads or the database has less free space, every running torrent of the client (any category) is paused and tagged `wayfinderr-low-space` in qBittorrent; checked every 30 seconds and right after a save. Once the disk has 10% more free space than that (at least 1 GB more), only the tagged torrents are resumed, so torrents paused by hand stay paused. They are resumed too when the value is cleared, the client is disabled or deleted. Responses also carry `spacePausedAt` (set while paused) and `spaceMessage` (the last pause/resume, or why it failed).
+
+**Local release** (see [Release API](#release-api)): `localRelease` adds the release on the machine this client runs on, reached over SSH (`sshHost`, `sshPort`, `sshUsername`, `sshPassword`, blank = the key in `SSH_PRIVATE_KEY_PATH`; a blank password keeps the stored one, `"clearSshPassword": true` removes it, responses only carry `hasSshPassword`). `hostWatchDir` is the watch folder as that machine sees it; `releaseDir`, `releaseTag` and `trackerCommand` work as on a server. With `localRelease` on, `sshHost`, `sshUsername`, `hostWatchDir` and `releaseDir` are required (`400`).
 
 ### Test Client
 
@@ -635,8 +649,10 @@ POST /api/clients/:id/test
 
 **Response:** 200 OK
 ```json
-{ "ok": true, "version": "v5.0.4", "completedTorrents": 12 }
+{ "ok": true, "version": "v5.0.4", "completedTorrents": 12, "localRelease": true }
 ```
+
+With `localRelease`, it also logs in over SSH, checks the watch folder, creates the release folder if missing and checks that `tmux` and the tracker command's program are installed (`502` with the reason otherwise).
 
 ## Rips API
 
@@ -857,6 +873,9 @@ Upload progress update.
   }
 }
 ```
+
+#### released-locally
+`{ "type": "released-locally", "uploadId": "upload123" }`: a file not uploaded was moved on a download client's machine instead (local release, see [Release API](#release-api)); the upload is now `COMPLETED` there.
 
 #### upload-completed
 Upload finished successfully.

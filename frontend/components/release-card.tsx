@@ -1,17 +1,17 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { CornerDownLeft, Download, FileUp, Link2, Loader2, Play, Send, Square, Tags } from 'lucide-react';
+import { CornerDownLeft, Download, FileUp, HardDriveDownload, Link2, Loader2, Play, Send, Square, Tags } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Tooltip } from '@/components/ui/tooltip';
 import { ReleaseDialog } from '@/components/release-dialog';
-import { canRelease, RELEASE_STATUS, releaseRunning } from '@/components/release-badge';
+import { canRelease, localReleaseClient, RELEASE_STATUS, releaseRunning } from '@/components/release-badge';
 import { addReleaseTorrent, answerRelease, linkRelease, runRelease, stopRelease } from '@/lib/actions';
 import { releaseApi } from '@/lib/api';
-import { useAppStore, type ReleasePrompt, type Upload } from '@/lib/store';
+import { useAppStore, type ReleasePrompt, type TorrentClient, type Upload } from '@/lib/store';
 import { formatDate, formatDuration } from '@/lib/utils';
 
 const parsePrompt = (value: string | null): ReleasePrompt | null => {
@@ -22,7 +22,7 @@ const parsePrompt = (value: string | null): ReleasePrompt | null => {
   }
 };
 
-/** The question Unit3Dup waits on, with the answers it takes */
+/** The question ITTUP (Unit3Dup) waits on, with the answers it takes */
 function PromptBox({ upload, prompt }: { upload: Upload; prompt: ReleasePrompt | null }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -118,9 +118,44 @@ function TrackerTorrent({ upload }: { upload: Upload }) {
   );
 }
 
-/** Rename on the server and upload to the tracker: status, live output and the answers */
+/** Not on a server yet: released on the client's machine instead of uploaded */
+function LocalReleaseCard({ upload, client }: { upload: Upload; client: TorrentClient }) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const stops = upload.status === 'QUEUED' || upload.status === 'UPLOADING';
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Tags className="h-4 w-4 text-muted-foreground" />
+          Tracker
+        </CardTitle>
+        <Badge variant="secondary">Not uploaded</Badge>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Release it from {client.name} instead of uploading it: the file is moved into its own folder on that machine
+          {client.trackerCommand ? ', then the tracker command uploads it and seeds it there' : ''}.
+          {stops && ' Its upload stops.'}
+        </p>
+        <Button size="sm" onClick={() => setDialogOpen(true)}>
+          <HardDriveDownload />
+          Release locally…
+        </Button>
+      </CardContent>
+      {dialogOpen && <ReleaseDialog upload={upload} open={dialogOpen} onOpenChange={setDialogOpen} local />}
+    </Card>
+  );
+}
+
+/**
+ * Rename on the server and upload to the tracker: status, live output and the answers.
+ * A file not on a server yet can be released on a download client's machine instead.
+ */
 export function ReleaseCard({ upload }: { upload: Upload }) {
-  const server = useAppStore((s) => s.servers.find((x) => x.id === upload.serverId));
+  const server = useAppStore((s) =>
+    upload.localClientId ? s.clients.find((x) => x.id === upload.localClientId) : s.servers.find((x) => x.id === upload.serverId)
+  );
+  const localClient = useAppStore((s) => localReleaseClient(upload, s.clients));
   const liveLog = useAppStore((s) => s.releaseLogs[upload.id]);
   const log = liveLog ?? upload.releaseLog ?? '';
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -143,7 +178,9 @@ export function ReleaseCard({ upload }: { upload: Upload }) {
     }
   }, [upload.releaseStatus]);
 
-  if (upload.status !== 'COMPLETED' || !upload.serverId) return null;
+  if (upload.status !== 'COMPLETED' || !(upload.serverId || upload.localClientId)) {
+    return localClient ? <LocalReleaseCard upload={upload} client={localClient} /> : null;
+  }
 
   const status = upload.releaseStatus ? RELEASE_STATUS[upload.releaseStatus] : null;
   const running = releaseRunning(upload);
@@ -187,7 +224,7 @@ export function ReleaseCard({ upload }: { upload: Upload }) {
           <p className="text-sm text-muted-foreground">
             Rename the file on the server as a release
             {hasCommand ? ', then upload it to the tracker' : ''}.
-            {!hasCommand && server && ' No tracker command set for this server.'}
+            {!hasCommand && server && ` No tracker command set for ${server.name}.`}
           </p>
         )}
 
@@ -227,7 +264,7 @@ export function ReleaseCard({ upload }: { upload: Upload }) {
               content={
                 upload.releaseName
                   ? 'Look for the file and its .torrent on the server again, and read its media info from there'
-                  : 'Already renamed and on the tracker? Find the file on the server (by size) and its .torrent in the Unit3Dup archive'
+                  : 'Already renamed and on the tracker? Find the file on the server (by size) and its .torrent in the ITTUP/Unit3Dup archive'
               }
             >
               <Button size="sm" variant="ghost" disabled={busy} onClick={() => run(() => linkRelease(upload.id))}>
@@ -241,7 +278,7 @@ export function ReleaseCard({ upload }: { upload: Upload }) {
               content={
                 upload.releaseTorrentHash
                   ? 'Replace the stored .torrent with one downloaded from the tracker'
-                  : 'Not in the Unit3Dup archive? Add the .torrent downloaded from the tracker'
+                  : 'Not in the ITTUP/Unit3Dup archive? Add the .torrent downloaded from the tracker'
               }
             >
               <Button size="sm" variant="ghost" disabled={busy} onClick={() => torrentInput.current?.click()}>

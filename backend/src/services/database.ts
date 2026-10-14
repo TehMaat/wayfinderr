@@ -80,7 +80,11 @@ export class DatabaseService {
         orderBy: { createdAt: 'desc' },
         take: limit || 50,
         skip: offset || 0,
-        select: { ...this.listFields, server: { select: { id: true, name: true, sshPath: true } } },
+        select: {
+          ...this.listFields,
+          server: { select: { id: true, name: true, sshPath: true } },
+          localClient: { select: { id: true, name: true } },
+        },
       }) as Promise<Upload[]>,
       this.prisma.upload.count(),
     ]);
@@ -91,7 +95,11 @@ export class DatabaseService {
   async getUploadById(id: string): Promise<Upload | null> {
     return this.prisma.upload.findUnique({
       where: { id },
-      select: { ...this.detailFields, server: { select: { id: true, name: true, sshPath: true } } },
+      select: {
+        ...this.detailFields,
+        server: { select: { id: true, name: true, sshPath: true } },
+        localClient: { select: { id: true, name: true } },
+      },
     }) as Promise<Upload | null>;
   }
 

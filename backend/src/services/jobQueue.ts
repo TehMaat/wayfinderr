@@ -225,6 +225,11 @@ export class JobQueue extends EventEmitter {
     }
   }
 
+  /** Queued or still running (a stopped transfer counts until it has wound down) */
+  hasJob(uploadId: string): boolean {
+    return this.jobs.has(uploadId);
+  }
+
   getQueueSize(): number {
     return this.queue.size + this.queue.pending;
   }

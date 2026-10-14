@@ -25,6 +25,7 @@ Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitl
 - 🌐 **Web UI** - Dashboard, server management and upload history; dark or light theme, five accent colors
 - 🔐 **Login** - One password-protected account; the browser only talks to the frontend, which proxies the API, so one HTTPS reverse proxy entry is enough
 - 💿 **Automatic ripping** - Film discs that finish downloading are identified on TMDB and ripped with MakeMKV (main title, Italian + original language), then uploaded; anything unsure waits for a choice in the UI. When MakeMKV fails, unencrypted discs can be ripped without it (mkvmerge, ffmpeg)
+- 🏠 **Local release** - With room on this machine, a file is released from the local qBittorrent instead of uploaded: moved and sent to the tracker (ITTUP) over SSH on the machine qBittorrent runs on
 - 📦 **RAR archives** - Downloaded RAR archives are unpacked on whichever disk has more free space (downloads or watch folder): the disc inside is ripped, an .mkv is uploaded
 
 ---
@@ -181,6 +182,16 @@ How a torrent is matched and removed:
 - **Automatic** only when it is 100% the torrent: the rip's download, or for a name match the very same title (score 100) with a year in both the MKV name (file or folder, e.g. `Il padrino (1972)`) and the torrent (its name, or its TMDB film) that agrees, and no other torrent matching at all. Anything less (`Blade Runner` vs `Blade Runner 2049`, `IL_PADRINO_t00.mkv` with no year, the title spelled differently, two torrents of the same movie) only shows a suggestion and a **Remove torrent now** button on the upload page
 - The removal waits 5 minutes, then until no other rip or upload of the same download is still running (for an MKV matched by name: no other MKV of the same film queued or uploading, and no MKV in the watch folder written in the last 2 minutes, since MakeMKV may still be ripping the other titles from that ISO)
 - Only finished torrents are ever considered. Note that removing a torrent stops seeding: on private trackers check your ratio rules, or leave **When matched** on "Only suggest"
+
+### Release locally (optional)
+
+With room on this machine, a file can be released from the qBittorrent client here instead of being uploaded to a server: the same rename and tracker command as on a server (the **Tracker** card), run over SSH on the machine qBittorrent runs on.
+
+1. On that machine: an SSH login, `tmux`, and the tracker command ([ITTUP](https://github.com/TehMaat/ittup)) set up to seed in this qBittorrent (`ittup.json`). ITTUP gives qBittorrent the folder of the file as it sees it, so qBittorrent must see the release folder at the same path: with qBittorrent in Docker, mount it there too (e.g. `- /mnt/data/downloads/ittup:/mnt/data/downloads/ittup`) and leave `SHARED_QBIT_PATH` on `no_path` (it would put every release in one fixed folder)
+2. **Clients** → edit the client → **Local release** on: SSH host (from Docker, the host's address on the Docker network) and login, the **watch folder** as that machine sees it (e.g. `/mnt/data/extracted-mkv` for a container's `/makemkv-output`), the **release folder** (e.g. `/mnt/data/downloads/ittup`, a folder qBittorrent sees too), the release tag and the tracker command (`ittup -u {path}`). The watch folder and the release folder must be on the same disk: the file is moved, not copied
+3. **Test connection** also checks the SSH login, both folders, tmux and the command
+
+Then **Release locally…** shows in the menu of an upload not on a server yet (queued, uploading, failed, skipped or stopped) and in its **Tracker** card: the upload stops, the file is moved into `<release folder>/<name>/<name>.mkv` on that machine and the tracker command uploads it and seeds it there. The upload then counts as completed (on the client, "qBittorrent (local)"), and its source torrent is cleaned up as after an upload.
 
 ---
 

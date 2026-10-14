@@ -195,6 +195,14 @@ jobQueue.on('upload-completed', ({ uploadId }) => {
 releaseManager.on('release-updated', ({ uploadId, releaseStatus, prompt, linked }) =>
   broadcast({ type: 'release-updated', uploadId, releaseStatus, prompt, linked })
 );
+// Released on a client's machine instead of uploaded: done, as after an upload, but the
+// release goes on there (no new name asked)
+releaseManager.on('released-locally', ({ uploadId }) => {
+  broadcast({ type: 'released-locally', uploadId });
+  torrentCleanup
+    .handleUploadCompleted(uploadId)
+    .catch((error) => logger.error({ uploadId, error }, 'Torrent cleanup failed'));
+});
 releaseManager.on('release-output', ({ uploadId, log }) => broadcast({ type: 'release-output', uploadId, log }));
 
 torrentCleanup.on('torrent-updated', ({ uploadId, torrentStatus, byHand }) => {

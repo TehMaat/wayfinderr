@@ -1,6 +1,10 @@
 import { uploadMedia } from './media';
 import type { Upload } from './store';
 
+/** Where the file went: its server, or the download client it was released on */
+export const destinationName = (u: Pick<Upload, 'server' | 'localClient'>) =>
+  u.server?.name ?? (u.localClient ? `${u.localClient.name} (local)` : null);
+
 /** The name the file has now: the release name once renamed on the server */
 export const uploadName = (u: Pick<Upload, 'filename' | 'releaseName'>) => u.releaseName ?? u.filename;
 

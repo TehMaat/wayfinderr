@@ -66,15 +66,18 @@ function Analysis({ analysis }: { analysis: ReleaseAnalysis }) {
 /**
  * The release name, asked like moverr.py does: film name, year, version and
  * REMUX, with the result shown before the file is moved on the server.
+ * local: a file not uploaded yet, moved on the machine of its download client instead.
  */
 export function ReleaseDialog({
   upload,
   open,
   onOpenChange,
+  local = false,
 }: {
   upload: Upload;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  local?: boolean;
 }) {
   const [proposal, setProposal] = useState<ReleaseProposal | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -106,7 +109,7 @@ export function ReleaseDialog({
     setError(null);
     setConflict(null);
     releaseApi
-      .proposal(upload.id)
+      .proposal(upload.id, local)
       .then(({ data }) => {
         setProposal(data);
         setTitle(data.defaults.title);
@@ -116,7 +119,7 @@ export function ReleaseDialog({
         setRemux(data.defaults.remux);
       })
       .catch((err) => setLoadError(errorMessage(err)));
-  }, [open, upload.id]);
+  }, [open, upload.id, local]);
 
   // The name, rebuilt by the backend as the answers change
   useEffect(() => {
@@ -125,7 +128,7 @@ export function ReleaseDialog({
     setPending(true);
     const timer = setTimeout(() => {
       releaseApi
-        .preview(upload.id, flags)
+        .preview(upload.id, flags, local)
         .then(({ data }) => {
           if (seq !== previewSeq.current) return;
           setPreview(data);
@@ -135,15 +138,16 @@ export function ReleaseDialog({
     }, PREVIEW_DELAY_MS);
     setConflict(null);
     return () => clearTimeout(timer);
-  }, [proposal, title, year, versionChoice, customVersion, remux, upload.id]);
+  }, [proposal, title, year, versionChoice, customVersion, remux, upload.id, local]);
 
   const confirm = async (overwrite = false) => {
     setBusy(true);
     setError(null);
     try {
-      await releaseApi.confirm(upload.id, flags, overwrite);
+      await releaseApi.confirm(upload.id, flags, overwrite, local);
       await useAppStore.getState().refreshUpload(upload.id);
-      toast.success(proposal?.hasTrackerCommand ? 'Renamed, uploading to the tracker' : 'Renamed on the server', {
+      const where = proposal?.target.local ? `Moved on ${proposal.target.name}` : 'Renamed on the server';
+      toast.success(proposal?.hasTrackerCommand ? `${where}, uploading to the tracker` : where, {
         description: preview?.filename,
       });
       onOpenChange(false);
@@ -158,17 +162,34 @@ export function ReleaseDialog({
 
   const extra = proposal?.analysis.extraLanguages;
   const hasExtra = Boolean(extra && (extra.audio.length || extra.subtitles.length));
-  const action = proposal?.hasTrackerCommand ? 'Rename & upload' : 'Rename';
+  const action = local
+    ? proposal?.hasTrackerCommand
+      ? 'Move & upload'
+      : 'Move'
+    : proposal?.hasTrackerCommand
+      ? 'Rename & upload'
+      : 'Rename';
   const canConfirm = Boolean(preview && !preview.error) && !pending && !busy;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Rename for the tracker</DialogTitle>
+          <DialogTitle>{local ? 'Release locally' : 'Rename for the tracker'}</DialogTitle>
           <DialogDescription>
-            The file is moved on {upload.server?.name ?? 'the server'} into its own folder
-            {proposal?.hasTrackerCommand ? ', then the tracker command uploads it' : ''}.
+            {local ? (
+              <>
+                Instead of uploading it, the file is moved on {proposal?.target.name ?? 'the download client'}'s machine
+                into its own folder{proposal?.hasTrackerCommand ? ', then the tracker command uploads it and seeds it there' : ''}.
+                {(upload.status === 'QUEUED' || upload.status === 'UPLOADING') && ' Its upload stops.'}
+              </>
+            ) : (
+              <>
+                The file is moved on {proposal?.target.name ?? upload.server?.name ?? upload.localClient?.name ?? 'the server'}{' '}
+                into its own folder
+                {proposal?.hasTrackerCommand ? ', then the tracker command uploads it' : ''}.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -290,7 +311,9 @@ export function ReleaseDialog({
               </div>
               <p className="break-all text-[11px] text-muted-foreground">From {proposal.remotePath}</p>
               {!proposal.releaseTag && (
-                <p className="text-[11px] text-muted-foreground">No release tag: set one in the server settings.</p>
+                <p className="text-[11px] text-muted-foreground">
+                  No release tag: set one in the {proposal.target.local ? 'client' : 'server'} settings.
+                </p>
               )}
             </div>
           </div>

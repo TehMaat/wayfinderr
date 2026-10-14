@@ -14,6 +14,9 @@ const flagsOf = (body: Record<string, unknown>): ReleaseFlags => ({
   remux: body.remux === true,
 });
 
+// ?local=1: release a file not uploaded yet on the machine of its download client
+const isLocal = (req: Request) => req.query.local === '1' || req.query.local === 'true';
+
 const handle =
   (action: (req: Request) => Promise<unknown>, failure: string) => async (req: Request, res: Response) => {
     try {
@@ -29,15 +32,21 @@ const handle =
   };
 
 // GET the rename proposal: media analysis and the name's prefilled parts
-router.get('/', handle((req) => releaseManager.proposal(req.params.id), 'Failed to prepare the release'));
+router.get('/', handle((req) => releaseManager.proposal(req.params.id, isLocal(req)), 'Failed to prepare the release'));
 
 // POST the name these choices give (nothing is changed)
-router.post('/preview', handle((req) => releaseManager.preview(req.params.id, flagsOf(req.body)), 'Failed to build the name'));
+router.post(
+  '/preview',
+  handle((req) => releaseManager.preview(req.params.id, flagsOf(req.body), isLocal(req)), 'Failed to build the name')
+);
 
 // POST rename on the server, then run the tracker command
 router.post(
   '/',
-  handle((req) => releaseManager.confirm(req.params.id, flagsOf(req.body), req.body.overwrite === true), 'Rename failed')
+  handle(
+    (req) => releaseManager.confirm(req.params.id, flagsOf(req.body), req.body.overwrite === true, isLocal(req)),
+    'Rename failed'
+  )
 );
 
 // POST run the tracker command again on the renamed file

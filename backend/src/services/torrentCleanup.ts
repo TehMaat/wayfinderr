@@ -248,7 +248,10 @@ export class TorrentCleanup extends EventEmitter {
     const errors: string[] = [];
     for (const client of clients) {
       try {
-        torrentsByClient.push({ client, torrents: await getQbitClient(client).getCompletedTorrents(client.category) });
+        const torrents = await getQbitClient(client).getCompletedTorrents(client.category);
+        // Released locally, its release seeds in this client too: never the source
+        const release = upload.releaseTorrentHash?.toLowerCase();
+        torrentsByClient.push({ client, torrents: torrents.filter((t) => t.hash.toLowerCase() !== release) });
       } catch (error) {
         errors.push(`${client.name}: ${describeError(error)}`);
       }

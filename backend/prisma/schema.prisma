@@ -85,6 +85,10 @@ model Upload {
   torrentFileName      String?  // its .torrent, when added by hand: file name
   torrentFileData      Bytes?   // the file itself (left out of the list and the details)
 
+  // Released on the machine of this download client instead of a server (see release/index.ts)
+  localClientId        String?
+  localClient          TorrentClient? @relation(fields: [localClientId], references: [id], onDelete: SetNull)
+
   // Where the file is on the server (set once uploaded; changes when renamed)
   remotePath           String?
   remoteFound          Boolean? // null: not looked for; false: not found on the server (see release link)
@@ -135,6 +139,21 @@ model TorrentClient {
   minFreeGB            Float?
   spacePausedAt        DateTime? // Set while its torrents are paused for low space
   spaceMessage         String?   // Last pause/resume, or why it failed
+
+  // Local release (see release/index.ts): a file not uploaded yet is moved over SSH on the
+  // machine this client runs on into releaseDir/<name>/<name>.mkv, then trackerCommand
+  // (e.g. ITTUP) uploads it to the tracker and seeds it here
+  localRelease         Boolean  @default(false)
+  sshHost              String?
+  sshPort              Int      @default(22)
+  sshUsername          String?
+  sshPassword          String?  // Optional: if empty, SSH_PRIVATE_KEY_PATH is used
+  hostWatchDir         String?  // The watch folder as that machine sees it
+  releaseDir           String?  // Relative to the SSH home, or absolute
+  releaseTag           String?  // "-TAG" at the end of the name (blank = none)
+  trackerCommand       String?  // {path} {folder} {name} are replaced; blank = rename only
+
+  uploads              Upload[]
 
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

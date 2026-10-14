@@ -98,13 +98,19 @@ export const uploadsApi = {
   torrentFileUrl: (id: string) => `/api/uploads/${id}/torrent/file`,
 };
 
-// Release API: rename on the server, then the tracker command (Unit3Dup)
+// local: a file not uploaded yet, released on the machine of its download client instead
+const localParams = (local: boolean) => (local ? { local: 1 } : undefined);
+
+// Release API: rename on the server, then the tracker command (ITTUP / Unit3Dup)
 export const releaseApi = {
   // May probe the file again (on the server for an upload whose local file is gone)
-  proposal: (id: string) => apiClient.get<ReleaseProposal>(`/api/uploads/${id}/release`, { timeout: 120000 }),
-  preview: (id: string, flags: ReleaseFlags) => apiClient.post<ReleasePreview>(`/api/uploads/${id}/release/preview`, flags),
-  confirm: (id: string, flags: ReleaseFlags, overwrite = false) =>
-    apiClient.post<Upload>(`/api/uploads/${id}/release`, { ...flags, overwrite }, { timeout: 60000 }),
+  proposal: (id: string, local = false) =>
+    apiClient.get<ReleaseProposal>(`/api/uploads/${id}/release`, { params: localParams(local), timeout: 120000 }),
+  preview: (id: string, flags: ReleaseFlags, local = false) =>
+    apiClient.post<ReleasePreview>(`/api/uploads/${id}/release/preview`, flags, { params: localParams(local) }),
+  // Local: its upload stops first (up to 10 s)
+  confirm: (id: string, flags: ReleaseFlags, overwrite = false, local = false) =>
+    apiClient.post<Upload>(`/api/uploads/${id}/release`, { ...flags, overwrite }, { params: localParams(local), timeout: 60000 }),
   run: (id: string) => apiClient.post<Upload>(`/api/uploads/${id}/release/run`),
   answer: (id: string, text: string) => apiClient.post(`/api/uploads/${id}/release/input`, { text }, { timeout: 30000 }),
   stop: (id: string) => apiClient.post<Upload>(`/api/uploads/${id}/release/stop`, null, { timeout: 30000 }),

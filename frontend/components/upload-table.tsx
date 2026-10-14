@@ -9,7 +9,7 @@ import { MediaBadges } from '@/components/media-badges';
 import { UploadActions } from '@/components/upload-actions';
 import { Tooltip } from '@/components/ui/tooltip';
 import { ripOfUpload, uploadLanguages } from '@/lib/media';
-import { uploadName } from '@/lib/release';
+import { destinationName, uploadName } from '@/lib/release';
 import { useAppStore, type Upload } from '@/lib/store';
 import { cn, formatBytes, formatDate, formatDuration, formatSpeed } from '@/lib/utils';
 
@@ -121,7 +121,7 @@ export function UploadTable({ uploads, compact }: { uploads: Upload[]; compact?:
                 </span>
               </td>
               <LanguageCells upload={upload} compact={compact} />
-              <td className="text-muted-foreground">{upload.server?.name ?? '–'}</td>
+              <td className="text-muted-foreground">{destinationName(upload) ?? '–'}</td>
               {!compact && (
                 <td className="text-xs">
                   <SpeedCell upload={upload} />

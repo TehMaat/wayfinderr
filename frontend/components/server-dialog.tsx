@@ -204,7 +204,7 @@ export function ServerDialog({
                 name="trackerCommand"
                 value={form.trackerCommand}
                 onChange={update}
-                placeholder="unit3dup -u {path}"
+                placeholder="ittup -u {path}"
                 className="font-mono text-xs"
               />
             </Field>

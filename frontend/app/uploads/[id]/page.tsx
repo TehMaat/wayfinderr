@@ -30,7 +30,7 @@ import {
   type Track,
   type VideoTrack,
 } from '@/lib/media';
-import { missingInfo, uploadName } from '@/lib/release';
+import { destinationName, missingInfo, uploadName } from '@/lib/release';
 import { useAppStore, type TorrentStatus, type Upload } from '@/lib/store';
 import { cn, errorMessage, formatBitrate, formatBytes, formatDate, formatDuration, formatSpeed } from '@/lib/utils';
 
@@ -485,7 +485,7 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
             Missing: {missing.join(', ')}.
-            {upload.serverId && ' The tracker card can look for them on the server again.'}
+            {(upload.serverId || upload.localClientId) && ' The tracker card can look for them on the server again.'}
           </span>
         </div>
       )}
@@ -496,7 +496,7 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
             <CardTitle>Transfer</CardTitle>
           </CardHeader>
           <CardContent className="divide-y divide-border/60">
-            <Row label="Server">{upload.server?.name ?? '–'}</Row>
+            <Row label="Server">{destinationName(upload) ?? '–'}</Row>
             <Row label="Remote path">
               {upload.remoteFound === false ? (
                 <span className="text-warning">Not found on the server</span>

@@ -28,6 +28,15 @@ const emptyForm = (client?: TorrentClient) => ({
   autoRemove: client?.autoRemove ?? true,
   deleteFiles: client?.deleteFiles ?? false,
   minFreeGB: client?.minFreeGB != null ? String(client.minFreeGB) : '',
+  localRelease: client?.localRelease ?? false,
+  sshHost: client?.sshHost ?? '',
+  sshPort: String(client?.sshPort ?? 22),
+  sshUsername: client?.sshUsername ?? '',
+  sshPassword: '',
+  hostWatchDir: client?.hostWatchDir ?? '',
+  releaseDir: client?.releaseDir ?? '',
+  releaseTag: client?.releaseTag ?? '',
+  trackerCommand: client?.trackerCommand ?? '',
 });
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
@@ -72,7 +81,11 @@ export function ClientDialog({
     setSaving(true);
     setError(null);
     // Blank = no disk space check
-    const data = { ...form, minFreeGB: form.minFreeGB.trim() === '' ? null : Number(form.minFreeGB) };
+    const data = {
+      ...form,
+      minFreeGB: form.minFreeGB.trim() === '' ? null : Number(form.minFreeGB),
+      sshPort: form.sshPort.trim() === '' ? 22 : Number(form.sshPort),
+    };
     try {
       if (client) {
         await clientsApi.updateClient(client.id, data);
@@ -190,6 +203,63 @@ export function ClientDialog({
                 placeholder="Off"
               />
             </Field>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Local release</p>
+            <Field
+              label="Release on this client's machine"
+              hint="Adds Release locally to files not uploaded yet: over SSH, the file is moved from the watch folder into its own folder in the release folder, then the tracker command (ITTUP) uploads it and seeds it from this client"
+            >
+              <Select name="localRelease" value={String(form.localRelease)} onChange={updateFlag}>
+                <option value="false">Off</option>
+                <option value="true">On</option>
+              </Select>
+            </Field>
+            {form.localRelease && (
+              <>
+                <div className="grid gap-3 sm:grid-cols-[1fr_6rem]">
+                  <Field label="SSH host" hint="The machine qBittorrent runs on; from Docker, its address on the Docker network">
+                    <Input name="sshHost" value={form.sshHost} onChange={update} placeholder="172.19.19.1" required />
+                  </Field>
+                  <Field label="SSH port">
+                    <Input name="sshPort" type="number" min="1" max="65535" value={form.sshPort} onChange={update} />
+                  </Field>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="SSH username">
+                    <Input name="sshUsername" value={form.sshUsername} onChange={update} autoComplete="off" required />
+                  </Field>
+                  <Field label="SSH password" hint="Blank: the key in SSH_PRIVATE_KEY_PATH">
+                    <Input
+                      name="sshPassword"
+                      type="password"
+                      value={form.sshPassword}
+                      onChange={update}
+                      autoComplete="new-password"
+                      placeholder={isEdit && client?.hasSshPassword ? 'Unchanged' : ''}
+                    />
+                  </Field>
+                </div>
+                <Field
+                  label="Watch folder on that machine"
+                  hint="The folder Wayfinderr watches (WATCH_DIR), as that machine sees it. It must be on the same disk as the release folder"
+                >
+                  <Input name="hostWatchDir" value={form.hostWatchDir} onChange={update} placeholder="/mnt/data/extracted-mkv" required />
+                </Field>
+                <Field label="Release folder" hint="Where the release folders go, seen by qBittorrent too. Relative to the SSH home, or absolute">
+                  <Input name="releaseDir" value={form.releaseDir} onChange={update} placeholder="/mnt/data/downloads/ittup" required />
+                </Field>
+                <div className="grid gap-3 sm:grid-cols-[8rem_1fr]">
+                  <Field label="Release tag" hint="-TAG at the end">
+                    <Input name="releaseTag" value={form.releaseTag} onChange={update} placeholder="None" />
+                  </Field>
+                  <Field label="Tracker command" hint="{path} {folder} {name} are replaced. Blank: move only">
+                    <Input name="trackerCommand" value={form.trackerCommand} onChange={update} placeholder="ittup -u {path}" className="font-mono" />
+                  </Field>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="space-y-3">
