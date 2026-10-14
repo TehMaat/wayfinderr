@@ -2,7 +2,7 @@ import { AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip } from '@/components/ui/tooltip';
 import { missingInfo } from '@/lib/release';
-import type { ReleaseStatus, Upload } from '@/lib/store';
+import type { ReleaseStatus, TorrentClient, Upload } from '@/lib/store';
 
 export const RELEASE_STATUS: Record<
   ReleaseStatus,
@@ -23,8 +23,19 @@ export const RELEASE_STATUS: Record<
 export const releaseRunning = (u: Upload) =>
   u.releaseStatus === 'QUEUED' || u.releaseStatus === 'RUNNING' || u.releaseStatus === 'NEEDS_INPUT';
 
-/** Renamed and sent to the tracker from the upload history: only once the file is on a server */
-export const canRelease = (u: Upload) => u.status === 'COMPLETED' && Boolean(u.serverId) && !releaseRunning(u);
+/** Renamed and sent to the tracker from the upload history: only once the file is on a server (or released locally) */
+export const canRelease = (u: Upload) =>
+  u.status === 'COMPLETED' && Boolean(u.serverId || u.localClientId) && !releaseRunning(u);
+
+/**
+ * The download client a file not on a server yet can be released on instead of uploaded
+ * (its upload stops): the one of its source torrent, else the first set up for it, as the backend picks
+ */
+export const localReleaseClient = (u: Upload, clients: TorrentClient[]) => {
+  if (u.status === 'COMPLETED' || u.status === 'PENDING' || u.localClientId) return undefined;
+  const ready = clients.filter((c) => c.enabled && c.localRelease);
+  return ready.find((c) => c.id === u.torrentClientId) ?? ready[0];
+};
 
 export function ReleaseBadge({ upload }: { upload: Upload }) {
   if (!upload.releaseStatus) return null;

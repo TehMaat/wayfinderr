@@ -6,6 +6,7 @@ import {
   Clapperboard,
   FolderOpen,
   HardDrive,
+  HardDriveDownload,
   KeyRound,
   Link2,
   Magnet,
@@ -102,6 +103,11 @@ function ClientCard({ client, onEdit }: { client: TorrentClient; onEdit: () => v
         <Detail icon={FolderOpen}>{client.deleteFiles ? 'Deletes the downloaded files too' : 'Keeps the downloaded files'}</Detail>
         <Detail icon={HardDrive}>
           {client.minFreeGB ? `Pauses all torrents below ${client.minFreeGB} GB free` : 'No disk space check'}
+        </Detail>
+        <Detail icon={HardDriveDownload}>
+          {client.localRelease
+            ? `Local release into ${client.releaseDir} (${client.sshUsername}@${client.sshHost})`
+            : 'No local release'}
         </Detail>
       </div>
 

@@ -5,7 +5,7 @@ export type UploadStatus = 'PENDING' | 'QUEUED' | 'UPLOADING' | 'COMPLETED' | 'F
 
 export type TorrentStatus = 'NO_MATCH' | 'REVIEW' | 'WAITING' | 'REMOVED' | 'ERROR';
 
-// Rename on the server, then the tracker command (Unit3Dup)
+// Rename on the server, then the tracker command (ITTUP / Unit3Dup)
 export type ReleaseStatus =
   | 'CONFIRM'
   | 'RENAMED'
@@ -56,6 +56,8 @@ export interface ReleaseProposal {
   releaseDir: string;
   releaseTag: string | null;
   hasTrackerCommand: boolean;
+  // Where it is released: the server, or the machine of a download client (local)
+  target: { name: string; local: boolean };
 }
 
 export interface ReleasePreview {
@@ -81,6 +83,9 @@ export interface Upload {
   mediaInfo: string | null;
   serverId: string | null;
   server?: { id: string; name: string; sshPath?: string } | null;
+  // Released on the machine of this download client instead of uploaded
+  localClientId: string | null;
+  localClient?: { id: string; name: string } | null;
   currentRetryCount: number;
   startedAt: string | null;
   completedAt: string | null;
@@ -129,6 +134,16 @@ export interface TorrentClient {
   minFreeGB: number | null;
   spacePausedAt: string | null;
   spaceMessage: string | null;
+  // Local release: files not uploaded yet are moved and sent to the tracker on its machine (SSH)
+  localRelease: boolean;
+  sshHost: string | null;
+  sshPort: number;
+  sshUsername: string | null;
+  hasSshPassword: boolean;
+  hostWatchDir: string | null; // the watch folder as that machine sees it
+  releaseDir: string | null;
+  releaseTag: string | null;
+  trackerCommand: string | null;
   createdAt: string;
 }
 

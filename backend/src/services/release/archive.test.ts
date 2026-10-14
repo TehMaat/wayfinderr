@@ -31,15 +31,18 @@ const fakeSftp = (files: Record<string, { data: Buffer; mtime?: number }>) => {
 const NAME = 'Film.2001.1080p.BluRay.mkv';
 const ARCHIVE = '/home/u/Unit3Dup_config/torrent_archive_path';
 
-test("the archive from Unit3Dup's output, its configuration and its default, once each", async () => {
+const ITTUP_ARCHIVE = '/home/u/ittup_config/torrent_archive_path';
+
+test("the archive from the output, ITTUP's and Unit3Dup's configuration and their defaults, once each", async () => {
   const sftp = fakeSftp({
     'Unit3Dup_config/Unit3Dbot.json': { data: Buffer.from(JSON.stringify({ user_preferences: { TORRENT_ARCHIVE_PATH: '/data/torrents/' } })) },
+    'ittup_config/ittup.json': { data: Buffer.from(JSON.stringify({ user_preferences: { TORRENT_ARCHIVE_PATH: '/data/ittup' } })) },
   });
   const log = `[*.torrent Archive] '/data/torrents'\n`;
-  assert.deepEqual(await archiveDirs(sftp, '/home/u', log), ['/data/torrents', ARCHIVE]);
-  // Not configured: Unit3Dup writes "no_path"
+  assert.deepEqual(await archiveDirs(sftp, '/home/u', log), ['/data/torrents', '/data/ittup', ITTUP_ARCHIVE, ARCHIVE]);
+  // Not configured: they write "no_path"
   const unset = fakeSftp({ 'Unit3Dup_config/Unit3Dbot.json': { data: Buffer.from('{"user_preferences":{"TORRENT_ARCHIVE_PATH":"no_path"}}') } });
-  assert.deepEqual(await archiveDirs(unset, '/home/u', ''), [ARCHIVE]);
+  assert.deepEqual(await archiveDirs(unset, '/home/u', ''), [ITTUP_ARCHIVE, ARCHIVE]);
 });
 
 test('the .torrent of this very file, in a tracker folder', async () => {

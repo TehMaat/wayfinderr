@@ -10,6 +10,11 @@
  * Once the tracker accepts it, the .torrent it gives back is read from the Unit3Dup
  * archive (<archive>/<TRACKER>/<file name>.torrent) and kept with its info hash.
  * Releases made before, or by hand, are linked to their file and .torrent by link().
+ *
+ * Local release: a file not uploaded yet can be released on the machine of a download
+ * client instead (localRelease). The same two steps run there over SSH: the file is
+ * moved from the watch folder (hostWatchDir, as that machine sees it) into the client's
+ * releaseDir, then its trackerCommand (ITTUP) uploads it and seeds it from that client.
  */
 import { EventEmitter } from 'events';
 import { existsSync } from 'fs';
@@ -17,11 +22,13 @@ import path from 'path';
 import { StringDecoder } from 'string_decoder';
 import { setTimeout as sleep } from 'timers/promises';
 import { Client as SSHClient, SFTPWrapper, Stats } from 'ssh2';
-import { Server, Upload } from '@prisma/client';
+import { Server, TorrentClient, Upload } from '@prisma/client';
+import { config } from '../../config/index.js';
 import logger from '../../config/logger.js';
 import { db } from '../database.js';
 import { fromProbe, mediaInfoParser, ProbeData } from '../mediaInfo.js';
-import { remoteDirOf, sftpCall, uploadManager } from '../uploadManager.js';
+import { jobQueue } from '../jobQueue.js';
+import { remoteDirOf, sftpCall, SshLogin, uploadManager } from '../uploadManager.js';
 import { parseReleaseName } from '../ripper/releaseName.js';
 import { MediaInfo } from '../../types/index.js';
 import { analyze, buildReleaseName, isAutoHybrid, ReleaseAnalysis, ReleaseFlags, validateFlags, VERSIONS } from './name.js';
@@ -38,10 +45,13 @@ const READ_CHUNK = 256 * 1024;
 const MAX_TORRENT_BYTES = 20 * 1024 * 1024;
 const MAX_LINK_CANDIDATES = 50;
 
-// Unit3Dup's configuration and default .torrent archive, in the SSH home (Linux)
-const UNIT3DUP_CONFIG = 'Unit3Dup_config/Unit3Dbot.json';
-const UNIT3DUP_ARCHIVE = 'Unit3Dup_config/torrent_archive_path';
-// Printed by Unit3Dup when it starts: [*.torrent Archive] '/home/u/Unit3Dup_config/torrent_archive_path'
+// The configuration and default .torrent archive of ITTUP and of Unit3Dup (which ITTUP
+// is a fork of), in the SSH home (Linux)
+const TRACKER_TOOLS = [
+  { config: 'ittup_config/ittup.json', archive: 'ittup_config/torrent_archive_path' },
+  { config: 'Unit3Dup_config/Unit3Dbot.json', archive: 'Unit3Dup_config/torrent_archive_path' },
+];
+// Printed by both when they start: [*.torrent Archive] '/home/u/ittup_config/torrent_archive_path'
 const ARCHIVE_LINE = /\[\*\.torrent Archive\]\s*'([^'\n]+)'/;
 // The tracker that accepted the upload: [RESPONSE]-> 'ITT'.....TORRENT UPLOADED
 const ACCEPTED_BY = /\[RESPONSE\]->\s*'([^'\n]+)'\.{2,}/;
@@ -59,6 +69,48 @@ export class ReleaseError extends Error {
   }
 }
 
+/**
+ * Where a file is released over SSH: its server, or the machine of a download client
+ * (local: sshPath is then the watch folder as that machine sees it)
+ */
+export type ReleaseTarget = Pick<
+  Server,
+  'id' | 'name' | 'sshHost' | 'sshPort' | 'sshUsername' | 'sshPassword' | 'sshPath' | 'releaseDir' | 'releaseTag' | 'trackerCommand'
+> & { local: boolean };
+
+const serverTarget = (server: Server): ReleaseTarget => ({ ...server, local: false });
+
+/** A client's machine as a release target; its SSH login and folders must be set */
+export const localTarget = (client: TorrentClient): ReleaseTarget => {
+  const missing = [
+    !client.sshHost && 'SSH host',
+    !client.sshUsername && 'SSH username',
+    !client.hostWatchDir && 'watch folder',
+    !client.releaseDir && 'release folder',
+  ].filter(Boolean);
+  if (missing.length) throw new ReleaseError(`Local release on ${client.name} is missing: ${missing.join(', ')}`);
+  return {
+    id: client.id,
+    name: client.name,
+    sshHost: client.sshHost!,
+    sshPort: client.sshPort,
+    sshUsername: client.sshUsername!,
+    sshPassword: client.sshPassword,
+    sshPath: client.hostWatchDir!,
+    releaseDir: client.releaseDir!,
+    releaseTag: client.releaseTag,
+    trackerCommand: client.trackerCommand,
+    local: true,
+  };
+};
+
+/** The path of a local file on a client's machine, which sees the watch folder as hostWatchDir (null: not in it) */
+export const hostPathOf = (filepath: string, watchDir: string, hostWatchDir: string): string | null => {
+  const relative = path.relative(path.resolve(watchDir), path.resolve(filepath));
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return null;
+  return path.posix.join(hostWatchDir.replace(/\\/g, '/'), ...relative.split(path.sep));
+};
+
 export interface Proposal {
   analysis: ReleaseAnalysis;
   defaults: ReleaseFlags;
@@ -68,6 +120,7 @@ export interface Proposal {
   releaseDir: string;
   releaseTag: string | null;
   hasTrackerCommand: boolean;
+  target: { name: string; local: boolean };
 }
 
 export interface Preview {
@@ -80,7 +133,7 @@ export interface Preview {
 
 interface Run {
   uploadId: string;
-  serverId: string;
+  serverId: string; // where it runs: the server, or the client of a local release
   session: string;
   logPath: string;
   scriptPath: string;
@@ -144,10 +197,17 @@ const parseMedia = (upload: Upload): MediaInfo | null => {
 // Uploads probed before the video details were stored have no videoTracks
 const isDetailed = (media: MediaInfo | null): media is MediaInfo => Array.isArray(media?.videoTracks);
 
-const remotePathOf = (upload: Upload, server: Server) =>
-  upload.remotePath ?? path.posix.join(remoteDirOf(server), upload.filename);
+/** Where the file is on the target: before a local release, the local file as the client's machine sees it */
+const remotePathOf = (upload: Upload, server: ReleaseTarget) => {
+  if (server.local && !upload.localClientId) {
+    const hostPath = hostPathOf(upload.filepath, config.WATCH_DIR, server.sshPath);
+    if (!hostPath) throw new ReleaseError(`Only files in the watch folder can be released locally: ${upload.filepath}`);
+    return hostPath;
+  }
+  return upload.remotePath ?? path.posix.join(remoteDirOf(server), upload.filename);
+};
 
-const releaseDirOf = (server: Server) => server.releaseDir.replace(/\\/g, '/').replace(/\/+$/, '') || '.';
+const releaseDirOf = (server: Pick<Server, 'releaseDir'>) => server.releaseDir.replace(/\\/g, '/').replace(/\/+$/, '') || '.';
 
 const probe = async (ssh: SSHClient, remotePath: string): Promise<MediaInfo> => {
   const result = await exec(ssh, `ffprobe -v error -show_format -show_streams -show_chapters -of json ${shellQuote(remotePath)}`);
@@ -185,18 +245,20 @@ const isDir = (attrs: { mode: number }) => (attrs.mode & 0o170000) === 0o040000;
 const statOf = (sftp: SFTPWrapper, p: string) => sftpCall<Stats>((cb) => sftp.stat(p, cb)).catch(() => null);
 
 /**
- * The folders Unit3Dup may archive its .torrent files in: the one its output
- * names, the one in its configuration, and its default one. Absolute paths.
+ * The folders ITTUP or Unit3Dup may archive their .torrent files in: the one the
+ * output names, the ones in their configuration, and their default ones. Absolute paths.
  */
 export const archiveDirs = async (sftp: SFTPWrapper, home: string, log: string): Promise<string[]> => {
   const dirs = [ARCHIVE_LINE.exec(log)?.[1]];
-  try {
-    const config = JSON.parse((await sftpCall<Buffer>((cb) => sftp.readFile(UNIT3DUP_CONFIG, cb))).toString('utf8'));
-    dirs.push(config?.user_preferences?.TORRENT_ARCHIVE_PATH);
-  } catch {
-    // No configuration in this home: the default folder only
+  for (const tool of TRACKER_TOOLS) {
+    try {
+      const settings = JSON.parse((await sftpCall<Buffer>((cb) => sftp.readFile(tool.config, cb))).toString('utf8'));
+      dirs.push(settings?.user_preferences?.TORRENT_ARCHIVE_PATH);
+    } catch {
+      // Not configured in this home: its default folder only
+    }
   }
-  dirs.push(path.posix.join(home, UNIT3DUP_ARCHIVE));
+  dirs.push(...TRACKER_TOOLS.map((tool) => path.posix.join(home, tool.archive)));
   return [
     ...new Set(
       dirs
@@ -256,17 +318,50 @@ export const findTorrent = async (
 
 class ReleaseManager extends EventEmitter {
   private runs = new Map<string, Run>();
-  // The last command of each server: the next one waits for it
+  // The last command of each server (or client machine): the next one waits for it
   private chains = new Map<string, Promise<void>>();
   private stopped = false;
 
-  private async load(uploadId: string): Promise<{ upload: Upload; server: Server }> {
+  /**
+   * The upload and where it is released: its server, the client it was released on,
+   * or (local) the client to release a file not uploaded yet on
+   */
+  private async load(uploadId: string, local = false): Promise<{ upload: Upload; server: ReleaseTarget }> {
     const upload = await db.getUploadById(uploadId);
     if (!upload) throw new ReleaseError('Upload not found', 404);
+    if (upload.localClientId) {
+      const client = await db.getTorrentClientById(upload.localClientId);
+      if (!client) throw new ReleaseError('The client of this release no longer exists');
+      return { upload, server: localTarget(client) };
+    }
+    if (local) {
+      if (upload.status === 'COMPLETED') throw new ReleaseError('The file is already on a server: release it from there');
+      if (upload.status === 'PENDING') throw new ReleaseError('The file is still being read: try again in a moment');
+      if (!existsSync(upload.filepath)) throw new ReleaseError(`The file is no longer here: ${upload.filepath}`);
+      return { upload, server: localTarget(await this.localClientFor(upload)) };
+    }
     if (upload.status !== 'COMPLETED') throw new ReleaseError('The file is not on a server yet');
     const server = upload.serverId ? await db.getServerById(upload.serverId) : null;
     if (!server) throw new ReleaseError('The server of this upload no longer exists');
-    return { upload, server };
+    return { upload, server: serverTarget(server) };
+  }
+
+  /** The client to release a file on: the one its source torrent is in, else the first set up for it */
+  private async localClientFor(upload: Upload): Promise<TorrentClient> {
+    const clients = (await db.getTorrentClients()).filter((c) => c.enabled && c.localRelease);
+    const client = clients.find((c) => c.id === upload.torrentClientId) ?? clients[0];
+    if (!client) throw new ReleaseError('No download client is set up for local release (Clients page)');
+    return client;
+  }
+
+  /** Where a released file is: the machine of its client (local release), else its server */
+  private async targetOfUpload(upload: Upload): Promise<ReleaseTarget | null> {
+    if (upload.localClientId) {
+      const client = await db.getTorrentClientById(upload.localClientId);
+      return client ? localTarget(client) : null;
+    }
+    const server = upload.serverId ? await db.getServerById(upload.serverId) : null;
+    return server ? serverTarget(server) : null;
   }
 
   /** linked: the status comes from link(), not from a tracker run (no toast for it) */
@@ -279,7 +374,7 @@ class ReleaseManager extends EventEmitter {
     });
   }
 
-  private async connect(server: Server) {
+  private async connect(server: SshLogin) {
     const ssh = await uploadManager.connect(server);
     try {
       const sftp = await sftpCall<SFTPWrapper>((cb) => ssh.sftp(cb));
@@ -295,7 +390,7 @@ class ReleaseManager extends EventEmitter {
    * The stored media info, with the video details: uploads probed by earlier
    * versions are probed again, from the local file or else on the server.
    */
-  private async media(upload: Upload, server: Server): Promise<MediaInfo> {
+  private async media(upload: Upload, server: ReleaseTarget): Promise<MediaInfo> {
     const stored = parseMedia(upload);
     if (isDetailed(stored)) return stored;
 
@@ -306,7 +401,7 @@ class ReleaseManager extends EventEmitter {
     return media;
   }
 
-  private async probeOnServer(upload: Upload, server: Server): Promise<MediaInfo> {
+  private async probeOnServer(upload: Upload, server: ReleaseTarget): Promise<MediaInfo> {
     const { ssh } = await this.connect(server);
     try {
       return await probe(ssh, remotePathOf(upload, server));
@@ -352,7 +447,7 @@ class ReleaseManager extends EventEmitter {
       const dirs = await archiveDirs(sftp, home, upload.releaseLog ?? '');
       const accepted = upload.releaseLog ? ACCEPTED_BY.exec(upload.releaseLog)?.[1] : null;
       torrent = await findTorrent(sftp, dirs, { path: file, size }, accepted);
-      if (!torrent) problems.push(`no .torrent of it in ${dirs.join(', ') || 'the Unit3Dup archive'}`);
+      if (!torrent) problems.push(`no .torrent of it in ${dirs.join(', ') || 'the ITTUP/Unit3Dup archive'}`);
 
       media = await probe(ssh, file).catch((error: Error) => {
         problems.push(`media info: ${error.message}`);
@@ -436,7 +531,7 @@ class ReleaseManager extends EventEmitter {
     ssh: SSHClient,
     sftp: SFTPWrapper,
     upload: Upload,
-    server: Server,
+    server: ReleaseTarget,
     absolute: (p: string) => string
   ): Promise<string | null> {
     const size = Number(upload.size);
@@ -478,8 +573,8 @@ class ReleaseManager extends EventEmitter {
   }
 
   /** What the rename dialog shows: the analysis and the name's prefilled parts */
-  async proposal(uploadId: string): Promise<Proposal> {
-    const { upload, server } = await this.load(uploadId);
+  async proposal(uploadId: string, local = false): Promise<Proposal> {
+    const { upload, server } = await this.load(uploadId, local);
     const analysis = analyze(await this.media(upload, server));
 
     // A ripped disc: its TMDB title (in TMDB_LANGUAGE) and year, and a remux.
@@ -502,10 +597,11 @@ class ReleaseManager extends EventEmitter {
       releaseDir: releaseDirOf(server),
       releaseTag: server.releaseTag,
       hasTrackerCommand: Boolean(server.trackerCommand?.trim()),
+      target: { name: server.name, local: server.local },
     };
   }
 
-  private async name(upload: Upload, server: Server, flags: ReleaseFlags) {
+  private async name(upload: Upload, server: ReleaseTarget, flags: ReleaseFlags) {
     const media = parseMedia(upload);
     if (!isDetailed(media)) throw new ReleaseError('Open the rename dialog first: the media details are missing');
     const analysis = analyze(media);
@@ -515,8 +611,8 @@ class ReleaseManager extends EventEmitter {
     return { analysis, filename, folder };
   }
 
-  async preview(uploadId: string, flags: ReleaseFlags): Promise<Preview> {
-    const { upload, server } = await this.load(uploadId);
+  async preview(uploadId: string, flags: ReleaseFlags, local = false): Promise<Preview> {
+    const { upload, server } = await this.load(uploadId, local);
     const { analysis, filename, folder } = await this.name(upload, server, flags);
     return {
       filename,
@@ -527,9 +623,14 @@ class ReleaseManager extends EventEmitter {
     };
   }
 
-  /** Renames the file on the server, then queues the tracker command (if the server has one) */
-  async confirm(uploadId: string, flags: ReleaseFlags, overwrite = false): Promise<Upload> {
-    const { upload, server } = await this.load(uploadId);
+  /**
+   * Renames the file on the server, then queues the tracker command (if the server has one).
+   * Local: the file not uploaded yet is moved on the client's machine instead (its upload
+   * stops), and is released from there from then on.
+   */
+  async confirm(uploadId: string, flags: ReleaseFlags, overwrite = false, local = false): Promise<Upload> {
+    const { upload, server } = await this.load(uploadId, local);
+    const moving = server.local && !upload.localClientId;
     if (upload.releaseStatus && ACTIVE.includes(upload.releaseStatus)) {
       throw new ReleaseError('The tracker upload of this file is still running');
     }
@@ -549,16 +650,27 @@ class ReleaseManager extends EventEmitter {
         sftpCall<unknown>((cb) => sftp.stat(p, cb))
           .then(() => true)
           .catch(() => false);
-      if (!(await exists(source))) throw new ReleaseError(`The file is no longer on the server: ${source}`);
+      if (!(await exists(source))) {
+        throw new ReleaseError(
+          moving
+            ? `${server.name} does not see the file at ${source}: check the watch folder of its local release`
+            : `The file is no longer on the server: ${source}`
+        );
+      }
 
       if (source !== target) {
-        if (await exists(target)) {
-          if (!overwrite) throw new ReleaseError(`${filename} is already in ${dir}`, 409, 'exists');
-          await sftpCall((cb) => sftp.unlink(target, cb));
-        }
+        const taken = await exists(target);
+        if (taken && !overwrite) throw new ReleaseError(`${filename} is already in ${dir}`, 409, 'exists');
+        // Before anything is replaced: it may still be stopping
+        if (moving) await this.stopUpload(uploadId);
+        if (taken) await sftpCall((cb) => sftp.unlink(target, cb));
         await uploadManager.ensureRemoteDir(sftp, dir);
-        await sftpCall((cb) => sftp.rename(source, target, cb));
-        logger.info({ uploadId, source, target }, 'Renamed on the server');
+        await sftpCall((cb) => sftp.rename(source, target, cb)).catch((error: Error) => {
+          // A rename only moves within one disk
+          if (!moving) throw error;
+          throw new ReleaseError(`Cannot move the file on ${server.name} (the watch and release folders must be on the same disk): ${error.message}`, 502);
+        });
+        logger.info({ uploadId, source, target, on: server.name }, 'Renamed on the server');
         // Renamed again: the folder of the earlier name goes if it is now empty
         if (upload.releaseName && path.posix.basename(path.posix.dirname(source)) === upload.releaseName.replace(/\.[^.]+$/, '')) {
           await sftpCall((cb) => sftp.rmdir(path.posix.dirname(source), cb)).catch(() => undefined);
@@ -571,19 +683,39 @@ class ReleaseManager extends EventEmitter {
     const hasCommand = Boolean(server.trackerCommand?.trim());
     const updated = await this.update(uploadId, {
       ...torrentFields(null),
+      // Released on the client's machine instead of uploaded: done, it is there
+      ...(moving
+        ? {
+            status: 'COMPLETED',
+            serverId: null,
+            localClientId: server.id,
+            progress: 100,
+            progressBytes: upload.size,
+            error: null,
+            completedAt: new Date(),
+          }
+        : {}),
       remotePath: target,
       remoteFound: true,
       releaseName: filename,
       releaseStatus: hasCommand ? 'QUEUED' : 'RENAMED',
-      releaseMessage: hasCommand ? null : 'Renamed on the server',
+      releaseMessage: hasCommand ? null : server.local ? `Moved on ${server.name}` : 'Renamed on the server',
       releaseLog: null,
       releasePrompt: null,
       releaseOffset: 0,
       releaseStartedAt: null,
       releaseCompletedAt: hasCommand ? null : new Date(),
     });
+    if (moving) this.emit('released-locally', { uploadId });
     if (hasCommand) this.enqueue(updated.id, server.id);
     return updated;
+  }
+
+  /** A file released locally is not uploaded: its queued or running upload stops first */
+  private async stopUpload(uploadId: string) {
+    if (!jobQueue.hasJob(uploadId)) return;
+    await jobQueue.cancelUpload(uploadId);
+    if (jobQueue.hasJob(uploadId)) throw new ReleaseError('The upload is still stopping: try again in a moment');
   }
 
   /** The tracker command again, on the file already renamed */
@@ -592,7 +724,7 @@ class ReleaseManager extends EventEmitter {
     if (!upload.releaseStatus || !RERUNNABLE.includes(upload.releaseStatus) || !upload.releaseName) {
       throw new ReleaseError('Rename the file first');
     }
-    if (!server.trackerCommand?.trim()) throw new ReleaseError('The server has no tracker command');
+    if (!server.trackerCommand?.trim()) throw new ReleaseError(`${server.name} has no tracker command`);
     const updated = await this.update(uploadId, {
       releaseStatus: 'QUEUED',
       releaseMessage: null,
@@ -604,6 +736,31 @@ class ReleaseManager extends EventEmitter {
     });
     this.enqueue(uploadId, server.id);
     return updated;
+  }
+
+  /**
+   * Checks a client's local release: the SSH login, the watch folder on that machine,
+   * the release folder (created if missing), tmux and the tracker command
+   */
+  async testLocal(client: TorrentClient): Promise<void> {
+    const server = localTarget(client);
+    const { ssh, sftp, home } = await this.connect(server);
+    try {
+      const absolute = (p: string) => (path.posix.isAbsolute(p) ? p : path.posix.join(home, p));
+      const watch = absolute(remoteDirOf(server));
+      const stats = await statOf(sftp, watch);
+      if (!stats || !isDir(stats)) throw new ReleaseError(`No folder ${watch} on ${client.name}`, 502);
+      await uploadManager.ensureRemoteDir(sftp, absolute(releaseDirOf(server)));
+      // The command's program, when it starts with one (not e.g. VAR=value or cd)
+      const program = server.trackerCommand?.trim().split(/\s+/)[0];
+      for (const tool of ['tmux', program && /^[\w./~-]+$/.test(program) ? program : null]) {
+        if (!tool) continue;
+        const found = await exec(ssh, `bash -lc ${shellQuote(`command -v ${shellQuote(tool)}`)}`);
+        if (found.code !== 0) throw new ReleaseError(`${tool} is not installed on ${client.name}`, 502);
+      }
+    } finally {
+      ssh.end();
+    }
   }
 
   /** Types an answer to the command's question (then Enter) */
@@ -699,11 +856,17 @@ class ReleaseManager extends EventEmitter {
   private async start(uploadId: string): Promise<void> {
     const upload = await db.getUploadById(uploadId);
     if (!upload || upload.releaseStatus !== 'QUEUED') return; // stopped while queued
-    const server = upload.serverId ? await db.getServerById(upload.serverId) : null;
     const fail = (message: string) =>
       this.update(uploadId, { releaseStatus: 'FAILED', releaseMessage: message, releaseCompletedAt: new Date() });
+    let server: ReleaseTarget | null;
+    try {
+      server = await this.targetOfUpload(upload);
+    } catch (error) {
+      await fail((error as Error).message);
+      return;
+    }
     if (!server?.trackerCommand?.trim() || !upload.remotePath) {
-      await fail(server ? 'The server has no tracker command' : 'The server no longer exists');
+      await fail(server ? `${server.name} has no tracker command` : 'The server no longer exists');
       return;
     }
 
@@ -758,7 +921,7 @@ class ReleaseManager extends EventEmitter {
   private newRun(upload: Upload, tmdbId: number | null): Run {
     const run: Run = {
       uploadId: upload.id,
-      serverId: upload.serverId!,
+      serverId: (upload.localClientId ?? upload.serverId)!,
       ...runPaths(upload.id),
       ssh: null,
       sftp: null,
@@ -797,7 +960,8 @@ class ReleaseManager extends EventEmitter {
       while (!this.stopped) {
         try {
           if (!run.ssh || !run.sftp) {
-            const server = await db.getServerById(run.serverId);
+            const upload = await db.getUploadById(run.uploadId);
+            const server = upload && (await this.targetOfUpload(upload));
             if (!server) throw new Error('The server no longer exists');
             const conn = await this.connect(server);
             this.attach(run, conn.ssh, conn.sftp);
@@ -934,7 +1098,7 @@ class ReleaseManager extends EventEmitter {
           ? { status: 'FAILED', message: 'The command stopped without finishing' }
           : parseOutcome(log, code, run.skipped);
 
-    // Accepted by the tracker: the .torrent it gave back, from the Unit3Dup archive
+    // Accepted by the tracker: the .torrent it gave back, from the ITTUP/Unit3Dup archive
     let torrent = {};
     if (outcome.status === 'DONE') {
       const found = await this.collectTorrent(run, log).catch((error: Error) => {
@@ -942,7 +1106,7 @@ class ReleaseManager extends EventEmitter {
         return null;
       });
       torrent = torrentFields(found);
-      if (!found) outcome.message += ' (its .torrent was not found in the Unit3Dup archive)';
+      if (!found) outcome.message += ' (its .torrent was not found in the ITTUP/Unit3Dup archive)';
     }
 
     // The wrapper script, its log and its session (kept with tmux's remain-on-exit) are no longer needed
@@ -972,7 +1136,8 @@ class ReleaseManager extends EventEmitter {
   async resumePending(): Promise<void> {
     for (const status of ['RUNNING', 'NEEDS_INPUT']) {
       for (const upload of await db.getUploadsByReleaseStatus(status)) {
-        if (!upload.serverId) {
+        const targetId = upload.localClientId ?? upload.serverId;
+        if (!targetId) {
           await this.update(upload.id, { releaseStatus: 'FAILED', releaseMessage: 'The server no longer exists' });
           continue;
         }
@@ -980,11 +1145,12 @@ class ReleaseManager extends EventEmitter {
         const run = this.newRun(upload, rip?.tmdbId ?? null);
         run.tmdbAnswered = true; // already asked before the restart, maybe answered
         logger.info({ uploadId: upload.id }, 'Following the tracker command again');
-        this.chains.set(upload.serverId, this.follow(run).catch(() => undefined));
+        this.chains.set(targetId, this.follow(run).catch(() => undefined));
       }
     }
     for (const upload of await db.getUploadsByReleaseStatus('QUEUED')) {
-      if (upload.serverId) this.enqueue(upload.id, upload.serverId);
+      const targetId = upload.localClientId ?? upload.serverId;
+      if (targetId) this.enqueue(upload.id, targetId);
     }
   }
 

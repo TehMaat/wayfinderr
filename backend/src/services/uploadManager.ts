@@ -35,7 +35,10 @@ export const sftpCall = <T = void>(fn: (cb: (err: Error | null | undefined, res?
   });
 
 /** The server's upload folder, with forward slashes */
-export const remoteDirOf = (server: Server) => server.sshPath.replace(/\\/g, '/').replace(/\/+$/, '') || '/';
+export const remoteDirOf = (server: Pick<Server, 'sshPath'>) => server.sshPath.replace(/\\/g, '/').replace(/\/+$/, '') || '/';
+
+/** What an SSH connection needs: a server's login, or a download client's (local release) */
+export type SshLogin = Pick<Server, 'id' | 'sshHost' | 'sshPort' | 'sshUsername' | 'sshPassword'>;
 
 export class UploadManager extends EventEmitter {
   private activeConnections: Set<SSHClient> = new Set();
@@ -235,7 +238,7 @@ export class UploadManager extends EventEmitter {
     }
   }
 
-  connect(server: Server): Promise<SSHClient> {
+  connect(server: SshLogin): Promise<SSHClient> {
     const connectConfig: ConnectConfig = {
       host: server.sshHost,
       port: server.sshPort,

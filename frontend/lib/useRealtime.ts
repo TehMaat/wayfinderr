@@ -106,6 +106,12 @@ export const useRealtime = () => {
             scheduleStats(true);
             break;
 
+          // Moved on a client's machine instead of uploaded (the dialog has its own toast)
+          case 'released-locally':
+            await store.refreshUpload(uploadId);
+            scheduleStats(true);
+            break;
+
           case 'upload-failed': {
             await store.refreshUpload(uploadId);
             const upload = useAppStore.getState().uploads.find((u) => u.id === uploadId);

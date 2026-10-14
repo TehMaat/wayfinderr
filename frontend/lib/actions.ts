@@ -150,7 +150,9 @@ export async function testClient(id: string) {
     const { data } = await clientsApi.testClient(id);
     toast.success(`${name} is working`, {
       id: pending,
-      description: `qBittorrent ${data.version} · ${data.completedTorrents} finished torrents in scope`,
+      description: `qBittorrent ${data.version} · ${data.completedTorrents} finished torrents in scope${
+        data.localRelease ? ' · local release: SSH and folders OK' : ''
+      }`,
     });
   } catch (err) {
     toast.error(`${name} test failed`, { id: pending, description: errorMessage(err) });
