@@ -12,7 +12,9 @@ import { PageHeader } from '@/components/page-header';
 import { RipChooseDialog } from '@/components/rip-choose-dialog';
 import { RipExclusionsDialog } from '@/components/rip-exclusions-dialog';
 import { RipTable } from '@/components/rip-table';
-import { clearSkippedRips } from '@/lib/actions';
+import { SelectionBar } from '@/components/selection';
+import { clearSkippedRips, removeRips } from '@/lib/actions';
+import { useSelection } from '@/lib/selection';
 import { languageName, matchesRipFilter, RIP_FILTERS, UNPACK_DISKS, type RipFilter } from '@/lib/rips';
 import { useAppStore, type Rip, type RipperStatus } from '@/lib/store';
 import { cn, formatBytes } from '@/lib/utils';
@@ -157,6 +159,8 @@ function SetupStrip({ status }: { status: RipperStatus }) {
   );
 }
 
+const isSkipped = (r: Rip) => r.status === 'SKIPPED';
+
 export default function RipsPage() {
   const rips = useAppStore((s) => s.rips);
   const loaded = useAppStore((s) => s.ripsLoaded);
@@ -167,6 +171,7 @@ export default function RipsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [exclusionsOpen, setExclusionsOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
 
   // /rips?filter=attention (dashboard callout) opens that list
   useEffect(() => {
@@ -192,6 +197,8 @@ export default function RipsPage() {
     [rips]
   );
   const filtered = useMemo(() => rips.filter((r) => matchesRipFilter(r, filter)), [rips, filter]);
+  // Only skipped rips can be removed from the list (the backend refuses the others)
+  const selection = useSelection(filtered, isSkipped);
   const choosing = rips.find((r) => r.id === choosingId) ?? null;
 
   const openChoose = (rip: Rip) => {
@@ -318,7 +325,18 @@ export default function RipsPage() {
               />
             )
           ) : (
-            <RipTable rips={filtered} onChoose={openChoose} />
+            <>
+              {selection.ids.length > 0 && (
+                <SelectionBar
+                  count={selection.ids.length}
+                  noun={['rip', 'rips']}
+                  actionLabel="Remove from list"
+                  onAction={() => setRemoveOpen(true)}
+                  onClear={selection.clear}
+                />
+              )}
+              <RipTable rips={filtered} onChoose={openChoose} selection={selection} />
+            </>
           )}
         </Card>
       )}
@@ -337,6 +355,17 @@ export default function RipsPage() {
         }
         confirmLabel="Clear"
         onConfirm={clearSkippedRips}
+      />
+      <ConfirmDialog
+        open={removeOpen}
+        onOpenChange={setRemoveOpen}
+        title={selection.ids.length === 1 ? 'Remove 1 skipped rip?' : `Remove ${selection.ids.length} skipped rips?`}
+        description="They are removed from the list. The files in the downloads are not touched, and these discs are not listed again."
+        confirmLabel="Remove"
+        onConfirm={async () => {
+          await removeRips(selection.ids);
+          selection.clear();
+        }}
       />
     </div>
   );
