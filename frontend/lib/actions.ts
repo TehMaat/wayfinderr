@@ -40,6 +40,23 @@ export async function deleteUpload(id: string): Promise<boolean> {
   }
 }
 
+/** Several uploads removed from the history at once */
+export async function deleteUploads(ids: string[]) {
+  const results = await Promise.allSettled(ids.map((id) => uploadsApi.deleteUpload(id)));
+  const failed: string[] = [];
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled') useAppStore.getState().removeUpload(ids[i]);
+    else failed.push(errorMessage(r.reason));
+  });
+  useAppStore.getState().loadStats().catch(() => undefined);
+  const removed = ids.length - failed.length;
+  if (failed.length === 0) {
+    toast.success(removed === 1 ? '1 upload removed from history' : `${removed} uploads removed from history`);
+  } else {
+    toast.error(`${failed.length} of ${ids.length} uploads not removed`, { description: [...new Set(failed)].join(' · ') });
+  }
+}
+
 export async function retryRip(id: string) {
   try {
     const { data } = await ripsApi.retryRip(id);
@@ -96,6 +113,22 @@ export async function removeRip(id: string) {
     toast.success('Removed from the list');
   } catch (err) {
     toast.error('Remove failed', { description: errorMessage(err) });
+  }
+}
+
+/** Several skipped rips removed from the list at once */
+export async function removeRips(ids: string[]) {
+  const results = await Promise.allSettled(ids.map((id) => ripsApi.removeRip(id)));
+  const failed: string[] = [];
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled') useAppStore.getState().removeRip(ids[i]);
+    else failed.push(errorMessage(r.reason));
+  });
+  const removed = ids.length - failed.length;
+  if (failed.length === 0) {
+    toast.success(removed === 1 ? '1 rip removed from the list' : `${removed} rips removed from the list`);
+  } else {
+    toast.error(`${failed.length} of ${ids.length} rips not removed`, { description: [...new Set(failed)].join(' · ') });
   }
 }
 

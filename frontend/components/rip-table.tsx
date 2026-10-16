@@ -3,11 +3,14 @@
 import Link from 'next/link';
 import { ExternalLink, FileVideo, PackageOpen } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { Tooltip } from '@/components/ui/tooltip';
 import { RipActions } from '@/components/rip-actions';
+import { SelectAllCell, SelectCell } from '@/components/selection';
 import { RipStatusBadge, StatusBadge } from '@/components/status-badge';
 import { isArchivedMkv, languageName, ripName, sourceLabel, tmdbUrl, UNPACK_DISKS } from '@/lib/rips';
+import type { Selection } from '@/lib/selection';
 import { useAppStore, type Rip } from '@/lib/store';
 import { basename, cn, formatBytes, formatRuntime, timeAgo } from '@/lib/utils';
 
@@ -193,7 +196,16 @@ function DetailsCell({ rip, wrap }: { rip: Rip; wrap?: boolean }) {
   }
 }
 
-export function RipTable({ rips, onChoose }: { rips: Rip[]; onChoose: (rip: Rip) => void }) {
+export function RipTable({
+  rips,
+  onChoose,
+  selection,
+}: {
+  rips: Rip[];
+  onChoose: (rip: Rip) => void;
+  /** Checkboxes to pick rows for removing many at once */
+  selection?: Selection;
+}) {
   return (
     <>
       {/* Desktop */}
@@ -201,6 +213,7 @@ export function RipTable({ rips, onChoose }: { rips: Rip[]; onChoose: (rip: Rip)
         <table className="w-full table-fixed text-sm">
           <thead>
             <tr className="border-b text-left text-xs text-muted-foreground [&>th]:h-9 [&>th]:whitespace-nowrap [&>th]:px-3 [&>th]:font-medium">
+              {selection && <SelectAllCell selection={selection} />}
               <th className="w-[26%]">Film</th>
               <th className="w-[17%]">Source</th>
               <th className="w-36">Status</th>
@@ -215,9 +228,18 @@ export function RipTable({ rips, onChoose }: { rips: Rip[]; onChoose: (rip: Rip)
                 key={rip.id}
                 className={cn(
                   'border-b border-border/60 transition-colors last:border-0 hover:bg-accent/50 [&>td]:h-14 [&>td]:px-3',
-                  rip.status === 'NEEDS_ATTENTION' && 'bg-warning/[0.04]'
+                  rip.status === 'NEEDS_ATTENTION' && 'bg-warning/[0.04]',
+                  selection?.has(rip.id) && 'bg-primary/[0.06]'
                 )}
               >
+                {selection && (
+                  <SelectCell
+                    id={rip.id}
+                    selection={selection}
+                    label={ripName(rip)}
+                    disabledReason="Only skipped rips can be removed from the list"
+                  />
+                )}
                 <td>
                   <FilmCell rip={rip} />
                 </td>
@@ -247,10 +269,24 @@ export function RipTable({ rips, onChoose }: { rips: Rip[]; onChoose: (rip: Rip)
         {rips.map((rip) => (
           <div
             key={rip.id}
-            className={cn('space-y-2.5 p-3', rip.status === 'NEEDS_ATTENTION' && 'bg-warning/[0.04]')}
+            className={cn(
+              'space-y-2.5 p-3',
+              rip.status === 'NEEDS_ATTENTION' && 'bg-warning/[0.04]',
+              selection?.has(rip.id) && 'bg-primary/[0.06]'
+            )}
           >
             <div className="flex items-start justify-between gap-3">
-              <FilmCell rip={rip} />
+              <div className="flex min-w-0 items-start gap-2.5">
+                {selection?.canSelect(rip.id) && (
+                  <Checkbox
+                    checked={selection.has(rip.id)}
+                    onChange={(e) => selection.toggle(rip.id, (e.nativeEvent as MouseEvent).shiftKey)}
+                    aria-label={`Select ${ripName(rip)}`}
+                    className="mt-0.5 shrink-0"
+                  />
+                )}
+                <FilmCell rip={rip} />
+              </div>
               <RipStatusBadge status={rip.status} className="mt-0.5 shrink-0" />
             </div>
             <SourceCell rip={rip} />

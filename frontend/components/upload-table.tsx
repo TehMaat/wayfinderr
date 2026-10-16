@@ -6,10 +6,12 @@ import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/status-badge';
 import { MissingBadge, ReleaseBadge } from '@/components/release-badge';
 import { MediaBadges } from '@/components/media-badges';
+import { SelectAllCell, SelectCell } from '@/components/selection';
 import { UploadActions } from '@/components/upload-actions';
 import { Tooltip } from '@/components/ui/tooltip';
 import { ripOfUpload, uploadLanguages } from '@/lib/media';
 import { destinationName, uploadName } from '@/lib/release';
+import type { Selection } from '@/lib/selection';
 import { useAppStore, type Upload } from '@/lib/store';
 import { cn, formatBytes, formatDate, formatDuration, formatSpeed } from '@/lib/utils';
 
@@ -66,7 +68,16 @@ function LanguageCells({ upload, compact }: { upload: Upload; compact?: boolean 
   );
 }
 
-export function UploadTable({ uploads, compact }: { uploads: Upload[]; compact?: boolean }) {
+export function UploadTable({
+  uploads,
+  compact,
+  selection,
+}: {
+  uploads: Upload[];
+  compact?: boolean;
+  /** Checkboxes to pick rows for removing many at once */
+  selection?: Selection;
+}) {
   const router = useRouter();
 
   return (
@@ -74,6 +85,7 @@ export function UploadTable({ uploads, compact }: { uploads: Upload[]; compact?:
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b text-left text-xs text-muted-foreground [&>th]:h-9 [&>th]:whitespace-nowrap [&>th]:px-3 [&>th]:font-medium">
+            {selection && <SelectAllCell selection={selection} />}
             <th className="w-full min-w-[10rem]">Name</th>
             <th>Size</th>
             <th>Progress</th>
@@ -94,11 +106,22 @@ export function UploadTable({ uploads, compact }: { uploads: Upload[]; compact?:
                 // Row click opens details, except on interactive elements and on
                 // dialogs/menus rendered in portals (React bubbles their events here)
                 const target = e.target as HTMLElement;
-                if (!e.currentTarget.contains(target) || target.closest('button,a,[role=menuitem]')) return;
+                if (!e.currentTarget.contains(target) || target.closest('button,a,[data-select],[role=menuitem]')) return;
                 router.push(`/uploads/${upload.id}`);
               }}
-              className="cursor-pointer border-b border-border/60 transition-colors last:border-0 hover:bg-accent/50 [&>td]:h-10 [&>td]:whitespace-nowrap [&>td]:px-3"
+              className={cn(
+                'cursor-pointer border-b border-border/60 transition-colors last:border-0 hover:bg-accent/50 [&>td]:h-10 [&>td]:whitespace-nowrap [&>td]:px-3',
+                selection?.has(upload.id) && 'bg-primary/[0.06]'
+              )}
             >
+              {selection && (
+                <SelectCell
+                  id={upload.id}
+                  selection={selection}
+                  label={uploadName(upload)}
+                  disabledReason="Queued, uploading or uploading to the tracker: can't be removed now"
+                />
+              )}
               <td className="w-full min-w-[10rem] max-w-0">
                 <Tooltip
                   content={upload.releaseName ? `${upload.filepath} · renamed on the server` : upload.filepath}

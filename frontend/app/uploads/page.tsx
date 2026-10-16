@@ -6,11 +6,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip } from '@/components/ui/tooltip';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
+import { SelectionBar } from '@/components/selection';
 import { STATUS_META } from '@/components/status-badge';
+import { canDelete } from '@/components/upload-actions';
 import { UploadTable } from '@/components/upload-table';
-import { importTorrentFiles } from '@/lib/actions';
+import { deleteUploads, importTorrentFiles } from '@/lib/actions';
 import { matchesSearch } from '@/lib/release';
+import { useSelection } from '@/lib/selection';
 import { UPLOAD_STATUSES, useAppStore, type Filters } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -61,22 +65,7 @@ export default function UploadsPage() {
   const searchRef = useRef<HTMLInputElement>(null);
   const torrentsRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
-
-  // "/" focuses the search box, Esc clears it
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const typing = (e.target as HTMLElement).closest('input,textarea,select');
-      if (e.key === '/' && !typing) {
-        e.preventDefault();
-        searchRef.current?.focus();
-      } else if (e.key === 'Escape' && e.target === searchRef.current) {
-        setFilters({ search: '' });
-        searchRef.current?.blur();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [setFilters]);
+  const [removeOpen, setRemoveOpen] = useState(false);
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -99,6 +88,28 @@ export default function UploadsPage() {
         (!q || matchesSearch(u, q))
     );
   }, [uploads, filters]);
+
+  // Only the rows in view, and only those that can be removed, can be selected
+  const selection = useSelection(filtered, canDelete);
+  const clearSelection = selection.clear;
+
+  // "/" focuses the search box, Esc clears it (or else the selection)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const typing = (e.target as HTMLElement).closest('input:not([type=checkbox]),textarea,select');
+      if (e.key === '/' && !typing) {
+        e.preventDefault();
+        searchRef.current?.focus();
+      } else if (e.key === 'Escape' && e.target === searchRef.current) {
+        setFilters({ search: '' });
+        searchRef.current?.blur();
+      } else if (e.key === 'Escape' && !typing && !document.querySelector('[role=dialog],[role=menu]')) {
+        clearSelection();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [setFilters, clearSelection]);
 
   const hasFilters = filters.status !== 'ALL' || filters.serverId !== 'ALL' || filters.search !== '';
   const set = (f: Partial<Filters>) => setFilters(f);
@@ -276,7 +287,18 @@ export default function UploadsPage() {
               />
             )
           ) : (
-            <UploadTable uploads={filtered} />
+            <>
+              {selection.ids.length > 0 && (
+                <SelectionBar
+                  count={selection.ids.length}
+                  noun={['upload', 'uploads']}
+                  actionLabel="Remove from history"
+                  onAction={() => setRemoveOpen(true)}
+                  onClear={selection.clear}
+                />
+              )}
+              <UploadTable uploads={filtered} selection={selection} />
+            </>
           )}
         </div>
 
@@ -284,6 +306,18 @@ export default function UploadsPage() {
           {filtered.length} of {uploads.length} uploads
         </div>
       </div>
+
+      <ConfirmDialog
+        open={removeOpen}
+        onOpenChange={setRemoveOpen}
+        title={selection.ids.length === 1 ? 'Remove 1 upload from history?' : `Remove ${selection.ids.length} uploads from history?`}
+        description="They are removed from the list. The files themselves (local and remote) are not touched."
+        confirmLabel="Remove"
+        onConfirm={async () => {
+          await deleteUploads(selection.ids);
+          selection.clear();
+        }}
+      />
     </div>
   );
 }
