@@ -67,6 +67,12 @@ export const detectPrompt = (log: string, idleMs: number): Prompt | null => {
   return null;
 };
 
+// Printed when ITTUP/Unit3Dup hashes a new .torrent for a tracker: 'ITT' Il.Padrino.1972.mkv - 41.2 GB
+const HASHING = /^'([^'\n]+)' [^\n]+ - [\d.]+ GB$/m;
+
+/** The tracker the command hashed a .torrent for (its folder in the archive), when it made one */
+export const hashedFor = (log: string): string | null => HASHING.exec(log)?.[1] ?? null;
+
 /** The exit code written by the wrapper, once the command has ended */
 export const exitCode = (log: string): number | null => {
   const match = new RegExp(`${EXIT_MARKER} (\\d+)`).exec(log);

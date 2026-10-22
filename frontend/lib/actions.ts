@@ -263,9 +263,10 @@ export async function importTorrentFiles(files: File[]) {
 // Release: the tracker command on the renamed file (see the rename dialog for the rename)
 export async function runRelease(id: string) {
   try {
-    await releaseApi.run(id);
+    const { data } = await releaseApi.run(id);
     await useAppStore.getState().refreshUpload(id);
-    toast.success('Tracker upload queued');
+    // Its .torrent already made: the message says it does not wait for the queue
+    toast.success('Tracker upload queued', { description: data.releaseMessage ?? undefined });
   } catch (err) {
     toast.error('Tracker upload failed to start', { description: errorMessage(err) });
   }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { appendOutput, detectPrompt, exitCode, EXIT_MARKER, IDLE_PROMPT_MS, parseOutcome, withoutMarker } from './output.js';
+import { appendOutput, detectPrompt, exitCode, EXIT_MARKER, hashedFor, IDLE_PROMPT_MS, parseOutcome, withoutMarker } from './output.js';
 import { shellQuote, trackerCommandFor } from './index.js';
 
 test('progress bars rewrite their line, escape codes go', () => {
@@ -31,6 +31,13 @@ test('any other question only after a silence', () => {
   assert.equal(detectPrompt('Uploading screenshots', IDLE_PROMPT_MS), null);
   // A slow progress bar is still running
   assert.equal(detectPrompt('Hashing\n  4%|▌         | 4/100 [01:25<28:49, 18.02s/it]', IDLE_PROMPT_MS), null);
+});
+
+test('the tracker a .torrent was hashed for', () => {
+  const log = "[*.torrent Archive] '/home/u/ittup_config/torrent_archive_path'\n\n'ITT' Il.Padrino.1972.mkv - 41.2 GB\n100%\n";
+  assert.equal(hashedFor(log), 'ITT');
+  // Reused from the archive: nothing hashed
+  assert.equal(hashedFor("\n<> Reusing the existing torrent file..'/a/Il.Padrino.1972.mkv'\n"), null);
 });
 
 test('exit code from the wrapper line', () => {

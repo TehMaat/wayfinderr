@@ -6,7 +6,9 @@
  *     inside tmux so it survives a dropped connection or a restart of Wayfinderr.
  *     Its output goes through `tee` into ~/.wayfinderr/<id>.log, read every second
  *     over SFTP; its questions (see output.ts) are answered from the upload page
- *     with `tmux send-keys`. One command at a time per server.
+ *     with `tmux send-keys`. One command at a time per server; a re-upload whose .torrent
+ *     is already in the archive (made by an earlier run, see madeTorrent) has a second
+ *     queue of its own: the file is not hashed again, so it does not wait for the others.
  * Once the tracker accepts it, the .torrent it gives back is read from the Unit3Dup
  * archive (<archive>/<TRACKER>/<file name>.torrent) and kept with its info hash.
  * Releases made before, or by hand, are linked to their file and .torrent by link().
@@ -32,7 +34,7 @@ import { remoteDirOf, sftpCall, SshLogin, uploadManager } from '../uploadManager
 import { parseReleaseName } from '../ripper/releaseName.js';
 import { MediaInfo } from '../../types/index.js';
 import { analyze, buildReleaseName, isAutoHybrid, ReleaseAnalysis, ReleaseFlags, validateFlags, VERSIONS } from './name.js';
-import { appendOutput, detectPrompt, exitCode, EXIT_MARKER, parseOutcome, Prompt, withoutMarker } from './output.js';
+import { appendOutput, detectPrompt, exitCode, EXIT_MARKER, hashedFor, parseOutcome, Prompt, withoutMarker } from './output.js';
 import { parseTorrent, TorrentFile, trackerHost } from './torrentFile.js';
 
 const POLL_MS = 1000;
@@ -320,6 +322,8 @@ class ReleaseManager extends EventEmitter {
   private runs = new Map<string, Run>();
   // The last command of each server (or client machine): the next one waits for it
   private chains = new Map<string, Promise<void>>();
+  // The same for the re-uploads with their .torrent already made, beside the other queue
+  private reuploads = new Map<string, Promise<void>>();
   private stopped = false;
 
   /**
@@ -718,23 +722,60 @@ class ReleaseManager extends EventEmitter {
     if (jobQueue.hasJob(uploadId)) throw new ReleaseError('The upload is still stopping: try again in a moment');
   }
 
-  /** The tracker command again, on the file already renamed */
+  /**
+   * The .torrent an earlier run of the tracker command made for this file, still in a
+   * tracker folder of the ITTUP/Unit3Dup archive: run again, the command uses it instead
+   * of hashing the file. When the earlier output says which tracker it hashed it for,
+   * only that tracker's folder counts.
+   */
+  private async madeTorrent(upload: Upload, server: ReleaseTarget): Promise<FoundTorrent | null> {
+    if (!upload.remotePath) return null;
+    const log = upload.releaseLog ?? '';
+    const tracker = hashedFor(log);
+    const { sftp, ssh, home } = await this.connect(server);
+    try {
+      const dirs = await archiveDirs(sftp, home, log);
+      const found = await findTorrent(sftp, dirs, { path: upload.remotePath, size: Number(upload.size) }, tracker);
+      if (!found?.tracker) return null; // right in the archive folder: the command does not look there
+      return !tracker || found.tracker.toLowerCase() === tracker.toLowerCase() ? found : null;
+    } finally {
+      ssh.end();
+    }
+  }
+
+  /** madeTorrent, null when the server cannot be reached: the re-upload then waits in the queue */
+  private madeTorrentOrNull(upload: Upload, server: ReleaseTarget) {
+    return this.madeTorrent(upload, server).catch((error: Error) => {
+      logger.warn({ uploadId: upload.id, error: error.message }, 'Cannot look for the .torrent made before');
+      return null;
+    });
+  }
+
+  /**
+   * The tracker command again, on the file already renamed. With its .torrent already
+   * made (a tracker error after the hashing, e.g. HTTP 403/404), it runs right away,
+   * beside the queue of the server.
+   */
   async rerun(uploadId: string): Promise<Upload> {
     const { upload, server } = await this.load(uploadId);
     if (!upload.releaseStatus || !RERUNNABLE.includes(upload.releaseStatus) || !upload.releaseName) {
       throw new ReleaseError('Rename the file first');
     }
     if (!server.trackerCommand?.trim()) throw new ReleaseError(`${server.name} has no tracker command`);
+    const made = await this.madeTorrentOrNull(upload, server);
+    if (made) logger.info({ uploadId, torrent: made.path }, 'Re-upload with the .torrent made before');
     const updated = await this.update(uploadId, {
       releaseStatus: 'QUEUED',
-      releaseMessage: null,
+      releaseMessage: made
+        ? `Its .torrent is already made (${made.tracker}): uploaded again without waiting for the queue of ${server.name}`
+        : null,
       releaseLog: null,
       releasePrompt: null,
       releaseOffset: 0,
       releaseStartedAt: null,
       releaseCompletedAt: null,
     });
-    this.enqueue(uploadId, server.id);
+    this.enqueue(uploadId, server.id, Boolean(made));
     return updated;
   }
 
@@ -844,12 +885,14 @@ class ReleaseManager extends EventEmitter {
     });
   }
 
-  private enqueue(uploadId: string, serverId: string) {
-    const previous = this.chains.get(serverId) ?? Promise.resolve();
+  /** In the queue of the server, or (reupload) in the one of the re-uploads with their .torrent made */
+  private enqueue(uploadId: string, serverId: string, reupload = false) {
+    const chains = reupload ? this.reuploads : this.chains;
+    const previous = chains.get(serverId) ?? Promise.resolve();
     const next = previous
       .then(() => (this.stopped ? undefined : this.start(uploadId)))
       .catch((error) => logger.error({ uploadId, error }, 'Tracker command failed'));
-    this.chains.set(serverId, next);
+    chains.set(serverId, next);
   }
 
   /** Writes the wrapper script and starts it in a detached tmux session, then follows it */
@@ -1132,7 +1175,10 @@ class ReleaseManager extends EventEmitter {
     });
   }
 
-  /** At start: follow the commands still running in tmux, then the queued ones */
+  /**
+   * At start: follow the commands still running in tmux, then the queued ones (those with
+   * their .torrent already made in the queue of the re-uploads, once checked on the server)
+   */
   async resumePending(): Promise<void> {
     for (const status of ['RUNNING', 'NEEDS_INPUT']) {
       for (const upload of await db.getUploadsByReleaseStatus(status)) {
@@ -1148,10 +1194,17 @@ class ReleaseManager extends EventEmitter {
         this.chains.set(targetId, this.follow(run).catch(() => undefined));
       }
     }
-    for (const upload of await db.getUploadsByReleaseStatus('QUEUED')) {
-      const targetId = upload.localClientId ?? upload.serverId;
-      if (targetId) this.enqueue(upload.id, targetId);
-    }
+    const queued = await db.getUploadsByReleaseStatus('QUEUED');
+    // Checked in the background, in order: an unreachable server does not hold up the start
+    void (async () => {
+      for (const upload of queued) {
+        const target = await this.targetOfUpload(upload).catch(() => null);
+        const targetId = upload.localClientId ?? upload.serverId;
+        if (!targetId || this.stopped) continue;
+        const made = target?.trackerCommand?.trim() ? await this.madeTorrentOrNull(upload, target) : null;
+        this.enqueue(upload.id, targetId, Boolean(made));
+      }
+    })();
   }
 
   /** Stops following: the commands go on in tmux on the servers */
