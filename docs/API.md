@@ -489,7 +489,7 @@ The source .torrent kept, as a download (`application/x-bittorrent`); `404` when
 
 ## Release API
 
-An upload on a server is renamed there as a release, the way moverr.py does (`NAME.YEAR.{VERSION}.{HYBRID}.{REMUX}.RESOLUTION.{VU}.{DV}.{P#}.{HDR}.AUDIO.SUBS-TAG.mkv`, in its own folder), then the server's `trackerCommand` (Unit3Dup) uploads it to the tracker. The command runs over SSH inside tmux (`wf-<uploadId>` session; needs `tmux` and `bash` on the server), so it survives a dropped connection or a restart of Wayfinderr; its output is read from `~/.wayfinderr/<uploadId>.log`. One command at a time per server. Only for `COMPLETED` uploads.
+An upload on a server is renamed there as a release, the way moverr.py does (`NAME.YEAR.{VERSION}.{HYBRID}.{REMUX}.RESOLUTION.{VU}.{DV}.{P#}.{HDR}.AUDIO.SUBS-TAG.mkv`, in its own folder), then the server's `trackerCommand` (Unit3Dup) uploads it to the tracker. The command runs over SSH inside tmux (`wf-<uploadId>` session; needs `tmux` and `bash` on the server), so it survives a dropped connection or a restart of Wayfinderr; its output is read from `~/.wayfinderr/<uploadId>.log`. One command at a time per server, except a run again whose .torrent is already made (see below). Only for `COMPLETED` uploads.
 
 **Local release** (`?local=1` on the proposal, the preview and the rename): an upload not on a server yet (any status but `COMPLETED` and `PENDING`, its local file still there) is released on the machine of a download client with `localRelease` instead (the one of its source torrent, else the first; see [Clients API](#clients-api-qbittorrent)). The same steps run there over SSH: the local file, at the client's `hostWatchDir` plus its path in the watch folder, is moved into the client's `releaseDir`, then its `trackerCommand` runs. The rename stops a queued or running upload first (`409` if it is still stopping after 10 seconds), then sets `status` `COMPLETED`, `serverId` `null` and `localClientId`; from then on every call works without `?local=1`, on that client. `409` when no client is set up for it or the file is gone; `502` when the move fails (the two folders must be on the same disk).
 
@@ -552,7 +552,7 @@ POST /api/uploads/:id/release/run
 POST /api/uploads/:id/release/dismiss
 ```
 
-`input` types the text and Enter into the command (`tmux send-keys`). `stop` sends Ctrl-C (Unit3Dup quits cleanly), and the session is killed 10 seconds later if still there; a queued command is just dropped. `run` runs the command again on the renamed file. `dismiss` drops a `CONFIRM` (the name is not wanted now).
+`input` types the text and Enter into the command (`tmux send-keys`). `stop` sends Ctrl-C (Unit3Dup quits cleanly), and the session is killed 10 seconds later if still there; a queued command is just dropped. `run` runs the command again on the renamed file. When an earlier run already made its .torrent (the tracker answered with an error after the hashing, e.g. HTTP 403 or 404), that .torrent is still in a tracker folder of the archive (`<archive>/<TRACKER>/`, the one the earlier output hashed it for: `'ITT' <name> - 41.2 GB`) and ITTUP/Unit3Dup uses it again instead of hashing the file: the run then goes into a second queue of the server, for these re-uploads only, and does not wait for the other commands (`releaseMessage` says so). Without it, or when the server cannot be reached to look, it waits in the server's queue as usual. `dismiss` drops a `CONFIRM` (the name is not wanted now).
 
 ### The .torrent
 
