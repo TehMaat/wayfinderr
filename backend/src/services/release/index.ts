@@ -34,7 +34,7 @@ import { remoteDirOf, sftpCall, SshLogin, uploadManager } from '../uploadManager
 import { parseReleaseName } from '../ripper/releaseName.js';
 import { MediaInfo } from '../../types/index.js';
 import { analyze, buildReleaseName, isAutoHybrid, ReleaseAnalysis, ReleaseFlags, validateFlags, VERSIONS } from './name.js';
-import { appendOutput, detectPrompt, exitCode, EXIT_MARKER, hashedFor, parseOutcome, Prompt, withoutMarker } from './output.js';
+import { appendOutput, detectPrompt, exitCode, EXIT_MARKER, hashedFor, parseOutcome, Prompt, tmdbIdOf, withoutMarker } from './output.js';
 import { parseTorrent, TorrentFile, trackerHost } from './torrentFile.js';
 
 const POLL_MS = 1000;
@@ -1162,10 +1162,14 @@ class ReleaseManager extends EventEmitter {
     run.ssh?.end();
     this.runs.delete(run.uploadId);
 
+    // The film on TMDB, found by the command or typed in: kept for its link
+    const tmdbId = tmdbIdOf(log);
+
     logger.info({ uploadId: run.uploadId, code, ...outcome }, 'Tracker command ended');
     this.emit('release-output', { uploadId: run.uploadId, log });
     await this.update(run.uploadId, {
       ...torrent,
+      ...(tmdbId ? { tmdbId } : {}),
       releaseStatus: outcome.status,
       releaseMessage: outcome.message,
       releaseLog: log,
@@ -1193,6 +1197,11 @@ class ReleaseManager extends EventEmitter {
         logger.info({ uploadId: upload.id }, 'Following the tracker command again');
         this.chains.set(targetId, this.follow(run).catch(() => undefined));
       }
+    }
+    // Released before the TMDB id was kept: read it from their output
+    for (const upload of await db.getUploadsWithUnreadTmdb()) {
+      const tmdbId = tmdbIdOf(upload.releaseLog ?? '');
+      if (tmdbId) await db.updateUpload(upload.id, { tmdbId });
     }
     const queued = await db.getUploadsByReleaseStatus('QUEUED');
     // Checked in the background, in order: an unreachable server does not hold up the start

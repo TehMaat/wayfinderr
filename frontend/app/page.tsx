@@ -296,7 +296,7 @@ export default function Dashboard() {
           ) : uploads.length === 0 ? (
             <p className="px-4 py-6 text-center text-sm text-muted-foreground">Nothing yet.</p>
           ) : (
-            <UploadTable uploads={uploads.slice(0, 8)} compact />
+            <UploadTable uploads={uploads.slice(0, 8)} />
           )}
         </div>
       </Card>

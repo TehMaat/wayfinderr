@@ -596,6 +596,7 @@ For a file already renamed on the server and uploaded to the tracker (before Way
 | `releaseTracker` | The archive folder the .torrent was in: the tracker's name (e.g. `ITT`) |
 | `releaseTorrentName`, `releaseTorrentPath` | The .torrent's file name and where it is on the server |
 | `releaseTorrentHash` | Its v1 info hash (what the tracker and the clients know it by) |
+| `tmdbId` | The film on TMDB the command went on with, read from Unit3Dup's `'TMDB ID'........ 238` line when it ends (found on its own or typed in; `null` when skipped or not printed). Read from the kept output of earlier releases at start. A ripped upload also has its rip's (`tmdbId` in the rips list) |
 
 The upload list shows what could not be found as **Missing …**: the file on the server, the .torrent of a `DONE` upload, the media info (or its video details), the hash and tracker of a removed source torrent. The search box matches the file and release names, the torrent names and both hashes.
 
