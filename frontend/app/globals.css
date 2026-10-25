@@ -122,7 +122,7 @@
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--border)) transparent;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.45) transparent;
   }
   .tabular {
     font-variant-numeric: tabular-nums;

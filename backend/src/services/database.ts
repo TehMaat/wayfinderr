@@ -147,6 +147,14 @@ export class DatabaseService {
     return this.prisma.upload.findMany({ where: { releaseStatus }, orderBy: { updatedAt: 'asc' } });
   }
 
+  /** Uploads whose tracker command printed a TMDB id, not read yet (released before it was kept) */
+  async getUploadsWithUnreadTmdb(): Promise<{ id: string; releaseLog: string | null }[]> {
+    return this.prisma.upload.findMany({
+      where: { tmdbId: null, releaseLog: { contains: "'TMDB ID'" } },
+      select: { id: true, releaseLog: true },
+    });
+  }
+
   async deleteUpload(id: string): Promise<Upload> {
     return this.prisma.upload.delete({ where: { id } });
   }

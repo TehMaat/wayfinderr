@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { ExternalLink, FileVideo, PackageOpen } from 'lucide-react';
+import { ColGroup, ColumnHeader } from '@/components/column-layout';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
@@ -9,6 +10,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { RipActions } from '@/components/rip-actions';
 import { SelectAllCell, SelectCell } from '@/components/selection';
 import { RipStatusBadge, StatusBadge } from '@/components/status-badge';
+import { useColumnLayout, type Column } from '@/lib/columns';
 import { isArchivedMkv, languageName, ripName, sourceLabel, tmdbUrl, UNPACK_DISKS } from '@/lib/rips';
 import type { Selection } from '@/lib/selection';
 import { useAppStore, type Rip } from '@/lib/store';
@@ -196,6 +198,17 @@ function DetailsCell({ rip, wrap }: { rip: Rip; wrap?: boolean }) {
   }
 }
 
+const COLUMNS: Column[] = [
+  { id: 'select', width: 40, fixed: true },
+  { id: 'film', width: '26%', minWidth: 140 },
+  { id: 'source', width: '17%', minWidth: 120 },
+  { id: 'status', width: 144, minWidth: 96 },
+  { id: 'details', flex: true, minWidth: 200 },
+  { id: 'updated', width: 96, minWidth: 64 },
+  { id: 'actions', width: 112, fixed: true },
+];
+const COLUMNS_NO_SELECT = COLUMNS.filter((c) => c.id !== 'select');
+
 export function RipTable({
   rips,
   onChoose,
@@ -206,20 +219,37 @@ export function RipTable({
   /** Checkboxes to pick rows for removing many at once */
   selection?: Selection;
 }) {
+  const layout = useColumnLayout(selection ? COLUMNS : COLUMNS_NO_SELECT, {
+    storageKey: 'rips',
+    resizable: true,
+    alwaysFixed: true,
+  });
+
   return (
     <>
-      {/* Desktop */}
-      <div className="hidden md:block">
-        <table className="w-full table-fixed text-sm">
+      {/* Desktop: scrolls both ways, under its header */}
+      <div className="hidden min-h-0 overflow-auto scrollbar-thin md:block">
+        <table className="w-full table-fixed text-sm" style={{ minWidth: layout.minWidth }}>
+          <ColGroup layout={layout} />
           <thead>
-            <tr className="border-b text-left text-xs text-muted-foreground [&>th]:h-9 [&>th]:whitespace-nowrap [&>th]:px-3 [&>th]:font-medium">
+            <tr className="text-left text-xs text-muted-foreground [&>th]:sticky [&>th]:top-0 [&>th]:z-10 [&>th]:h-9 [&>th]:whitespace-nowrap [&>th]:bg-card [&>th]:px-3 [&>th]:font-medium [&>th]:shadow-[inset_0_-1px_0_hsl(var(--border))]">
               {selection && <SelectAllCell selection={selection} />}
-              <th className="w-[26%]">Film</th>
-              <th className="w-[17%]">Source</th>
-              <th className="w-36">Status</th>
-              <th>Details</th>
-              <th className="hidden w-24 2xl:table-cell">Updated</th>
-              <th className="w-28" />
+              <ColumnHeader layout={layout} id="film">
+                Film
+              </ColumnHeader>
+              <ColumnHeader layout={layout} id="source">
+                Source
+              </ColumnHeader>
+              <ColumnHeader layout={layout} id="status">
+                Status
+              </ColumnHeader>
+              <ColumnHeader layout={layout} id="details">
+                Details
+              </ColumnHeader>
+              <ColumnHeader layout={layout} id="updated">
+                Updated
+              </ColumnHeader>
+              <ColumnHeader layout={layout} id="actions" />
             </tr>
           </thead>
           <tbody>
@@ -252,7 +282,7 @@ export function RipTable({
                 <td>
                   <DetailsCell rip={rip} />
                 </td>
-                <td className="hidden whitespace-nowrap text-xs tabular text-muted-foreground 2xl:table-cell">
+                <td className="overflow-hidden text-ellipsis whitespace-nowrap text-xs tabular text-muted-foreground">
                   {timeAgo(rip.updatedAt)}
                 </td>
                 <td>

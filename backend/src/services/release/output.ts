@@ -73,6 +73,16 @@ const HASHING = /^'([^'\n]+)' [^\n]+ - [\d.]+ GB$/m;
 /** The tracker the command hashed a .torrent for (its folder in the archive), when it made one */
 export const hashedFor = (log: string): string | null => HASHING.exec(log)?.[1] ?? null;
 
+// Printed by Unit3Dup once the film is known, found on its own or typed in (0: skipped).
+// Rich's log adds the time before it and the source line after: [14:02:11] 'TMDB ID'........ 238   api.py:473
+const TMDB_ID = /'TMDB ID'\.+\s*(\d+)/g;
+
+/** The film's TMDB id the command went on with, when it printed one */
+export const tmdbIdOf = (log: string): number | null => {
+  const ids = [...log.matchAll(TMDB_ID)].map((m) => Number(m[1])).filter((id) => id > 0);
+  return ids.length ? ids[ids.length - 1] : null;
+};
+
 /** The exit code written by the wrapper, once the command has ended */
 export const exitCode = (log: string): number | null => {
   const match = new RegExp(`${EXIT_MARKER} (\\d+)`).exec(log);

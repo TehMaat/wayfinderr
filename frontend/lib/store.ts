@@ -115,6 +115,7 @@ export interface Upload {
   releaseTorrentName: string | null;
   releaseTorrentPath: string | null;
   releaseTorrentHash: string | null;
+  tmdbId: number | null; // the film on TMDB the tracker command went on with
   createdAt: string;
   updatedAt: string;
 }

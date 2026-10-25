@@ -112,6 +112,9 @@ model Upload {
   releaseTorrentHash   String?  // v1 info hash
   releaseTorrentData   Bytes?   // the file itself (left out of the list and the details)
 
+  // The film on TMDB, as printed by the tracker command (found on its own or typed in, see release/output.ts)
+  tmdbId               Int?
+
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 

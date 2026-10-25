@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Table columns (issue #45): drag the right edge of a column header to resize it, in the Uploads and Rips tables (double-click goes back to the starting widths). The Uploads list also has a **Columns** menu in its toolbar to pick the columns shown. Both are kept in the browser
+- TMDB link on the upload page: the film the tracker command went on with, read from Unit3Dup's `'TMDB ID'........ 238` line whether it found the film on its own or the id was typed in, else the rip's. Earlier releases get it from their kept output at start. `tmdbId` upload field
 - Re-upload with the .torrent already made (issue #43): "Upload to the tracker again" after a tracker error that came after the hashing (HTTP 403, 404...) no longer waits for the other tracker uploads of the server. When the .torrent of the file is still in the ITTUP/Unit3Dup archive (in the folder of the tracker the earlier output says it was hashed for), the command reuses it without hashing the file again, so it goes into a second queue, of these re-uploads only, beside the server's one. The **Tracker** card and the toast say so; without the .torrent it is queued as before. After a restart the queued ones are checked again
 - Local release (issue #37): with room on this machine, a file is released from the local qBittorrent instead of uploaded to a server. A client with **Local release** on (SSH login to the machine it runs on, the watch folder as that machine sees it, a release folder, release tag and tracker command such as `ittup -u {path}`) adds "Release locally…" to the menu and the **Tracker** card of an upload not on a server yet: its upload stops, the file is moved over SSH into `<release folder>/<name>/<name>.mkv` with the usual name dialog, then the tracker command (ITTUP) uploads it and seeds it from that client, in tmux as on a server. The upload then counts as completed on the client ("qBittorrent (local)") and its source torrent is cleaned up as after an upload; that cleanup never takes the release's own torrent. **Test connection** also checks the SSH login, the folders, tmux and the command. `?local=1` on `/api/uploads/:id/release`, `localClientId` upload field, `localRelease`/`sshHost`/`sshPort`/`sshUsername`/`sshPassword`/`hostWatchDir`/`releaseDir`/`releaseTag`/`trackerCommand` client fields
 - ITTUP (the ItaTorrents fork of Unit3Dup): its .torrent archive is also looked for in `~/ittup_config` (`ittup.json`, `torrent_archive_path`)
@@ -44,6 +46,8 @@ All notable changes to this project will be documented in this file.
 - Docker images for linux/arm64 too
 
 ### Changed
+- Rips page: the list takes the whole width and the height left under the setup, scrolling under its header
+- Upload list: the progress bar without the percentage
 - New logo, a glass pyramid with a glowing core inspired by the Star Wars wayfinder: in the sidebar, on the login screen, as the browser tab icon and in the README. In five colors (violet, red, blue, green, amber: `docs/assets/logo-<color>.svg|png`, written by `scripts/logos.mjs`)
 - Renamed uploads show their release name in the list and on their page (the uploaded name below it); the search matches the file and release names, the torrent names and the hashes
 - "Read media info again" (and the upload page's automatic probe) reads the copy on the server when the local file is gone
@@ -56,6 +60,7 @@ All notable changes to this project will be documented in this file.
 - Uploads keep 64 SFTP writes of 32 KiB in flight, like OpenSSH: no longer capped at chunk size / round trip time (~2 MiB/s)
 
 ### Fixed
+- Upload list: the horizontal scrollbar was below the last row, out of sight with many uploads; the table now scrolls both ways under a header that stays on top, and the scrollbars are visible in the dark theme
 - The tracker's .torrent was not found in the Unit3Dup archive: Unit3Dup names it after the file without its extension (`<name>.torrent`, not `<name>.mkv.torrent`). It is now looked for under the file name with and without the extension and the folder name, and a .torrent of the whole folder counts too
 - Linking a release showed "Uploaded to the tracker" as well as "Release linked"
 - An upload no longer hangs forever when the SSH connection drops: the attempt fails and is retried

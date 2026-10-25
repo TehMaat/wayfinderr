@@ -6,12 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip } from '@/components/ui/tooltip';
+import { ColumnPicker } from '@/components/column-layout';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { SelectionBar } from '@/components/selection';
 import { STATUS_META } from '@/components/status-badge';
 import { canDelete } from '@/components/upload-actions';
-import { UploadTable } from '@/components/upload-table';
+import { UploadTable, useUploadColumns } from '@/components/upload-table';
 import { deleteUploads, importTorrentFiles } from '@/lib/actions';
 import { matchesSearch } from '@/lib/release';
 import { useSelection } from '@/lib/selection';
@@ -66,6 +67,7 @@ export default function UploadsPage() {
   const torrentsRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
+  const columns = useUploadColumns();
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -253,6 +255,7 @@ export default function UploadsPage() {
                 setImporting(false);
               }}
             />
+            <ColumnPicker layout={columns} />
             <Tooltip content="Refresh">
               <Button variant="ghost" size="icon" onClick={refresh} aria-label="Refresh">
                 <RefreshCw className={cn(refreshing && 'animate-spin')} />
@@ -261,7 +264,8 @@ export default function UploadsPage() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
+        {/* The table scrolls on its own (both ways, under its header); the selection bar stays above it */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           {!loaded ? (
             <div className="space-y-2 p-4">
               {Array.from({ length: 8 }).map((_, i) => (
@@ -297,7 +301,7 @@ export default function UploadsPage() {
                   onClear={selection.clear}
                 />
               )}
-              <UploadTable uploads={filtered} selection={selection} />
+              <UploadTable uploads={filtered} columns={columns} selection={selection} fill />
             </>
           )}
         </div>

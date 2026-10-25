@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowLeft, AudioLines, Captions, Clapperboard, Download, FilePlus, FileVideo, Film, Magnet, RotateCcw, Search, Square, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, AudioLines, Captions, Clapperboard, Download, ExternalLink, FilePlus, FileVideo, Film, Magnet, RotateCcw, Search, Square, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,6 +23,7 @@ import {
   channelsLabel,
   isItalian,
   resolutionLabel,
+  ripOfUpload,
   subtitleCodecLabel,
   uploadMedia,
   videoCodecLabel,
@@ -31,6 +32,7 @@ import {
   type VideoTrack,
 } from '@/lib/media';
 import { destinationName, missingInfo, uploadName } from '@/lib/release';
+import { tmdbUrl } from '@/lib/rips';
 import { useAppStore, type TorrentStatus, type Upload } from '@/lib/store';
 import { cn, errorMessage, formatBitrate, formatBytes, formatDate, formatDuration, formatSpeed } from '@/lib/utils';
 
@@ -341,6 +343,7 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
   const router = useRouter();
   const upload = useAppStore((s) => s.uploads.find((u) => u.id === params.id));
   const transfer = useAppStore((s) => s.transfers[params.id]);
+  const rip = useAppStore((s) => (upload ? ripOfUpload(s.rips, upload) : undefined));
   const [loading, setLoading] = useState(!upload);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
@@ -405,6 +408,8 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
       ? (new Date(upload.completedAt).getTime() - new Date(upload.startedAt).getTime()) / 1000
       : null;
   const missing = missingInfo(upload);
+  // The film the tracker command went on with, else the rip's
+  const tmdbId = upload.tmdbId ?? rip?.tmdbId ?? null;
   const remotePath =
     upload.remotePath ?? (upload.server?.sshPath ? `${upload.server.sshPath.replace(/\/+$/, '')}/${upload.filename}` : null);
 
@@ -428,6 +433,19 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge status={upload.status} />
               <span className="text-xs text-muted-foreground tabular">{formatBytes(upload.size)}</span>
+              {tmdbId && (
+                <Tooltip content={upload.tmdbId ? 'The film the tracker command went on with' : 'The film the disc was ripped as'}>
+                  <a
+                    href={tmdbUrl(tmdbId)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    TMDB <span className="tabular">{tmdbId}</span>
+                  </a>
+                </Tooltip>
+              )}
             </div>
           </div>
         </div>

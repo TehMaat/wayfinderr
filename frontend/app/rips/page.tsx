@@ -213,7 +213,8 @@ export default function RipsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
+    // Takes the whole page: the list scrolls on its own, under the setup
+    <div className="flex flex-col gap-5 p-4 md:h-full md:p-6">
       <PageHeader
         title="Rips"
         description="Film discs (ISO, Blu-ray, DVD) downloaded by qBittorrent are ripped with MakeMKV into the watch folder. RAR archives are unpacked first: the disc inside is ripped, an .mkv is uploaded."
@@ -261,8 +262,8 @@ export default function RipsPage() {
       )}
 
       {(!loaded || status?.enabled || rips.length > 0) && (
-        <Card className="overflow-hidden">
-          <div className="flex gap-1 overflow-x-auto border-b p-2 scrollbar-thin">
+        <Card className="flex flex-col overflow-hidden md:min-h-0">
+          <div className="flex shrink-0 gap-1 overflow-x-auto border-b p-2 scrollbar-thin">
             {RIP_FILTERS.map((f) => {
               const active = filter === f.value;
               const count = counts[f.value] ?? 0;

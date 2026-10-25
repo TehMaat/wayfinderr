@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { appendOutput, detectPrompt, exitCode, EXIT_MARKER, hashedFor, IDLE_PROMPT_MS, parseOutcome, withoutMarker } from './output.js';
+import { appendOutput, detectPrompt, exitCode, EXIT_MARKER, hashedFor, IDLE_PROMPT_MS, parseOutcome, tmdbIdOf, withoutMarker } from './output.js';
 import { shellQuote, trackerCommandFor } from './index.js';
 
 test('progress bars rewrite their line, escape codes go', () => {
@@ -38,6 +38,17 @@ test('the tracker a .torrent was hashed for', () => {
   assert.equal(hashedFor(log), 'ITT');
   // Reused from the archive: nothing hashed
   assert.equal(hashedFor("\n<> Reusing the existing torrent file..'/a/Il.Padrino.1972.mkv'\n"), null);
+});
+
+test('the TMDB id the command went on with', () => {
+  // Found on its own (Rich's log: time before, source line after)
+  assert.equal(tmdbIdOf("[14:02:11] 'TMDB TITLE'..... Il Padrino\n[14:02:11] 'TMDB ID'........ 238      api.py:473\n"), 238);
+  // Typed in after "Title not found"
+  const typed = "Title not found\nPlease digit a valid TMDB ID (0=skip)-> 603\n'TMDB ID'........ 603\n";
+  assert.equal(tmdbIdOf(typed), 603);
+  // Skipped, or not printed
+  assert.equal(tmdbIdOf("'TMDB ID'........ 0\n"), null);
+  assert.equal(tmdbIdOf('Hashing\n'), null);
 });
 
 test('exit code from the wrapper line', () => {
