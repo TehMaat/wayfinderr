@@ -38,7 +38,7 @@ import {
   runnerAlive,
   submitJob,
 } from './runner.js';
-import { pickMainTitle } from './titlePicker.js';
+import { otherAudioLanguages, pickMainTitle } from './titlePicker.js';
 import { getMovie, matchMovie, TmdbMovie, tmdbConfigured } from './tmdb.js';
 
 /**
@@ -118,6 +118,29 @@ export interface ExclusionSettings {
 }
 
 const keptLanguages = () => languageCodes(config.RIP.LANGUAGE);
+
+/** "ja" or "jpn" -> "Japanese" (the code itself when unknown) */
+const languageName = (code: string) => {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+};
+
+/**
+ * The languages of a rip's tracks, by priority: the kept one, the film's original
+ * one and the one chosen in its place when the disc has no audio in it. Film not
+ * identified (ripped by hand): its language is unknown, every one is kept.
+ */
+const trackLanguages = (rip: Rip) => {
+  const original = languageCodes(rip.originalLanguage);
+  const second = rip.secondLanguage ? [rip.secondLanguage] : [];
+  return {
+    languages: [keptLanguages(), original, second].filter((codes) => codes.length > 0),
+    keepAll: original.length === 0,
+  };
+};
 
 const isArchive = (rip: Rip) => rip.sourceType === 'RAR';
 
@@ -675,13 +698,13 @@ class Ripper extends EventEmitter {
         const identified = await this.identify(rip, rip.discName ?? undefined);
         if (identified.failed) throw new Error(identified.reason);
         const { movie } = identified;
-        const { title, problems } = await this.pickTitle(rip, JSON.parse(rip.titles));
-        if (!movie) problems.unshift(identified.reason);
-        const reason = problems.join(' · ');
-        if (!movie && reason === rip.reason) continue;
         const film = movie
           ? { tmdbId: movie.id, title: movie.title, originalTitle: movie.originalTitle, originalLanguage: movie.originalLanguage, year: movie.year }
           : {};
+        const { title, problems } = await this.pickTitle({ ...rip, ...film }, JSON.parse(rip.titles));
+        if (!movie) problems.unshift(identified.reason);
+        const reason = problems.join(' · ');
+        if (!movie && reason === rip.reason) continue;
         const updated = await this.exclusive(() =>
           db.updateRipIf(rip.id, untouched, problems.length || !title ? { ...film, reason } : { ...film, status: 'QUEUED', reason: null })
         );
@@ -695,7 +718,11 @@ class Ripper extends EventEmitter {
     }
   }
 
-  /** The title to rip: the chosen one, or the only long one when the download has a single disc. */
+  /**
+   * The title to rip: the chosen one, or the only long one when the download has a
+   * single disc. Asks too when the title has no audio in the film's original
+   * language but has some in another one, which may be kept in its place.
+   */
   private async pickTitle(rip: Rip, titles: DiscTitle[]) {
     const problems: string[] = [];
     let title: DiscTitle | null = null;
@@ -716,6 +743,13 @@ class Ripper extends EventEmitter {
       if (choice.title) title = choice.title;
       else problems.push(choice.reason);
     }
+    const others = title ? otherAudioLanguages(title, keptLanguages(), languageCodes(rip.originalLanguage)) : [];
+    if (others.length > 0 && !others.includes(rip.secondLanguage ?? '')) {
+      problems.push(
+        `No ${languageName(rip.originalLanguage!)} audio (the film's original language) on this disc: choose the ` +
+          `language to keep in its place (${others.map(languageName).join(', ')}), or only ${languageName(config.RIP.LANGUAGE)}`
+      );
+    }
     return { title, problems };
   }
 
@@ -729,8 +763,8 @@ class Ripper extends EventEmitter {
       movie = filmOf(rip);
     } else if (joined) {
       // The film of the other parts: the same languages are kept on every disc
-      movie = joined;
-      rip = await this.update(rip.id, this.movieFields(movie));
+      movie = filmOf(joined);
+      rip = await this.update(rip.id, { ...this.movieFields(movie), secondLanguage: joined.secondLanguage });
     } else if (!tmdbConfigured()) {
       problems.push('TMDB_API_KEY is not set: confirm the title to rip');
     } else {
@@ -785,15 +819,13 @@ class Ripper extends EventEmitter {
       return;
     }
 
-    // Film not identified (ripped by hand): its language is unknown, keep them all
-    const original = languageCodes(rip.originalLanguage);
-    const languages = [keptLanguages(), original].filter((codes) => codes.length > 0);
+    const { languages, keepAll } = trackLanguages(rip);
     const jobId = await submitJob({
       action: 'mkv',
       ...sourceOf(rip),
       minLength: config.RIP.MIN_LENGTH,
       title: title.index,
-      selection: selectionRule(languages, original.length === 0),
+      selection: selectionRule(languages, keepAll),
     });
     await this.update(rip.id, {
       status: 'RIPPING',
@@ -910,16 +942,15 @@ class Ripper extends EventEmitter {
       startedAt: new Date(),
     });
 
-    // Film not identified (ripped by hand): its language is unknown, keep them all
-    const original = languageCodes(rip.originalLanguage);
+    const { languages, keepAll } = trackLanguages(rip);
     const ripId = rip.id;
     const controller = new AbortController();
     const job = { ripId, controller, progress: 0, finished: false } as Remuxing;
     job.done = remuxTitle({
       source,
       title,
-      languages: [keptLanguages(), original].filter((codes) => codes.length > 0),
-      keepAll: original.length === 0,
+      languages,
+      keepAll,
       dir,
       name: 'film',
       signal: controller.signal,
@@ -991,11 +1022,10 @@ class Ripper extends EventEmitter {
 
   // --- Discs of one film, joined (join.ts) ---
 
-  /** The film of another part of the rip's join, null when none is identified (or not a join). */
-  private async joinFilm(rip: Rip): Promise<TmdbMovie | null> {
+  /** Another part of the rip's join with its film identified, null when none is (or not a join). */
+  private async joinFilm(rip: Rip): Promise<Rip | null> {
     if (!rip.joinId) return null;
-    const part = (await db.getRipsByJoinId(rip.joinId)).find((p) => p.tmdbId !== null);
-    return part ? filmOf(part) : null;
+    return (await db.getRipsByJoinId(rip.joinId)).find((p) => p.tmdbId !== null) ?? null;
   }
 
   /** A part of a join ripped: kept in the join's folder until every part is there. */
@@ -1161,25 +1191,37 @@ class Ripper extends EventEmitter {
     return rip;
   }
 
-  /** Rips the given title as the given film (either may be kept as is). */
-  async choose(id: string, choice: { titleIndex?: number; tmdbId?: number }) {
+  /**
+   * Rips the given title as the given film, keeping the given audio language
+   * beside the kept one (null: none besides the original language); each may be
+   * kept as is.
+   */
+  async choose(id: string, choice: { titleIndex?: number; tmdbId?: number; secondLanguage?: string | null }) {
     const rip = await this.visibleRip(id);
     if (!['NEEDS_ATTENTION', 'FAILED', 'SKIPPED'].includes(rip.status)) throw new Error(`Rip is ${rip.status}`);
     const titles: DiscTitle[] = JSON.parse(rip.titles ?? '[]');
     if (choice.titleIndex !== undefined && !titles.some((t) => t.index === choice.titleIndex)) {
       throw new Error('No such title on the disc');
     }
+    const title = titles.find((t) => t.index === (choice.titleIndex ?? rip.titleIndex));
+    if (choice.secondLanguage && !title?.streams.some((s) => s.type === 'audio' && s.lang === choice.secondLanguage)) {
+      throw new Error(`No ${choice.secondLanguage} audio on the title`);
+    }
     const movie = choice.tmdbId !== undefined ? await getMovie(choice.tmdbId) : null;
+    const shared = {
+      ...(movie ? this.movieFields(movie) : {}),
+      ...(choice.secondLanguage !== undefined ? { secondLanguage: choice.secondLanguage } : {}),
+    };
     const updated = await this.update(id, {
       status: 'QUEUED',
       reason: null,
       ...(choice.titleIndex !== undefined ? { titleIndex: choice.titleIndex } : {}),
-      ...(movie ? this.movieFields(movie) : {}),
+      ...shared,
     });
-    // A part of a join: one film for every part
-    if (movie && rip.joinId) {
+    // A part of a join: one film, with the same languages, for every part
+    if (rip.joinId && Object.keys(shared).length > 0) {
       for (const part of await db.getRipsByJoinId(rip.joinId)) {
-        if (part.id !== id) await this.update(part.id, this.movieFields(movie));
+        if (part.id !== id) await this.update(part.id, shared);
       }
     }
     return updated;
@@ -1216,7 +1258,7 @@ class Ripper extends EventEmitter {
             progress: 0,
             joinId,
             joinPart: i + 1,
-            ...(film ? this.movieFields(filmOf(film)) : {}),
+            ...(film ? { ...this.movieFields(filmOf(film)), secondLanguage: film.secondLanguage } : {}),
           })
         );
       }
@@ -1276,6 +1318,7 @@ class Ripper extends EventEmitter {
       originalTitle: null,
       originalLanguage: null,
       year: null,
+      secondLanguage: null,
       progress: 0,
     });
   }

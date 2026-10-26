@@ -709,6 +709,7 @@ GET /api/rips
       "originalTitle": "Le Film",
       "originalLanguage": "fr",
       "year": 2019,
+      "secondLanguage": null,
       "progress": 0,
       "outputFile": null,
       "upload": null,
@@ -725,6 +726,8 @@ A RAR archive has `sourceType` `RAR` and `sourcePath` its first volume. Once lis
 
 `engine` is what rips the disc: `makemkv`, or `remux` after *Rip without MakeMKV* (then `RIPPING` is mkvmerge or ffmpeg running in the backend, and `titles` were read without MakeMKV: a Blu-ray title's `index` is its playlist number, `sourceFile` its `.mpls`; a DVD title's `index` is the DVD's title number).
 
+`secondLanguage` (ISO 639-2, `eng`) is the audio language kept in place of the film's original one when the disc has no audio in it, chosen by hand (see *Choose and Rip*); its tracks are kept like the original language's, after the kept language.
+
 `joinId` and `joinPart` (1, 2...) are set on the discs joined into one film (see *Join discs*): `joinId` is the first part's `id`.
 
 `status.remux` (with ripping on): which tools of the rip without MakeMKV can be run: `mkvmerge` (Blu-ray), `sevenZip` (ISO images), `dvd` (ffmpeg with the `dvdvideo` input).
@@ -737,10 +740,10 @@ A RAR archive has `sourceType` `RAR` and `sourcePath` its first volume. Once lis
 POST /api/rips/:id/choose
 Content-Type: application/json
 
-{ "titleIndex": 1, "tmdbId": 101 }
+{ "titleIndex": 1, "tmdbId": 101, "secondLanguage": "eng" }
 ```
 
-Either field may be left out to keep the current one. Allowed when the rip is `NEEDS_ATTENTION`, `FAILED` or `SKIPPED`; the rip is queued with that title and film, without asking again. Errors: 400 (not integers), 404, 409 (`No such title on the disc`, rip in another state).
+Any field may be left out to keep the current one. Allowed when the rip is `NEEDS_ATTENTION`, `FAILED` or `SKIPPED`; the rip is queued with that title and film, without asking again. `secondLanguage` is an audio language of the title (ISO 639-2) kept beside the kept language, for a title with no audio in the film's original language (`null`: none). On its own, a rip whose title has no audio in the original language but has some in another language waits in `NEEDS_ATTENTION` for this choice. The film and the second language chosen on a part of a join are set on the other parts too. Errors: 400 (not integers, `secondLanguage` not a three-letter code), 404, 409 (`No such title on the disc`, `No eng audio on the title`, rip in another state).
 
 ### Retry, Skip
 

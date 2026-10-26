@@ -134,12 +134,17 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.post('/:id/choose', async (req: Request, res: Response) => {
   const titleIndex = req.body?.titleIndex;
   const tmdbId = req.body?.tmdbId;
+  const secondLanguage = req.body?.secondLanguage;
   if ((titleIndex !== undefined && !Number.isInteger(titleIndex)) || (tmdbId !== undefined && !Number.isInteger(tmdbId))) {
     res.status(400).json({ error: 'titleIndex and tmdbId must be integers' });
     return;
   }
+  if (secondLanguage !== undefined && secondLanguage !== null && !/^[a-z]{3}$/.test(secondLanguage)) {
+    res.status(400).json({ error: 'secondLanguage must be an ISO 639-2 code or null' });
+    return;
+  }
   try {
-    res.json(await toPublic(await ripper.choose(req.params.id, { titleIndex, tmdbId })));
+    res.json(await toPublic(await ripper.choose(req.params.id, { titleIndex, tmdbId, secondLanguage })));
   } catch (error) {
     fail(res, error, 'Failed to start the rip');
   }

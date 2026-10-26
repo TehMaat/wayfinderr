@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DiscTitle } from './makemkv.js';
-import { pickMainTitle } from './titlePicker.js';
+import { otherAudioLanguages, pickMainTitle } from './titlePicker.js';
 
 const title = (index: number, minutes: number, extra: Partial<DiscTitle> = {}): DiscTitle => ({
   index,
@@ -60,4 +60,27 @@ test('Italian subtitles alone are enough', () => {
     ],
   });
   assert.equal(pickMainTitle([subs], ITA).title?.index, 0);
+});
+
+const audio = (...langs: string[]) =>
+  title(0, 128, { streams: langs.map((lang) => ({ type: 'audio' as const, lang, forced: false, commentary: false })) });
+
+test('original language missing on the disc: the other audio languages to choose from', () => {
+  assert.deepEqual(otherAudioLanguages(audio('ita', 'eng', 'eng', 'fre'), ITA, ['jpn']), ['eng', 'fre']);
+});
+
+test('original language on the disc, unknown or the kept one: nothing to choose', () => {
+  assert.deepEqual(otherAudioLanguages(audio('ita', 'eng', 'jpn'), ITA, ['jpn']), []);
+  assert.deepEqual(otherAudioLanguages(audio('ita', 'eng'), ITA, []), []);
+  assert.deepEqual(otherAudioLanguages(audio('ita', 'eng'), ITA, ['ita']), []);
+});
+
+test('only the kept language, commentaries or no language: nothing to choose', () => {
+  const streams = [
+    { type: 'audio' as const, lang: 'ita', forced: false, commentary: false },
+    { type: 'audio' as const, lang: 'eng', forced: false, commentary: true },
+    { type: 'audio' as const, forced: false, commentary: false },
+    { type: 'subtitle' as const, lang: 'eng', forced: false, commentary: false },
+  ];
+  assert.deepEqual(otherAudioLanguages(title(0, 128, { streams }), ITA, ['jpn']), []);
 });

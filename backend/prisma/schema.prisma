@@ -208,6 +208,9 @@ model Rip {
   originalTitle    String?
   originalLanguage String?   // ISO 639-1, from TMDB
   year             Int?
+  // Audio language kept beside the kept one when the disc has none in the original language
+  // (ISO 639-2, chosen in the UI: an anime dubbed in English, a film whose disc lacks it)
+  secondLanguage   String?
 
   jobId            String?   // current runner job
   progress         Int       @default(0) // 0-100

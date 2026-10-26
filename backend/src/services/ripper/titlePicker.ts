@@ -53,3 +53,16 @@ export const pickMainTitle = (titles: DiscTitle[], italianCodes: string[]): Titl
   }
   return { title };
 };
+
+/**
+ * The other audio languages of the title (ISO 639-2) when it has no audio in the
+ * film's original language, which is not the kept one: one of them may be kept
+ * in its place (an anime dubbed in English). Empty when there is nothing to choose.
+ */
+export const otherAudioLanguages = (title: DiscTitle, kept: string[], original: string[]): string[] => {
+  if (original.length === 0 || original.some((code) => kept.includes(code)) || hasLanguage(title, 'audio', original)) return [];
+  const langs = title.streams
+    .filter((s) => s.type === 'audio' && !s.commentary && s.lang !== undefined && s.lang !== 'und' && !kept.includes(s.lang))
+    .map((s) => s.lang!);
+  return [...new Set(langs)];
+};

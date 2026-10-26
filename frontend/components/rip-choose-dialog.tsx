@@ -18,7 +18,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { RIP_STATUS_META } from '@/components/status-badge';
 import { retryRip } from '@/lib/actions';
 import { ripsApi } from '@/lib/api';
-import { languageCodes, languageName, ripName, tmdbUrl } from '@/lib/rips';
+import { languageCodes, languageName, otherAudioLanguages, ripName, tmdbUrl } from '@/lib/rips';
 import { useAppStore, type DiscStream, type DiscTitle, type Rip, type TmdbMovie } from '@/lib/store';
 import { cn, errorMessage, formatBytes, formatRuntime } from '@/lib/utils';
 
@@ -228,6 +228,7 @@ export function RipChooseDialog({
   const tmdbConfigured = Boolean(ripStatus?.tmdbConfigured);
   const [titleIndex, setTitleIndex] = useState<number | null>(null);
   const [film, setFilm] = useState<TmdbMovie | null>(null);
+  const [secondLanguage, setSecondLanguage] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [year, setYear] = useState('');
   const [results, setResults] = useState<TmdbMovie[] | null>(null);
@@ -265,6 +266,7 @@ export function RipChooseDialog({
     const y = rip.suggestion?.year ? String(rip.suggestion.year) : '';
     setTitleIndex(rip.titleIndex ?? longest?.index ?? null);
     setFilm(filmOf(rip));
+    setSecondLanguage(rip.secondLanguage);
     setQuery(q);
     setYear(y);
     setResults(null);
@@ -280,13 +282,19 @@ export function RipChooseDialog({
 
   const allowed = CHOOSABLE.includes(rip.status);
   const kept = languageCodes(ripStatus?.language ?? 'it');
-  const original = languageCodes(film?.originalLanguage ?? rip.originalLanguage);
+  const originalLanguage = film?.originalLanguage ?? rip.originalLanguage;
   const keptName = languageName(ripStatus?.language ?? 'it');
   const current = filmOf(rip);
+  // No audio in the original language on the chosen title: another one may be kept in its place
+  const chosenTitle = titles?.find((t) => t.index === titleIndex);
+  const others = chosenTitle ? otherAudioLanguages(chosenTitle, kept, languageCodes(originalLanguage)) : [];
+  const second = others.some((o) => o.lang === secondLanguage) ? secondLanguage : null;
+  const original = [...languageCodes(originalLanguage), ...(second ? [second] : [])];
 
-  const payload: { titleIndex?: number; tmdbId?: number } = {};
+  const payload: { titleIndex?: number; tmdbId?: number; secondLanguage?: string | null } = {};
   if (titles && titleIndex !== null && titleIndex !== rip.titleIndex) payload.titleIndex = titleIndex;
   if (film && film.id !== rip.tmdbId) payload.tmdbId = film.id;
+  if (titles && second !== rip.secondLanguage) payload.secondLanguage = second;
   // A scanned disc needs a title; an unscanned one can only get its film
   const canSubmit = allowed && !saving && (titles ? titleIndex !== null : payload.tmdbId !== undefined);
 
@@ -345,7 +353,10 @@ export function RipChooseDialog({
               titles && (
                 <>
                   <span className="text-success">{keptName}</span> and{' '}
-                  <span className="text-info">original-language</span> tracks are kept
+                  <span className="text-info">
+                    {second ? others.find((o) => o.lang === second)?.name : 'original-language'}
+                  </span>{' '}
+                  tracks are kept
                 </>
               )
             }
@@ -391,6 +402,32 @@ export function RipChooseDialog({
             </div>
           )}
         </section>
+
+        {/* Language kept in place of the original one, missing on the chosen title */}
+        {others.length > 0 && (
+          <section className="space-y-2.5">
+            <SectionTitle hint={`No ${languageName(originalLanguage)} audio on this title`}>Second language</SectionTitle>
+            <div role="radiogroup" aria-label="Second language" className="flex flex-wrap gap-1.5">
+              {[{ lang: null, name: `Only ${keptName}` }, ...others].map((option) => (
+                <button
+                  key={option.lang ?? ''}
+                  type="button"
+                  role="radio"
+                  aria-checked={second === option.lang}
+                  onClick={() => setSecondLanguage(option.lang)}
+                  className={cn(
+                    'flex items-start gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors',
+                    second === option.lang ? 'border-primary/60 bg-primary/10' : 'hover:bg-accent/50'
+                  )}
+                >
+                  <RadioDot checked={second === option.lang} />
+                  {option.name}
+                  {option.lang && <span className="font-mono text-xs uppercase text-muted-foreground">{option.lang}</span>}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Film on TMDB */}
         <section className="space-y-2.5">

@@ -278,6 +278,8 @@ export interface Rip {
   originalTitle: string | null;
   originalLanguage: string | null; // ISO 639-1
   year: number | null;
+  // ISO 639-2: audio kept beside the kept language when the disc has none in the original one (chosen by hand)
+  secondLanguage: string | null;
   jobId: string | null;
   progress: number;
   outputFile: string | null; // path in the watch folder (or in the downloads' unpack folder), same as the upload's

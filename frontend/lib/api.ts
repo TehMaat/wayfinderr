@@ -141,7 +141,7 @@ export const clientsApi = {
 export const ripsApi = {
   listRips: () => apiClient.get<{ status: RipperStatus; rips: Rip[] }>('/api/rips'),
   getRip: (id: string) => apiClient.get<Rip>(`/api/rips/${id}`),
-  chooseRip: (id: string, choice: { titleIndex?: number; tmdbId?: number }) =>
+  chooseRip: (id: string, choice: { titleIndex?: number; tmdbId?: number; secondLanguage?: string | null }) =>
     apiClient.post<Rip>(`/api/rips/${id}/choose`, choice),
   retryRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/retry`),
   remuxRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/remux`),
