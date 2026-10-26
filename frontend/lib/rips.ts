@@ -1,4 +1,4 @@
-import type { Rip, RipStatus, UnpackDisk } from './store';
+import type { DiscTitle, Rip, RipStatus, UnpackDisk } from './store';
 import { basename } from './utils';
 
 export type RipFilter = 'ALL' | 'ATTENTION' | 'ACTIVE' | 'DONE' | 'FAILED' | 'SKIPPED';
@@ -103,6 +103,27 @@ const LANGUAGES: Record<string, string[]> = {
 /** ISO 639-2 codes of an ISO 639-1 language (empty when unknown) */
 export const languageCodes = (iso6391: string | null | undefined): string[] =>
   iso6391 ? (LANGUAGES[iso6391.toLowerCase()] ?? []) : [];
+
+/**
+ * The other audio languages of a title when it has none in the film's original
+ * language (not the kept one): one may be kept in its place, as the backend
+ * asks (otherAudioLanguages in titlePicker.ts). Empty when there is nothing to choose.
+ */
+export const otherAudioLanguages = (
+  title: DiscTitle,
+  kept: string[],
+  original: string[]
+): { lang: string; name: string }[] => {
+  const audio = title.streams.filter((s) => s.type === 'audio');
+  if (original.length === 0 || original.some((code) => kept.includes(code))) return [];
+  if (audio.some((s) => s.lang !== undefined && original.includes(s.lang))) return [];
+  const langs = new Map<string, string>();
+  for (const s of audio) {
+    if (s.commentary || !s.lang || s.lang === 'und' || kept.includes(s.lang) || langs.has(s.lang)) continue;
+    langs.set(s.lang, s.langName ?? s.lang);
+  }
+  return [...langs].map(([lang, name]) => ({ lang, name }));
+};
 
 /** "it" -> "Italian" */
 export const languageName = (iso6391: string | null | undefined): string => {
