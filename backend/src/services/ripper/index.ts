@@ -169,7 +169,7 @@ const exists = (file: string) =>
 const UPLOAD_RUNNING = ['PENDING', 'QUEUED', 'UPLOADING'];
 
 // Characters not allowed in file names on common filesystems
-const safeFileName = (name: string) =>
+export const safeFileName = (name: string) =>
   name
     .replace(/[\\/:*?"<>|]+/g, ' - ')
     .replace(/[\u0000-\u001f]/g, '')
@@ -188,7 +188,7 @@ const filmOf = (rip: Rip): TmdbMovie => ({
 });
 
 /** "Title (Year)": the TMDB title, or the download name when the film was not identified ("Film Test (2001)") */
-const outputName = (rip: Rip) => {
+export const outputName = (rip: Rip) => {
   const film = rip.title || rip.originalTitle ? { title: rip.title || rip.originalTitle, year: rip.year } : parseReleaseName(rip.downloadName);
   return safeFileName(`${film.title || rip.downloadName}${film.year ? ` (${film.year})` : ''}`);
 };

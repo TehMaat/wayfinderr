@@ -2,7 +2,8 @@ import { create } from 'zustand';
 import { clientsApi, mergeApi, ripsApi, serversApi, spaceApi, systemApi, uploadsApi } from './api';
 
 // HELD: kept for a merge (MERGE_ENABLED), uploaded only when released by hand
-export type UploadStatus = 'PENDING' | 'QUEUED' | 'UPLOADING' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'CANCELLED' | 'HELD';
+// MERGED: an input of a merge, done through the merged file
+export type UploadStatus = 'PENDING' | 'QUEUED' | 'UPLOADING' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'CANCELLED' | 'HELD' | 'MERGED';
 
 // Why a file is held: no Italian audio, a twin of the same film around, or maybe one
 export type HoldKind = 'NO_ITALIAN' | 'TWIN' | 'POSSIBLE_TWIN';
@@ -72,7 +73,7 @@ export interface ReleasePreview {
   error: string | null;
 }
 
-export const UPLOAD_STATUSES: UploadStatus[] = ['UPLOADING', 'QUEUED', 'PENDING', 'HELD', 'COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED'];
+export const UPLOAD_STATUSES: UploadStatus[] = ['UPLOADING', 'QUEUED', 'PENDING', 'HELD', 'COMPLETED', 'MERGED', 'FAILED', 'CANCELLED', 'SKIPPED'];
 
 export interface Upload {
   id: string;
@@ -333,7 +334,20 @@ export interface MergeStatus {
 export type MergeChoiceName = 'tail' | 'italian' | 'referenceItalianSubs' | 'edgeMismatch';
 export type MergeChoiceSettings = Record<MergeChoiceName, string>;
 
-export type MergePairStatus = 'ANALYZING' | 'ELIGIBLE' | 'REFUSED' | 'ERROR' | 'CANCELLED';
+export type MergePairStatus = 'ANALYZING' | 'ELIGIBLE' | 'REFUSED' | 'ERROR' | 'CANCELLED' | 'MERGING' | 'MERGED';
+export type MergeInputsAfter = 'keep' | 'delete';
+
+// What the page shows of the merge's report
+export interface MergeResult {
+  decision: 'eligible' | 'refused' | 'error' | 'cancelled';
+  reasons: { code: string; message: string }[];
+  delivered: boolean;
+  sizeBytes: number | null;
+  durationMs: number | null;
+  droppedSubtitles: unknown[];
+  expect: { result: 'pass' | 'fail'; differences: string[] } | null;
+  warnings: { code: string; message: string; source: string | null }[];
+}
 
 // What the page shows of Dyadrr's analyze report (the backend keeps the whole one)
 export interface MergeSummary {
@@ -378,6 +392,15 @@ export interface MergePair {
   completedAt: string | null;
   createdAt: string;
   summary: MergeSummary | null;
+  // The merge
+  outputPath: string | null;
+  mergeChoices: Record<string, string> | null;
+  mergeReasonCode: string | null; // the last merge stopped or failed (the pair is eligible again)
+  mergeReasonMessage: string | null;
+  inputsAfter: MergeInputsAfter | null;
+  outputUploadId: string | null;
+  mergedAt: string | null;
+  mergeSummary: MergeResult | null;
 }
 
 // A file that can be paired: on the disk, not uploading, not in a pair being analyzed
@@ -645,7 +668,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   // A late progress event must not bring back an analysis that has ended
   applyMergeProgress: (id, phase, progress) =>
     set((state) => ({
-      mergePairs: state.mergePairs.map((p) => (p.id === id && p.status === 'ANALYZING' ? { ...p, phase, progress } : p)),
+      mergePairs: state.mergePairs.map((p) =>
+        p.id === id && (p.status === 'ANALYZING' || p.status === 'MERGING') ? { ...p, phase, progress } : p
+      ),
     })),
 
   // A late progress event must not bring back a rip that has already ended

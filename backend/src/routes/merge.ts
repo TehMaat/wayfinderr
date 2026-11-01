@@ -1,12 +1,23 @@
 import { Router, Request, Response } from 'express';
 import logger from '../config/logger.js';
 import { mergeStatus } from '../services/merge/index.js';
-import { MergeError, mergePairs } from '../services/merge/pairs.js';
+import { MergeError, mergePairs, OutputExistsError } from '../services/merge/pairs.js';
 
 const router = Router();
 
 // A known refusal (MergeError) with its status; anything else is logged, with a fixed message
 const fail = (res: Response, error: unknown, what: string) => {
+  // A file with the merged file's name is there: the GUI asks whether to replace it
+  if (error instanceof OutputExistsError) {
+    res.status(409).json({
+      error: error.message,
+      code: 'OUTPUT_EXISTS',
+      fileName: error.fileName,
+      existsLocally: error.existsLocally,
+      existsOnServer: error.existsOnServer,
+    });
+    return;
+  }
   if (error instanceof MergeError) {
     res.status(error.status).json({ error: error.message });
     return;
@@ -24,10 +35,10 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// GET the choice settings: a fixed value, or "ask" each time
+// GET the settings: the choices (a fixed value, or "ask" each time) and the inputs after a merge
 router.get('/settings', async (req: Request, res: Response) => {
   try {
-    res.json({ choices: await mergePairs.getChoiceSettings() });
+    res.json({ choices: await mergePairs.getChoiceSettings(), inputs: await mergePairs.getInputsAfter() });
   } catch (error) {
     fail(res, error, 'read the merge settings');
   }
@@ -35,12 +46,16 @@ router.get('/settings', async (req: Request, res: Response) => {
 
 router.put('/settings', async (req: Request, res: Response) => {
   try {
-    const choices = req.body?.choices;
-    if (!choices || typeof choices !== 'object' || Array.isArray(choices)) {
+    const { choices, inputs } = req.body ?? {};
+    if (choices !== undefined && (!choices || typeof choices !== 'object' || Array.isArray(choices))) {
       res.status(400).json({ error: 'choices must be an object' });
       return;
     }
-    res.json({ choices: await mergePairs.setChoiceSettings(choices) });
+    if (inputs !== undefined) await mergePairs.setInputsAfter(inputs);
+    res.json({
+      choices: choices !== undefined ? await mergePairs.setChoiceSettings(choices) : await mergePairs.getChoiceSettings(),
+      inputs: await mergePairs.getInputsAfter(),
+    });
   } catch (error) {
     fail(res, error, 'save the merge settings');
   }
@@ -100,6 +115,38 @@ router.post('/pairs/:id/analyze', async (req: Request, res: Response) => {
     res.json(await mergePairs.analyze(req.params.id, req.body?.originalLanguage));
   } catch (error) {
     fail(res, error, 'analyze the pair');
+  }
+});
+
+// GET the merged file's default name, and whether a file with that name is already there (?name= to check another)
+router.get('/pairs/:id/merge-preview', async (req: Request, res: Response) => {
+  try {
+    res.json(await mergePairs.mergePreview(req.params.id, req.query.name));
+  } catch (error) {
+    fail(res, error, 'prepare the merge');
+  }
+});
+
+// POST merge an eligible pair: { choices: { edgeMismatch: "drop" }, outputName?, replaceExisting? }
+router.post('/pairs/:id/merge', async (req: Request, res: Response) => {
+  try {
+    res.json(await mergePairs.merge(req.params.id, req.body ?? {}));
+  } catch (error) {
+    fail(res, error, 'merge the pair');
+  }
+});
+
+// GET the merge's full report, as Dyadrr wrote it
+router.get('/pairs/:id/merge-report', async (req: Request, res: Response) => {
+  try {
+    const report = await mergePairs.mergeReport(req.params.id);
+    if (!report) {
+      res.status(404).json({ error: 'No merge report yet' });
+      return;
+    }
+    res.json(report);
+  } catch (error) {
+    fail(res, error, 'read the merge report');
   }
 });
 
