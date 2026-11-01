@@ -203,7 +203,8 @@ export class TorrentCleanup extends EventEmitter {
   /** Called once an upload is COMPLETED: find its torrent and schedule the removal */
   async handleUploadCompleted(uploadId: string): Promise<void> {
     const upload = await db.getUploadById(uploadId);
-    if (!upload || upload.status !== 'COMPLETED') return;
+    // MERGED: an input of a merge, done once the merged file is on a server
+    if (!upload || (upload.status !== 'COMPLETED' && upload.status !== 'MERGED')) return;
     await this.findTorrent(upload);
   }
 
@@ -367,7 +368,7 @@ export class TorrentCleanup extends EventEmitter {
     }
     // Looked up by hand while the upload runs: never removed without asking until it completes
     const current = await db.getUploadById(upload.id);
-    if (current?.status !== 'COMPLETED') {
+    if (current?.status !== 'COMPLETED' && current?.status !== 'MERGED') {
       await this.setStatus(upload.id, {
         ...data,
         torrentStatus: 'REVIEW',
@@ -499,7 +500,7 @@ export class TorrentCleanup extends EventEmitter {
   async recheck(uploadId: string): Promise<Upload | null> {
     const upload = await db.getUploadById(uploadId);
     if (!upload) throw new Error('Upload not found');
-    if (upload.status !== 'COMPLETED' && !UPLOAD_UNFINISHED.includes(upload.status)) {
+    if (upload.status !== 'COMPLETED' && upload.status !== 'MERGED' && !UPLOAD_UNFINISHED.includes(upload.status)) {
       throw new Error('Only uploads in progress or completed are matched to a torrent');
     }
     if ((await db.getTorrentClients()).filter((c) => c.enabled).length === 0) {

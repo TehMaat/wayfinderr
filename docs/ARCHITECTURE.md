@@ -106,7 +106,7 @@ src/
 │   ├── jobQueue.ts         # p-queue job queue
 │   ├── release/            # Rename on the server (moverr.py's name), then the tracker command (Unit3Dup) in tmux
 │   ├── merge/              # Dyadrr (MERGE_ENABLED): which files are held for a merge (twin search), file jobs for the dyadrr container,
-│   │                       #   merge pairs and their analysis (pairs.ts)
+│   │                       #   merge pairs, their analysis and merge (pairs.ts)
 │   ├── filmLookup.ts       # A film's TMDB titles in every language, for name matching (torrent cleanup, twin search)
 │   ├── auth.ts             # Account, scrypt hashes, signed session tokens, setup code
 │   ├── loginLimiter.ts     # 5 failures / 15 min per client
@@ -217,7 +217,7 @@ model Upload {
   serverId        String
   server          Server    @relation(fields: [serverId], references: [id], onDelete: Cascade)
   
-  status          String    # PENDING|QUEUED|UPLOADING|COMPLETED|FAILED|SKIPPED|CANCELLED|HELD
+  status          String    # PENDING|QUEUED|UPLOADING|COMPLETED|FAILED|SKIPPED|CANCELLED|HELD|MERGED
   progress        Int       @default(0)
   progressBytes   BigInt    @default(0)
   

@@ -98,3 +98,22 @@ test('a refused report, and one written by the runner with the outcome only', ()
   assert.deepEqual(refused.choices, []);
   assert.equal(reportSummary(null), null);
 });
+
+test('the merge summary: the delivered file, the --expect check, the warnings', async () => {
+  const { mergeSummary } = await import('./pairs.js');
+  const summary = mergeSummary({
+    format: 1,
+    dyadrr: '0.21.1',
+    mode: 'merge',
+    decision: 'eligible',
+    reasons: [],
+    expect: { path: '/data/watch/.wayfinderr/dyadrr/expect/p.json', result: 'pass', differences: [] },
+    output: { path: '/data/watch/Up (2009).mkv', delivered: true, sizeBytes: 60000000000, durationMs: 5766000, build: { droppedSubtitles: [] } },
+    warnings: [{ code: 'OUTPUT_TRANSFER_OFFSET', message: '−18.6 ms', source: 'verify' }],
+  } as unknown as DyadrrReport)!;
+  assert.equal(summary.delivered, true);
+  assert.equal(summary.sizeBytes, 60000000000);
+  assert.deepEqual(summary.expect, { result: 'pass', differences: [] });
+  assert.deepEqual(summary.warnings, [{ code: 'OUTPUT_TRANSFER_OFFSET', message: '−18.6 ms', source: 'verify' }]);
+  assert.equal(mergeSummary(null), null);
+});

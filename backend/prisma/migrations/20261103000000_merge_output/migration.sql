@@ -1,0 +1,9 @@
+-- The merge of a pair (services/merge/pairs.ts)
+ALTER TABLE "MergePair" ADD COLUMN "outputPath" TEXT;
+ALTER TABLE "MergePair" ADD COLUMN "mergeChoices" TEXT;
+ALTER TABLE "MergePair" ADD COLUMN "mergeReport" TEXT;
+ALTER TABLE "MergePair" ADD COLUMN "mergeReasonCode" TEXT;
+ALTER TABLE "MergePair" ADD COLUMN "mergeReasonMessage" TEXT;
+ALTER TABLE "MergePair" ADD COLUMN "inputsAfter" TEXT;
+ALTER TABLE "MergePair" ADD COLUMN "outputUploadId" TEXT;
+ALTER TABLE "MergePair" ADD COLUMN "mergedAt" DATETIME;

@@ -325,7 +325,7 @@ GET /api/uploads?limit=50&offset=0&status=COMPLETED
 **Query Parameters:**
 - `limit`: Max results (default 50)
 - `offset`: Pagination offset (default 0)
-- `status`: Filter by status (PENDING, QUEUED, UPLOADING, COMPLETED, FAILED, SKIPPED, CANCELLED, HELD)
+- `status`: Filter by status (PENDING, QUEUED, UPLOADING, COMPLETED, FAILED, SKIPPED, CANCELLED, HELD, MERGED)
 - `serverId`: Filter by server
 
 **Response:**
@@ -881,7 +881,9 @@ PUT /api/merge/settings
 
 Dyadrr's four choices (its `docs/CLI.md`, *Scelte*), each a fixed value passed to every analysis or `ask` (the default): `tail` (`trim` | `keep`), `italian` (`all` | `main`), `referenceItalianSubs` (`keep` | `drop`), `edgeMismatch` (`drop` | `keep`). A choice left to `ask` is pending in the analysis, with what each value does.
 
-**Body (PUT):** `{ "choices": { "tail": "trim", "edgeMismatch": "ask" } }`, any of the four. **Response:** 200 OK `{ "choices": { "tail": "trim", "italian": "ask", "referenceItalianSubs": "ask", "edgeMismatch": "ask" } }`; 400 for an unknown choice or value.
+`inputs`: what happens to the two files after a verified merge, `keep` (the default) or `delete` (the ones in the watch folder only).
+
+**Body (PUT):** `{ "choices": { "tail": "trim", "edgeMismatch": "ask" }, "inputs": "delete" }`, any of them. **Response:** 200 OK `{ "choices": { "tail": "trim", "italian": "ask", "referenceItalianSubs": "ask", "edgeMismatch": "ask" }, "inputs": "delete" }`; 400 for an unknown choice or value.
 
 ### Files to Pair
 
@@ -934,6 +936,24 @@ A pair:
 ```
 
 `status`: `ANALYZING` (the job is queued, or running: `phase` is Dyadrr's progress phase and `progress` 0-100 within it, when known), then `ELIGIBLE`, `REFUSED`, `ERROR` or `CANCELLED`, Dyadrr's decision; `reasonCode` and `reasonMessage` say why (Dyadrr's codes, or `NO_REPORT` / `JOB_LOST` when its job ended without a report or its files are gone). `summary` is what the page shows of the report (`roles` are indexes: 0 is file A, 1 file B; also `measureLanguage`, `dispersionMs`, `film`, `commonMaterial`, `audio`, `failedChecks`, `reasons`); `/report` returns the whole report as Dyadrr wrote it (404 before it ends). `analyze` runs a pair that is not `ANALYZING` again (409 otherwise); `cancel` stops it (Dyadrr gets SIGTERM, or never starts the job), and it ends `CANCELLED`; `DELETE` removes the pair (204; 409 while Dyadrr runs it), never the files. While a pair is `ANALYZING`, its files cannot be uploaded, retried or deleted (409).
+
+### Merge a Pair
+
+```
+GET /api/merge/pairs/:id/merge-preview?name=
+POST /api/merge/pairs/:id/merge   { "choices": { "edgeMismatch": "drop" }, "outputName": "Up (2009)", "replaceExisting": false }
+GET /api/merge/pairs/:id/merge-report
+```
+
+`merge-preview` gives the merged file's default name (`outputName`, without `.mkv`: the rip's `Title (Year)`, else the film's TMDB title, else the better video's file name without a trailing ` (2)`), whether a file with that name is in the watch folder (`existsLocally`) or was uploaded to a server (`existsOnServer`), and the `inputsAfter` setting; `?name=` checks another name.
+
+`merge` merges an `ELIGIBLE` pair with `dyadrr merge --expect` (the analysis report, written to `<watch folder>/.wayfinderr/dyadrr/expect/<pair id>.json`): `choices` must give every choice the analysis left pending (400 `Choose before the merge: ...`); the ones it decided are passed again. The merged file goes to `<watch folder>/<outputName>.mkv` (400 for an empty name or one of the two files'). When a file with that name is already there, 409 with `{ "code": "OUTPUT_EXISTS", "fileName", "existsLocally", "existsOnServer" }` unless `replaceExisting` is true: the local file is then deleted (409 while it is being uploaded), and the upload replaces the one on the server. The pair becomes `MERGING` (with `phase` and `progress`); while a rip, an unpacking or a join is writing, the job waits (`jobId` null) and starts once they end, and the rips wait for a running merge in turn (`cancel` on a waiting merge makes the pair `ELIGIBLE` again, `mergeReasonCode: "CANCELLED"`). Then:
+
+- `MERGED`: merged and verified. `outputPath`, `mergedAt`, `mergeSummary` (`delivered`, `sizeBytes`, `durationMs`, `expect`, `warnings`), `outputUploadId` once the watcher picks the file up (never held: it is uploaded as it is). The two uploads become `MERGED` (`holdMessage` says into which file), their files deleted with `inputsAfter: "delete"` (only in the watch folder); once the merged file's upload completes, the source torrents of both inputs are cleaned up as after an upload.
+- `REFUSED`: Dyadrr analyzed again and the pair no longer passes (`reasonCode`, `reasonMessage`).
+- `ELIGIBLE` again, with `mergeReasonCode` and `mergeReasonMessage`: stopped (`CANCELLED`) or failed (`NO_SPACE`, `INPUT_CHANGED`, `MERGE_FAILED`, `VERIFY_FAILED`, `INTERRUPTED`...). Not a refusal: merge again.
+
+`merge-report` returns the merge's whole report (404 before one ends). While a pair is `MERGING` its files cannot be uploaded, retried or deleted, and `cancel` stops the merge.
 
 ## WebSocket
 
@@ -1024,6 +1044,9 @@ A new file held for a merge instead of uploaded (`MERGE_ENABLED`): `kind` is its
   "kind": "TWIN"
 }
 ```
+
+#### upload-merged
+An upload became `MERGED`: an input of a verified merge.
 
 #### merge-pair-updated, merge-pair-progress, merge-pair-removed
 A merge pair changed `status` (`{ "type": "merge-pair-updated", "pairId": "pair123", "status": "ELIGIBLE" }`), its analysis moved on (`{ "type": "merge-pair-progress", "pairId": "pair123", "phase": "checkpoints", "progress": 40, "done": 12, "total": 30 }`), or it was removed.

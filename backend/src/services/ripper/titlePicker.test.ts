@@ -84,3 +84,28 @@ test('only the kept language, commentaries or no language: nothing to choose', (
   ];
   assert.deepEqual(otherAudioLanguages(title(0, 128, { streams }), ITA, ['jpn']), []);
 });
+
+test('merging on, a film without the kept language is ripped all the same', () => {
+  const foreign = title(0, 128, {
+    streams: [
+      { type: 'video', forced: false, commentary: false },
+      { type: 'audio', lang: 'deu', forced: false, commentary: false },
+      { type: 'audio', lang: 'eng', forced: false, commentary: false },
+    ],
+  });
+  assert.equal(pickMainTitle([foreign], ITA).title, null);
+  assert.equal(pickMainTitle([foreign], ITA, true).title?.index, 0);
+  // Not a reason to guess between several films
+  assert.equal(pickMainTitle([foreign, title(1, 120)], ITA, true).title, null);
+});
+
+test('English kept for a merge is never offered in place of the original language', () => {
+  const english = title(0, 128, {
+    streams: [
+      { type: 'video', forced: false, commentary: false },
+      { type: 'audio', lang: 'eng', forced: false, commentary: false },
+    ],
+  });
+  assert.deepEqual(otherAudioLanguages(english, ['ita'], ['jpn']), ['eng']);
+  assert.deepEqual(otherAudioLanguages(english, ['ita', 'eng'], ['jpn']), []);
+});

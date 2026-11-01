@@ -185,10 +185,16 @@ jobQueue.on('upload-completed', ({ uploadId }) => {
     type: 'upload-completed',
     uploadId,
   });
-  // Uploaded: the source torrent can go
+  // Uploaded: the source torrent can go; for a merged file, the ones of both its inputs too
   torrentCleanup
     .handleUploadCompleted(uploadId)
     .catch((error) => logger.error({ uploadId, error }, 'Torrent cleanup failed'));
+  mergePairs
+    .inputsOfUploadedOutput(uploadId)
+    .then(async (inputs) => {
+      for (const input of inputs) await torrentCleanup.handleUploadCompleted(input);
+    })
+    .catch((error) => logger.error({ uploadId, error }, 'Torrent cleanup of the merge inputs failed'));
   // On the server: the name to confirm (releaseAuto), then the tracker
   releaseManager
     .handleUploadCompleted(uploadId)
@@ -249,6 +255,7 @@ jobQueue.on('upload-cancelled', ({ uploadId }) => {
 mergePairs.on('pair-updated', ({ pairId, status }) => broadcast({ type: 'merge-pair-updated', pairId, status }));
 mergePairs.on('pair-removed', ({ pairId }) => broadcast({ type: 'merge-pair-removed', pairId }));
 mergePairs.on('pair-progress', (event) => broadcast({ type: 'merge-pair-progress', ...event }));
+mergePairs.on('upload-merged', ({ uploadId }) => broadcast({ type: 'upload-merged', uploadId }));
 
 // Ripper events: the page refetches the rip, progress updates it in place
 // (status: UNPACKING or RIPPING, the step the progress is of)
@@ -323,8 +330,14 @@ const processFile = async (event: FileDetectedEvent, existingUploadId?: string) 
       size: fileSize.toString(),
     });
 
-    // Merging on: a file without Italian audio, or one with a twin around, waits for a merge
-    if (await holdForMerge(upload.id)) return;
+    // A merged file: uploaded as it is (it would look like the twin of its own inputs)
+    const mergedFrom = await mergePairs.isMergeOutput(event.filepath);
+    if (mergedFrom) {
+      await mergePairs.setOutputUpload(mergedFrom.id, upload.id);
+    } else if (await holdForMerge(upload.id)) {
+      // Merging on: a file without Italian audio, or one with a twin around, waits for a merge
+      return;
+    }
 
     // Enqueue for upload
     await jobQueue.enqueueUpload({

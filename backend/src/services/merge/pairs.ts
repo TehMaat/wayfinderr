@@ -1,10 +1,14 @@
 import { EventEmitter } from 'events';
 import { existsSync } from 'fs';
+import { mkdir, rm, writeFile } from 'fs/promises';
+import path from 'path';
 import { MergePair, Upload } from '@prisma/client';
+import { config } from '../../config/index.js';
 import logger from '../../config/logger.js';
 import { db } from '../database.js';
 import { mkvNames } from '../torrentCleanup.js';
 import { filmByName } from '../filmLookup.js';
+import { outputName, ripper, safeFileName } from '../ripper/index.js';
 import { dyadrr, mergeActive } from './index.js';
 import { currentProgress, DyadrrChoices, DyadrrEvent, DyadrrReport, jobOutcome } from './jobs.js';
 
@@ -12,11 +16,17 @@ import { currentProgress, DyadrrChoices, DyadrrEvent, DyadrrReport, jobOutcome }
  * Pairs of files of the same film, merged with Dyadrr. The user pairs two files by
  * hand (Dyadrr's study, §15: pairing works on uploads, not rips); Wayfinderr then
  * runs `dyadrr analyze` on them in the Dyadrr container and shows the report: the
- * offset, the plan, the checks, why it was refused, the choices still to make. The
- * merge itself comes after a confirmation (a later version).
+ * offset, the plan, the checks, why it was refused, the choices still to make.
+ *
+ * Once confirmed, `dyadrr merge --expect` builds the final file in the watch folder,
+ * under the name Wayfinderr gives the film (decision 5): it re-checks that nothing
+ * changed since the analysis, merges and verifies. The merged file is then uploaded
+ * like any other; the two inputs are kept or deleted (a setting, decision 6), and the
+ * source torrents of both are cleaned up once it is on a server. A merge stopped or
+ * failed (NO_SPACE...) is not a refusal: the pair goes back to eligible, to retry.
  *
  * The four choices are settings: a fixed value, passed to every analysis, or "ask"
- * each time, left pending in the report for the merge to ask.
+ * each time, left pending in the report and chosen before the merge.
  */
 
 export class MergeError extends Error {
@@ -38,11 +48,14 @@ export const CHOICE_VALUES: Record<ChoiceName, readonly string[]> = {
 };
 const CHOICE_NAMES = Object.keys(CHOICE_VALUES) as ChoiceName[];
 const SETTINGS_KEY = 'merge.choices';
+// After a merge: keep the two files (deletable from the GUI) or delete them
+const INPUTS_KEY = 'merge.inputs';
+export type InputsAfter = 'keep' | 'delete';
 // Asked each time until set otherwise
 export const DEFAULT_CHOICES: ChoiceSettings = { tail: 'ask', italian: 'ask', referenceItalianSubs: 'ask', edgeMismatch: 'ask' };
 
 // A queued or running job: the pair waits for its report
-const ACTIVE = ['ANALYZING'];
+const ACTIVE = ['ANALYZING', 'MERGING'];
 // Uploads that can be paired: their file is on the disk and nothing else is using it
 const PAIRABLE = ['HELD', 'COMPLETED', 'SKIPPED', 'FAILED', 'CANCELLED'];
 const POLL_MS = 2000;
@@ -126,17 +139,48 @@ export const reportSummary = (report: DyadrrReport | null) => {
   };
 };
 
-const publicPair = (pair: MergePair) => {
-  let report: DyadrrReport | null = null;
+const parseJson = <T>(text: string | null): T | null => {
   try {
-    report = pair.report ? (JSON.parse(pair.report) as DyadrrReport) : null;
+    return text ? (JSON.parse(text) as T) : null;
   } catch {
-    report = null;
+    return null;
   }
-  const { report: _report, ...rest } = pair;
-  return { ...rest, summary: reportSummary(report) };
+};
+
+/** What the merge's report adds: the final file, its verification, the warnings. */
+export const mergeSummary = (report: DyadrrReport | null) => {
+  if (!report) return null;
+  const r = report as DyadrrReport & Record<string, any>;
+  const output = r.output ?? null;
+  return {
+    decision: r.decision,
+    reasons: r.reasons ?? [],
+    delivered: Boolean(output?.delivered),
+    sizeBytes: output?.sizeBytes ?? null,
+    durationMs: output?.durationMs ?? null,
+    droppedSubtitles: output?.build?.droppedSubtitles ?? [],
+    expect: r.expect ? { result: r.expect.result, differences: r.expect.differences ?? [] } : null,
+    warnings: (r.warnings ?? []).map((w: Record<string, unknown>) => ({ code: w.code, message: w.message, source: w.source ?? null })),
+  };
+};
+
+const publicPair = (pair: MergePair) => {
+  const { report, mergeReport, mergeChoices, ...rest } = pair;
+  return {
+    ...rest,
+    mergeChoices: parseJson<Record<string, string>>(mergeChoices),
+    summary: reportSummary(parseJson<DyadrrReport>(report)),
+    mergeSummary: mergeSummary(parseJson<DyadrrReport>(mergeReport)),
+  };
 };
 export type PublicPair = ReturnType<typeof publicPair>;
+
+/** A file with the merged file's name is already there: the GUI asks before replacing it. */
+export class OutputExistsError extends MergeError {
+  constructor(public fileName: string, public existsLocally: boolean, public existsOnServer: boolean) {
+    super(`${fileName} is already ${existsLocally ? 'in the watch folder' : 'on a server'}`);
+  }
+}
 
 class MergePairs extends EventEmitter {
   private timer: NodeJS.Timeout | null = null;
@@ -172,6 +216,21 @@ class MergePairs extends EventEmitter {
   async report(id: string): Promise<DyadrrReport | null> {
     const pair = await this.find(id);
     return pair.report ? (JSON.parse(pair.report) as DyadrrReport) : null;
+  }
+
+  /** The merge's full report (null before a merge ended). */
+  async mergeReport(id: string): Promise<DyadrrReport | null> {
+    return parseJson<DyadrrReport>((await this.find(id)).mergeReport);
+  }
+
+  async getInputsAfter(): Promise<InputsAfter> {
+    return (await db.getSettings([INPUTS_KEY]))[INPUTS_KEY] === 'delete' ? 'delete' : 'keep';
+  }
+
+  async setInputsAfter(value: unknown): Promise<InputsAfter> {
+    if (value !== 'keep' && value !== 'delete') throw new MergeError('inputs must be keep or delete', 400);
+    await db.setSettings({ [INPUTS_KEY]: value });
+    return value;
   }
 
   async getChoiceSettings(): Promise<ChoiceSettings> {
@@ -238,7 +297,8 @@ class MergePairs extends EventEmitter {
   async analyze(id: string, originalLanguage?: unknown): Promise<PublicPair> {
     if (!mergeActive()) throw new MergeError('Merging is off (MERGE_ENABLED, RIP_LANGUAGE=it)');
     const pair = await this.find(id);
-    if (ACTIVE.includes(pair.status)) throw new MergeError('The pair is already being analyzed');
+    if (ACTIVE.includes(pair.status)) throw new MergeError(`The pair is already ${pair.status === 'MERGING' ? 'being merged' : 'being analyzed'}`);
+    if (pair.status === 'MERGED') throw new MergeError('The pair is already merged');
     const language = originalLanguage === undefined ? pair.originalLanguage : this.checkLanguage(originalLanguage);
     for (const uploadId of [pair.uploadAId, pair.uploadBId]) await this.pairable(uploadId, pair.id);
 
@@ -259,6 +319,8 @@ class MergePairs extends EventEmitter {
       reasonMessage: null,
       report: null,
       dyadrrVersion: null,
+      mergeReasonCode: null,
+      mergeReasonMessage: null,
       startedAt: new Date(),
       completedAt: null,
     });
@@ -267,13 +329,192 @@ class MergePairs extends EventEmitter {
     return publicPair(updated);
   }
 
-  /** Stops an analysis: Dyadrr gets SIGTERM (or never starts it), and its report says cancelled. */
+  /** Stops an analysis or a merge: Dyadrr gets SIGTERM (or never starts it), and its report says cancelled. */
   async cancel(id: string): Promise<PublicPair> {
     const pair = await this.find(id);
+    // A merge still waiting for the rips: never started, eligible again
+    if (pair.status === 'MERGING' && !pair.jobId) {
+      const updated = await db.updateMergePair(id, {
+        status: 'ELIGIBLE',
+        mergeReasonCode: 'CANCELLED',
+        mergeReasonMessage: 'Stopped before it started',
+      });
+      this.emit('pair-updated', { pairId: id, status: updated.status });
+      return publicPair(updated);
+    }
     if (!ACTIVE.includes(pair.status) || !pair.jobId) throw new MergeError(`The pair is ${pair.status}, nothing to stop`);
     await dyadrr.cancel(pair.jobId);
-    logger.info({ pairId: id, jobId: pair.jobId }, 'Merge analysis stop requested');
+    logger.info({ pairId: id, jobId: pair.jobId, status: pair.status }, 'Merge job stop requested');
     return publicPair(pair);
+  }
+
+  /** The name Wayfinderr gives the film, as the merged file's default name (without .mkv). */
+  async defaultOutputName(pair: MergePair): Promise<string> {
+    const report = parseJson<DyadrrReport & Record<string, any>>(pair.report);
+    const files = [pair.fileA, pair.fileB];
+    // The reference first: its name is the better video's
+    const order = report?.roles ? [files[report.roles.reference], files[report.roles.donor]] : files;
+    for (const file of order) {
+      const rip = await db.getRipByOutputFile(file);
+      if (rip) return outputName(rip);
+    }
+    for (const file of order) {
+      for (const name of mkvNames(file)) {
+        const film = await filmByName({ title: name.title, year: name.year ?? null });
+        if (film) return safeFileName(film.label);
+      }
+    }
+    // The file's own name, without the " (2)" the ripper adds to a name already used
+    return safeFileName(path.basename(order[0], path.extname(order[0])).replace(/ \(\d+\)$/, ''));
+  }
+
+  /** What the merge dialog needs: the default name, and whether a file with that name is already there. */
+  async mergePreview(id: string, name?: unknown) {
+    const pair = await this.find(id);
+    const outputPath = this.outputPath(pair, typeof name === 'string' && name.trim() ? name : await this.defaultOutputName(pair));
+    return { outputName: path.basename(outputPath, '.mkv'), ...(await this.existing(outputPath)), inputsAfter: await this.getInputsAfter() };
+  }
+
+  private outputPath(pair: MergePair, name: string): string {
+    const base = safeFileName(name.trim().replace(/\.mkv$/i, '')).trim();
+    if (!base || base.startsWith('.')) throw new MergeError('Give the merged file a name', 400);
+    const outputPath = path.join(config.WATCH_DIR, `${base}.mkv`);
+    if ([pair.fileA, pair.fileB].some((file) => path.resolve(file) === path.resolve(outputPath))) {
+      throw new MergeError('The merged file must not have the name of one of the two files', 400);
+    }
+    return outputPath;
+  }
+
+  // A file with the merged file's name: in the watch folder, or uploaded to a server before
+  private async existing(outputPath: string) {
+    return {
+      existsLocally: existsSync(outputPath),
+      existsOnServer: await db.isUploadFileNameUsed(path.basename(outputPath)),
+    };
+  }
+
+  /**
+   * Merges an eligible pair: every choice the analysis left pending must be given;
+   * the ones it decided are passed again. A file with the merged file's name already
+   * there is replaced only with `replaceExisting` (deleted here; on the server the
+   * upload replaces it), else 409 OUTPUT_EXISTS for the GUI to ask.
+   */
+  async merge(id: string, body: { choices?: unknown; outputName?: unknown; replaceExisting?: unknown }): Promise<PublicPair> {
+    if (!mergeActive()) throw new MergeError('Merging is off (MERGE_ENABLED, RIP_LANGUAGE=it)');
+    const pair = await this.find(id);
+    if (pair.status !== 'ELIGIBLE') throw new MergeError(`The pair is ${pair.status}: only an eligible pair is merged`);
+    const report = parseJson<DyadrrReport & Record<string, any>>(pair.report);
+    if (!report) throw new MergeError('The analysis report is missing: analyze again');
+    for (const uploadId of [pair.uploadAId, pair.uploadBId]) await this.pairable(uploadId, pair.id);
+
+    const choices = this.mergeChoicesOf(report, body.choices);
+    const outputPath = this.outputPath(pair, typeof body.outputName === 'string' && body.outputName.trim() ? body.outputName : await this.defaultOutputName(pair));
+    const { existsLocally, existsOnServer } = await this.existing(outputPath);
+    if ((existsLocally || existsOnServer) && body.replaceExisting !== true) {
+      throw new OutputExistsError(path.basename(outputPath), existsLocally, existsOnServer);
+    }
+    if (existsLocally) {
+      const upload = await db.getUploadByPath(outputPath);
+      if (upload && ['PENDING', 'QUEUED', 'UPLOADING'].includes(upload.status)) {
+        throw new MergeError(`${path.basename(outputPath)} is being uploaded: stop it first`);
+      }
+      // Dyadrr never overwrites (OUTPUT_EXISTS): the file already there goes, as confirmed
+      await rm(outputPath, { force: true });
+      logger.info({ pairId: id, outputPath }, 'Existing file deleted before the merge');
+    }
+
+    this.lastProgress.delete(id);
+    let updated = await db.updateMergePair(id, {
+      status: 'MERGING',
+      jobId: null,
+      phase: null,
+      progress: null,
+      outputPath,
+      mergeChoices: JSON.stringify(choices),
+      mergeReport: null,
+      mergeReasonCode: null,
+      mergeReasonMessage: null,
+      inputsAfter: null,
+      outputUploadId: null,
+      mergedAt: null,
+    });
+    // One writer at a time: a rip running now (MakeMKV, unrar, a join) goes first, and
+    // the merge starts after it (poll); rips wait for the merge in turn
+    if (await ripper.writing()) {
+      logger.info({ pairId: id, outputPath, choices }, 'Merge waiting for the rips to end');
+    } else {
+      updated = await this.submitMerge(updated);
+    }
+    this.emit('pair-updated', { pairId: id, status: updated.status });
+    return publicPair(updated);
+  }
+
+  /** Writes the merge job of a pair that is MERGING: the confirmed analysis, then the job. */
+  private async submitMerge(pair: MergePair): Promise<MergePair> {
+    // The confirmed analysis: Dyadrr checks that inputs, roles, offset and plan are still the same
+    const expect = path.join(dyadrr.jobsDir, '..', 'expect', `${pair.id}.json`);
+    await mkdir(path.dirname(expect), { recursive: true });
+    await writeFile(expect, pair.report!, { mode: 0o666 });
+    const choices = parseJson<DyadrrChoices>(pair.mergeChoices) ?? {};
+    const jobId = await dyadrr.submit({
+      command: 'merge',
+      inputs: [pair.fileA, pair.fileB],
+      output: pair.outputPath!,
+      expect,
+      originalLanguage: pair.originalLanguage ?? undefined,
+      ...choices,
+    });
+    logger.info({ pairId: pair.id, jobId, outputPath: pair.outputPath, choices }, 'Merge queued');
+    return db.updateMergePair(pair.id, { jobId });
+  }
+
+  /** The choices for the merge: decided ones as the analysis used them, pending ones as given. */
+  private mergeChoicesOf(report: Record<string, any>, given: unknown): DyadrrChoices {
+    const values = given && typeof given === 'object' && !Array.isArray(given) ? (given as Record<string, unknown>) : {};
+    const choices: Record<string, string> = {};
+    const missing: string[] = [];
+    for (const choice of (report.choices ?? []) as Record<string, any>[]) {
+      if (!choice.needed || !CHOICE_NAMES.includes(choice.name)) continue;
+      const name = choice.name as ChoiceName;
+      if (choice.status === 'decided' && typeof choice.value === 'string') {
+        choices[name] = choice.value;
+        continue;
+      }
+      const value = values[name];
+      if (typeof value === 'string' && CHOICE_VALUES[name].includes(value)) choices[name] = value;
+      else missing.push(name);
+    }
+    if (missing.length) throw new MergeError(`Choose before the merge: ${missing.join(', ')}`, 400);
+    return choices as DyadrrChoices;
+  }
+
+  /** The merged file of a pair being merged or merged: uploaded as it is, never held. */
+  async isMergeOutput(filepath: string): Promise<MergePair | null> {
+    const resolved = path.resolve(filepath);
+    return (
+      (await db.getMergePairsByStatus(['MERGING', 'MERGED'])).find((p) => p.outputPath && path.resolve(p.outputPath) === resolved) ?? null
+    );
+  }
+
+  /** The merged file was picked up: its upload. */
+  async setOutputUpload(pairId: string, uploadId: string): Promise<void> {
+    const pair = await db.updateMergePair(pairId, { outputUploadId: uploadId });
+    this.emit('pair-updated', { pairId, status: pair.status });
+  }
+
+  /**
+   * The merged file is on a server: the source torrents of both inputs can go
+   * (each input's upload is MERGED, which the torrent cleanup treats as uploaded).
+   */
+  async inputsOfUploadedOutput(uploadId: string): Promise<string[]> {
+    const pair = (await db.getMergePairsByStatus(['MERGED'])).find((p) => p.outputUploadId === uploadId);
+    if (!pair) return [];
+    const inputs = [];
+    for (const id of [pair.uploadAId, pair.uploadBId]) {
+      const upload = await db.getUploadById(id);
+      if (upload?.status === 'MERGED') inputs.push(id);
+    }
+    return inputs;
   }
 
   /**
@@ -283,8 +524,9 @@ class MergePairs extends EventEmitter {
   async remove(id: string): Promise<void> {
     const pair = await this.find(id);
     if (ACTIVE.includes(pair.status) && pair.jobId && (await dyadrr.state(pair.jobId)).state === 'running') {
-      throw new MergeError('Dyadrr is analyzing the pair: stop it first');
+      throw new MergeError(`Dyadrr is ${pair.status === 'MERGING' ? 'merging' : 'analyzing'} the pair: stop it first`);
     }
+    await rm(path.join(dyadrr.jobsDir, '..', 'expect', `${pair.id}.json`), { force: true });
     if (pair.jobId) await dyadrr.remove(pair.jobId);
     await db.deleteMergePair(id);
     this.lastProgress.delete(id);
@@ -318,7 +560,7 @@ class MergePairs extends EventEmitter {
     if (!PAIRABLE.includes(upload.status)) throw new MergeError(`${upload.filename} is ${upload.status}: it cannot be merged now`);
     if (!existsSync(upload.filepath)) throw new MergeError(`${upload.filename} is no longer on the disk`);
     const busy = (await db.getMergePairsOfUpload(uploadId)).find((p) => p.id !== pairId && ACTIVE.includes(p.status));
-    if (busy) throw new MergeError(`${upload.filename} is already being analyzed in another pair`);
+    if (busy) throw new MergeError(`${upload.filename} is already in another pair being analyzed or merged`);
     try {
       dyadrr.toJobPath(upload.filepath);
     } catch {
@@ -345,6 +587,14 @@ class MergePairs extends EventEmitter {
   /** Follows the jobs of the pairs being analyzed: progress, then the report. */
   private async poll(): Promise<void> {
     for (const pair of await db.getMergePairsByStatus(ACTIVE)) {
+      // A merge waiting for the rips: started once none is writing
+      if (pair.status === 'MERGING' && !pair.jobId) {
+        if (!(await ripper.writing())) {
+          const started = await this.submitMerge(pair);
+          this.emit('pair-updated', { pairId: pair.id, status: started.status });
+        }
+        continue;
+      }
       if (!pair.jobId) continue;
       try {
         await this.follow(pair, pair.jobId);
@@ -356,8 +606,11 @@ class MergePairs extends EventEmitter {
 
   private async follow(pair: MergePair, jobId: string): Promise<void> {
     const state = await dyadrr.state(jobId);
+    const merging = pair.status === 'MERGING';
     if (state.state === 'missing') {
-      await this.finish(pair, null, 'error', 'JOB_LOST', 'The Dyadrr job files are gone (deleted by hand?): analyze again');
+      const lost = 'The Dyadrr job files are gone (deleted by hand?)';
+      if (merging) await this.finishMerge(pair, null, 'error', 'JOB_LOST', `${lost}: merge again`);
+      else await this.finish(pair, null, 'error', 'JOB_LOST', `${lost}: analyze again`);
       return;
     }
     if (state.state === 'running') {
@@ -376,14 +629,73 @@ class MergePairs extends EventEmitter {
     const decision = jobOutcome(report);
     const reason = report?.reasons?.[0];
     const messages = report ? [] : (await dyadrr.log(jobId)).messages;
-    await this.finish(
-      pair,
-      report,
-      decision,
-      reason?.code ?? (report ? null : 'NO_REPORT'),
-      reason?.message ?? (report ? null : `Dyadrr ended with ${state.exitCode} and no report${messages.length ? `: ${messages.at(-1)}` : ''}`)
-    );
+    const reasonCode = reason?.code ?? (report ? null : 'NO_REPORT');
+    const reasonMessage =
+      reason?.message ?? (report ? null : `Dyadrr ended with ${state.exitCode} and no report${messages.length ? `: ${messages.at(-1)}` : ''}`);
+    if (merging) await this.finishMerge(pair, report, decision, reasonCode, reasonMessage);
+    else await this.finish(pair, report, decision, reasonCode, reasonMessage);
     await dyadrr.remove(jobId);
+  }
+
+  /**
+   * A merge ended. Merged and verified: the inputs are kept or deleted (the setting)
+   * and marked MERGED; the merged file is picked up by the watcher and uploaded.
+   * Refused (Dyadrr analyzed again, and the pair no longer passes): REFUSED. Stopped or
+   * failed (NO_SPACE, INPUT_CHANGED, VERIFY_FAILED...): back to ELIGIBLE, to retry.
+   */
+  private async finishMerge(
+    pair: MergePair,
+    report: DyadrrReport | null,
+    decision: string,
+    reasonCode: string | null,
+    reasonMessage: string | null
+  ): Promise<void> {
+    await rm(path.join(dyadrr.jobsDir, '..', 'expect', `${pair.id}.json`), { force: true });
+    const output = (report as Record<string, any> | null)?.output;
+    const merged = decision === 'eligible' && Boolean(output?.delivered);
+    const status = merged ? 'MERGED' : decision === 'refused' ? 'REFUSED' : 'ELIGIBLE';
+    const inputsAfter = merged ? await this.getInputsAfter() : null;
+    await db.updateMergePair(pair.id, {
+      status,
+      jobId: null,
+      phase: null,
+      progress: null,
+      mergeReport: report ? JSON.stringify(report) : null,
+      mergeReasonCode: merged ? null : reasonCode ?? (decision === 'eligible' ? 'NOT_DELIVERED' : null),
+      mergeReasonMessage: merged ? null : reasonMessage ?? (decision === 'eligible' ? 'Dyadrr did not deliver the merged file' : null),
+      ...(decision === 'refused' ? { reasonCode, reasonMessage } : {}),
+      inputsAfter,
+      mergedAt: merged ? new Date() : null,
+    });
+    this.lastProgress.delete(pair.id);
+    logger.info({ pairId: pair.id, status, reasonCode, outputPath: pair.outputPath }, 'Merge ended');
+    if (merged) await this.afterMerge(pair, inputsAfter!);
+    this.emit('pair-updated', { pairId: pair.id, status });
+  }
+
+  /** The two inputs after a verified merge: MERGED, and deleted when the setting says so. */
+  private async afterMerge(pair: MergePair, inputsAfter: InputsAfter): Promise<void> {
+    const name = pair.outputPath ? path.basename(pair.outputPath) : 'the merged file';
+    for (const uploadId of [pair.uploadAId, pair.uploadBId]) {
+      const upload = await db.getUploadById(uploadId);
+      if (!upload) continue;
+      // Only a file of the watch folder: the downloads belong to the torrent client
+      const relative = path.relative(config.WATCH_DIR, upload.filepath);
+      const inWatch = Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
+      if (inputsAfter === 'delete' && inWatch) {
+        await rm(upload.filepath, { force: true });
+        logger.info({ pairId: pair.id, filepath: upload.filepath }, 'Merge input deleted');
+      }
+      // An input already on a server stays COMPLETED; the others count as done, through the merge
+      if (upload.status !== 'COMPLETED') {
+        await db.updateUpload(uploadId, {
+          status: 'MERGED',
+          holdKind: null,
+          holdMessage: `Merged into ${name}${inputsAfter === 'delete' && inWatch ? ' (file deleted)' : ''}`,
+        });
+        this.emit('upload-merged', { uploadId });
+      }
+    }
   }
 
   private async finish(

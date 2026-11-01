@@ -1,7 +1,18 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle, ExternalLink, Loader2, RotateCcw, Square, Trash2 } from 'lucide-react';
+import Link from 'next/link';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ExternalLink,
+  FileVideo,
+  Loader2,
+  Merge,
+  RotateCcw,
+  Square,
+  Trash2,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,6 +20,7 @@ import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Tooltip } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { MergeConfirmDialog } from '@/components/merge-confirm-dialog';
 import { mergeApi } from '@/lib/api';
 import {
   choiceValueLabel,
@@ -20,7 +32,7 @@ import {
   PHASE_LABELS,
 } from '@/lib/merge';
 import { useAppStore, type MergePair, type MergeSummary } from '@/lib/store';
-import { errorMessage } from '@/lib/utils';
+import { errorMessage, formatBytes } from '@/lib/utils';
 
 function Fact({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   const body = (
@@ -146,7 +158,10 @@ export function MergePairCard({ pair, runnerAlive }: { pair: MergePair; runnerAl
   const [removeOpen, setRemoveOpen] = useState(false);
   const status = PAIR_STATUS[pair.status] ?? PAIR_STATUS.ERROR;
   const summary = pair.summary;
-  const analyzing = pair.status === 'ANALYZING';
+  // A job queued or running: the analysis, or the merge
+  const analyzing = pair.status === 'ANALYZING' || pair.status === 'MERGING';
+  const merged = pair.status === 'MERGED';
+  const [mergeOpen, setMergeOpen] = useState(false);
 
   const run = async (action: () => Promise<unknown>, failure: string) => {
     setBusy(true);
@@ -169,20 +184,26 @@ export function MergePairCard({ pair, runnerAlive }: { pair: MergePair; runnerAl
             {analyzing && <Loader2 className="animate-spin" />}
             {status.label}
           </Badge>
+          {pair.status === 'ELIGIBLE' && (
+            <Button size="sm" className="mr-1 h-7" onClick={() => setMergeOpen(true)} disabled={busy}>
+              <Merge />
+              Merge…
+            </Button>
+          )}
           {analyzing ? (
-            <Tooltip content="Stop the analysis">
+            <Tooltip content={pair.status === 'MERGING' ? 'Stop the merge' : 'Stop the analysis'}>
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7"
                 aria-label="Stop"
                 disabled={busy}
-                onClick={() => run(() => mergeApi.cancelPair(pair.id), 'Could not stop the analysis')}
+                onClick={() => run(() => mergeApi.cancelPair(pair.id), 'Could not stop it')}
               >
                 <Square className="fill-current" />
               </Button>
             </Tooltip>
-          ) : (
+          ) : merged ? null : (
             <Tooltip content="Analyze again">
               <Button
                 variant="ghost"
@@ -196,8 +217,17 @@ export function MergePairCard({ pair, runnerAlive }: { pair: MergePair; runnerAl
               </Button>
             </Tooltip>
           )}
+          {pair.mergeSummary && (
+            <Tooltip content="Dyadrr's merge report (JSON)">
+              <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
+                <a href={mergeApi.mergeReportUrl(pair.id)} target="_blank" rel="noreferrer" aria-label="Merge report">
+                  <FileVideo />
+                </a>
+              </Button>
+            </Tooltip>
+          )}
           {summary && (
-            <Tooltip content="Dyadrr's full report (JSON)">
+            <Tooltip content="Dyadrr's analysis report (JSON)">
               <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
                 <a href={mergeApi.reportUrl(pair.id)} target="_blank" rel="noreferrer" aria-label="Report">
                   <ExternalLink />
@@ -224,11 +254,59 @@ export function MergePairCard({ pair, runnerAlive }: { pair: MergePair; runnerAl
           <p className="text-xs text-muted-foreground">
             {pair.phase
               ? `${PHASE_LABELS[pair.phase] ?? pair.phase}${pair.progress !== null ? ` · ${pair.progress}%` : ''}`
-              : runnerAlive
-                ? 'Waiting for Dyadrr to start'
-                : 'Waiting for the Dyadrr container: it is not running'}
+              : pair.status === 'MERGING' && !pair.jobId
+                ? 'Waiting for the rip in progress to end'
+                : runnerAlive
+                  ? 'Waiting for Dyadrr to start'
+                  : 'Waiting for the Dyadrr container: it is not running'}
           </p>
           <Progress value={pair.progress ?? 0} animated={pair.progress === null} />
+        </div>
+      )}
+
+      {pair.status === 'ELIGIBLE' && pair.mergeReasonMessage && (
+        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span className="break-words">
+            Last merge not done: {pair.mergeReasonCode && <span className="font-mono">{pair.mergeReasonCode}</span>}{' '}
+            {pair.mergeReasonMessage}. Merge again when it is sorted out.
+          </span>
+        </div>
+      )}
+
+      {merged && (
+        <div className="space-y-2 rounded-md border border-success/40 bg-success/10 p-3 text-sm">
+          <p className="flex items-start gap-2">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+            <span className="min-w-0 break-words">
+              <span className="font-medium">{pair.outputPath ? fileName(pair.outputPath) : 'Merged file'}</span>
+              {pair.mergeSummary?.sizeBytes ? ` · ${formatBytes(pair.mergeSummary.sizeBytes, 1)}` : ''} — merged and
+              verified.{' '}
+              {pair.outputUploadId ? (
+                <Link href={`/uploads/${pair.outputUploadId}`} className="underline">
+                  Its upload
+                </Link>
+              ) : (
+                'It goes to the upload queue once the watch folder picks it up.'
+              )}
+            </span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            The two files were {pair.inputsAfter === 'delete' ? 'deleted (the ones in the watch folder)' : 'kept'};
+            their source torrents are cleaned up once the merged file is on a server.
+          </p>
+          {(pair.mergeSummary?.warnings ?? []).length > 0 && (
+            <ul className="space-y-1">
+              {pair.mergeSummary!.warnings.map((w, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs text-warning">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    <span className="font-mono">{w.code}</span> {w.message}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
@@ -241,7 +319,7 @@ export function MergePairCard({ pair, runnerAlive }: { pair: MergePair; runnerAl
         </div>
       )}
 
-      {summary && pair.status === 'ELIGIBLE' && <Result summary={summary} />}
+      {summary && (pair.status === 'ELIGIBLE' || pair.status === 'MERGING') && <Result summary={summary} />}
       {summary && pair.status === 'REFUSED' && summary.warnings.length > 0 && (
         <Result summary={{ ...summary, choices: [] }} />
       )}
@@ -250,6 +328,8 @@ export function MergePairCard({ pair, runnerAlive }: { pair: MergePair; runnerAl
         Original language: {pair.originalLanguage ?? 'unknown (measured on English)'}
         {pair.dyadrrVersion && ` · Dyadrr ${pair.dyadrrVersion}`}
       </p>
+
+      {mergeOpen && <MergeConfirmDialog pair={pair} open={mergeOpen} onOpenChange={setMergeOpen} />}
 
       <ConfirmDialog
         open={removeOpen}
