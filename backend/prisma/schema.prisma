@@ -60,7 +60,7 @@ model Upload {
   serverId             String?
   server               Server?  @relation(fields: [serverId], references: [id], onDelete: SetNull)
 
-  status               String   @default("PENDING")  // PENDING | QUEUED | UPLOADING | COMPLETED | FAILED | SKIPPED | CANCELLED | HELD
+  status               String   @default("PENDING")  // PENDING | QUEUED | UPLOADING | COMPLETED | FAILED | SKIPPED | CANCELLED | HELD | MERGED
   progress             Int      @default(0)          // 0-100
   progressBytes        BigInt   @default(0)          // Bytes uploaded
 
@@ -240,7 +240,8 @@ model MergePair {
   fileB            String
   originalLanguage String?   // passed as --original-language (from TMDB, or typed in)
 
-  // ANALYZING (job queued or running) | ELIGIBLE | REFUSED | ERROR | CANCELLED
+  // ANALYZING (job queued or running) | ELIGIBLE | REFUSED | ERROR | CANCELLED, then
+  // MERGING (job queued or running) | MERGED; a merge stopped or failed goes back to ELIGIBLE
   status           String    @default("ANALYZING")
   jobId            String?   // current Dyadrr job
   phase            String?   // Dyadrr's progress phase (read, anchors, checkpoints...)
@@ -249,6 +250,16 @@ model MergePair {
   reasonMessage    String?
   report           String?   // the analyze report (JSON), kept for the merge (--expect)
   dyadrrVersion    String?
+
+  // The merge: the final file, the choices passed, its report, and why the last one failed
+  outputPath       String?
+  mergeChoices     String?   // JSON { tail: "trim", ... }: every choice the pair needs
+  mergeReport      String?
+  mergeReasonCode  String?
+  mergeReasonMessage String?
+  inputsAfter      String?   // keep | delete: what was done with the two files
+  outputUploadId   String?   // the upload of the merged file, once picked up
+  mergedAt         DateTime?
 
   startedAt        DateTime?
   completedAt      DateTime?

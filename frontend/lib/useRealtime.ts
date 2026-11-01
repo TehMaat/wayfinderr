@@ -201,11 +201,20 @@ export const useRealtime = () => {
             const pairId = message.pairId as string;
             await store.refreshMergePair(pairId);
             const status = message.status as string;
-            if (status === 'ELIGIBLE') toast.success('Pair can be merged', { description: 'Dyadrr analysis passed' });
+            const pair = useAppStore.getState().mergePairs.find((p) => p.id === pairId);
+            if (status === 'MERGED') toast.success('Merged', { description: pair?.outputPath?.split(/[\\/]/).pop() ?? 'The merged file is uploaded next' });
+            else if (status === 'ELIGIBLE' && pair?.mergeReasonCode) toast.error('Merge not done', { description: pair.mergeReasonMessage ?? pair.mergeReasonCode });
+            else if (status === 'ELIGIBLE') toast.success('Pair can be merged', { description: 'Dyadrr analysis passed' });
             else if (status === 'REFUSED') toast.warning('Pair refused by Dyadrr', { description: 'See why on the Merge page' });
             else if (status === 'ERROR') toast.error('Dyadrr analysis failed', { description: 'See why on the Merge page' });
             break;
           }
+
+          // An input of a merge: done through the merged file
+          case 'upload-merged':
+            await store.refreshUpload(uploadId);
+            scheduleStats();
+            break;
 
           case 'merge-pair-removed':
             store.removeMergePair(message.pairId as string);

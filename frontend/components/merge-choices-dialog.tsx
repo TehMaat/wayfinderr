@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { mergeApi } from '@/lib/api';
 import { MERGE_CHOICES, MERGE_CHOICE_NAMES } from '@/lib/merge';
-import type { MergeChoiceSettings } from '@/lib/store';
+import type { MergeChoiceSettings, MergeInputsAfter } from '@/lib/store';
 import { cn, errorMessage } from '@/lib/utils';
 
 /** One segmented control: each value, or "Ask each time" */
@@ -22,14 +22,16 @@ function ChoiceButtons({
   options,
   value,
   onChange,
+  ask = true,
 }: {
   options: { value: string; label: string }[];
   value: string;
   onChange: (v: string) => void;
+  ask?: boolean;
 }) {
   return (
     <div className="flex flex-wrap gap-1">
-      {[...options, { value: 'ask', label: 'Ask each time' }].map((o) => (
+      {[...options, ...(ask ? [{ value: 'ask', label: 'Ask each time' }] : [])].map((o) => (
         <button
           key={o.value}
           type="button"
@@ -52,6 +54,7 @@ function ChoiceButtons({
  */
 export function MergeChoicesDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [choices, setChoices] = useState<MergeChoiceSettings | null>(null);
+  const [inputs, setInputs] = useState<MergeInputsAfter>('keep');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -59,7 +62,10 @@ export function MergeChoicesDialog({ open, onOpenChange }: { open: boolean; onOp
     setChoices(null);
     mergeApi
       .getSettings()
-      .then(({ data }) => setChoices(data.choices))
+      .then(({ data }) => {
+        setChoices(data.choices);
+        setInputs(data.inputs);
+      })
       .catch((err) => {
         toast.error('Could not read the choices', {
           description: errorMessage(err),
@@ -72,7 +78,7 @@ export function MergeChoicesDialog({ open, onOpenChange }: { open: boolean; onOp
     if (!choices) return;
     setSaving(true);
     try {
-      await mergeApi.saveSettings(choices);
+      await mergeApi.saveSettings({ choices, inputs });
       toast.success('Choices saved', {
         description: 'Used by the next analyses',
       });
@@ -115,6 +121,24 @@ export function MergeChoicesDialog({ open, onOpenChange }: { open: boolean; onOp
                 />
               </div>
             ))}
+            <div className="space-y-1.5 border-t pt-4">
+              <div>
+                <p className="text-sm font-medium">The two files after a merge</p>
+                <p className="text-xs text-muted-foreground">
+                  Once the merged file is verified. Files in the downloads are never deleted: they belong to the torrent
+                  client.
+                </p>
+              </div>
+              <ChoiceButtons
+                ask={false}
+                options={[
+                  { value: 'keep', label: 'Keep them (delete them later)' },
+                  { value: 'delete', label: 'Delete them' },
+                ]}
+                value={inputs}
+                onChange={(value) => setInputs(value as MergeInputsAfter)}
+              />
+            </div>
           </div>
         )}
         <DialogFooter>

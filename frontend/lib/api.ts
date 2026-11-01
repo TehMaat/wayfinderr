@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { useAuthStore } from './auth';
-import type { MergeCandidate, MergeChoiceSettings, MergePair, MergeStatus, ReleaseFlags, ReleasePreview, ReleaseProposal, Rip, RipperStatus, TmdbMovie, Upload } from './store';
+import type { MergeCandidate, MergeChoiceSettings, MergeInputsAfter, MergePair, MergeStatus, ReleaseFlags, ReleasePreview, ReleaseProposal, Rip, RipperStatus, TmdbMovie, Upload } from './store';
 
 // Same-origin requests: the frontend server proxies /api to the backend.
 // The session is an HttpOnly cookie the browser sends on its own.
@@ -172,9 +172,9 @@ export const ripsApi = {
 // Merge API (Dyadrr: the Italian audio of one rip into the better video of another)
 export const mergeApi = {
   getStatus: () => apiClient.get<{ status: MergeStatus }>('/api/merge'),
-  getSettings: () => apiClient.get<{ choices: MergeChoiceSettings }>('/api/merge/settings'),
-  saveSettings: (choices: Partial<MergeChoiceSettings>) =>
-    apiClient.put<{ choices: MergeChoiceSettings }>('/api/merge/settings', { choices }),
+  getSettings: () => apiClient.get<{ choices: MergeChoiceSettings; inputs: MergeInputsAfter }>('/api/merge/settings'),
+  saveSettings: (settings: { choices?: Partial<MergeChoiceSettings>; inputs?: MergeInputsAfter }) =>
+    apiClient.put<{ choices: MergeChoiceSettings; inputs: MergeInputsAfter }>('/api/merge/settings', settings),
   listCandidates: () => apiClient.get<MergeCandidate[]>('/api/merge/candidates'),
   listPairs: () => apiClient.get<MergePair[]>('/api/merge/pairs'),
   getPair: (id: string) => apiClient.get<MergePair>(`/api/merge/pairs/${id}`),
@@ -186,6 +186,15 @@ export const mergeApi = {
   cancelPair: (id: string) => apiClient.post<MergePair>(`/api/merge/pairs/${id}/cancel`),
   removePair: (id: string) => apiClient.delete(`/api/merge/pairs/${id}`),
   reportUrl: (id: string) => `/api/merge/pairs/${id}/report`,
+  mergeReportUrl: (id: string) => `/api/merge/pairs/${id}/merge-report`,
+  // The merged file's default name (TMDB lookups), and whether a file with that name is there
+  mergePreview: (id: string, name?: string) =>
+    apiClient.get<{ outputName: string; existsLocally: boolean; existsOnServer: boolean; inputsAfter: MergeInputsAfter }>(
+      `/api/merge/pairs/${id}/merge-preview`,
+      { params: { name: name || undefined }, timeout: 60000 }
+    ),
+  mergePair: (id: string, body: { choices: Record<string, string>; outputName: string; replaceExisting?: boolean }) =>
+    apiClient.post<MergePair>(`/api/merge/pairs/${id}/merge`, body, { timeout: 60000 }),
 };
 
 // Space API

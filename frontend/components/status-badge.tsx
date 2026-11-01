@@ -30,6 +30,7 @@ export const STATUS_META: Record<
   CANCELLED: { label: 'Stopped', icon: CircleStop, variant: 'secondary', color: 'text-muted-foreground' },
   SKIPPED: { label: 'Skipped', icon: SkipForward, variant: 'warning', color: 'text-warning' },
   HELD: { label: 'Held for merge', icon: Merge, variant: 'info', color: 'text-info' },
+  MERGED: { label: 'Merged', icon: Merge, variant: 'success', color: 'text-success' },
 };
 
 export function StatusBadge({ status, className }: { status: UploadStatus; className?: string }) {

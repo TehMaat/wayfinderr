@@ -56,6 +56,8 @@ export const PAIR_STATUS: Record<
   REFUSED: { label: 'Refused', tone: 'warning' },
   ERROR: { label: 'Error', tone: 'destructive' },
   CANCELLED: { label: 'Stopped', tone: 'secondary' },
+  MERGING: { label: 'Merging', tone: 'info' },
+  MERGED: { label: 'Merged', tone: 'success' },
 };
 
 // Dyadrr's progress phases (its docs/REPORT.md, "Avanzamento")
