@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip } from '@/components/ui/tooltip';
+import { Chip } from '@/components/chip';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
 import { RipChooseDialog } from '@/components/rip-choose-dialog';
@@ -21,31 +22,6 @@ import { cn, formatBytes } from '@/lib/utils';
 
 // The runner and the TMDB key change outside Wayfinderr: refresh while the page is open
 const STATUS_REFRESH_MS = 30_000;
-
-function Chip({
-  icon: Icon,
-  tone = 'neutral',
-  children,
-}: {
-  icon: typeof Cpu;
-  tone?: 'neutral' | 'ok' | 'warning' | 'error';
-  children: React.ReactNode;
-}) {
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs',
-        tone === 'neutral' && 'text-muted-foreground',
-        tone === 'ok' && 'text-foreground',
-        tone === 'warning' && 'border-warning/40 bg-warning/10 text-warning',
-        tone === 'error' && 'border-destructive/40 bg-destructive/10 text-destructive'
-      )}
-    >
-      <Icon className={cn('h-3.5 w-3.5 shrink-0', tone === 'ok' && 'text-success')} />
-      {children}
-    </span>
-  );
-}
 
 /** Where RAR archives get unpacked, and why only there */
 function UnpackChip({ unpack }: { unpack: NonNullable<RipperStatus['unpack']> }) {

@@ -30,6 +30,8 @@ Deep dive into Wayfinderr's design and components.
          (SCP Upload)     (SCP Upload)
 ```
 
+The optional `dyadrr` container (Compose profile `merge`, `MERGE_ENABLED`) works like MakeMKV's runner: it needs no address the backend knows, they only share the watch folder. The backend writes a job file in `<watch folder>/.wayfinderr/dyadrr/jobs` (`analyze` or `merge`, the two files, the options), the runner in the container claims it, runs Dyadrr and writes back its progress, its JSON report and its exit code; `dyadrr.alive` there says the container is running. The protocol is in Dyadrr's [docs/CONTAINER.md](https://github.com/TehMaat/dyadrr/blob/main/docs/CONTAINER.md).
+
 The browser only talks to the frontend. It proxies `/api`, `/health` and the `/ws` WebSocket to the backend over the Docker network (service name `wayfinderr-backend`), so the backend publishes no port and a reverse proxy needs a single entry pointing at the frontend.
 
 ## Component Details
@@ -103,6 +105,7 @@ src/
 │   ├── uploadManager.ts    # SSH/SCP handler
 │   ├── jobQueue.ts         # p-queue job queue
 │   ├── release/            # Rename on the server (moverr.py's name), then the tracker command (Unit3Dup) in tmux
+│   ├── merge/              # Dyadrr (MERGE_ENABLED): file jobs for the dyadrr container in <watch>/.wayfinderr/dyadrr/jobs
 │   ├── auth.ts             # Account, scrypt hashes, signed session tokens, setup code
 │   ├── loginLimiter.ts     # 5 failures / 15 min per client
 │   └── database.ts         # Prisma wrapper
@@ -115,6 +118,7 @@ src/
 │   ├── servers.ts          # Server endpoints
 │   ├── uploads.ts          # Upload endpoints
 │   ├── release.ts          # /api/uploads/:id/release (rename, tracker command)
+│   ├── merge.ts            # /api/merge (merge status)
 │   └── space.ts            # Space info endpoints
 │
 └── types/

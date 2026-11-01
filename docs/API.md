@@ -827,6 +827,32 @@ GET /api/rips/tmdb/search?query=Le%20Film&year=2019
 
 **Response:** 200 OK: `[{ "id": 101, "title": "Il film", "originalTitle": "Le Film", "originalLanguage": "fr", "year": 2019 }]`. 502 when TMDB fails.
 
+## Merge API
+
+Merging two rips of the same film with [Dyadrr](https://github.com/TehMaat/dyadrr) (`MERGE_ENABLED=true`), see the README's *Merge with Dyadrr*.
+
+### Merge Status
+
+```
+GET /api/merge
+```
+
+**Response:** 200 OK:
+
+```json
+{
+  "status": {
+    "enabled": true,
+    "languageSupported": true,
+    "language": "it",
+    "runnerAlive": true,
+    "runnerLastSeen": 3
+  }
+}
+```
+
+`runnerAlive`: the runner in the `dyadrr` container rewrote `<watch folder>/.wayfinderr/dyadrr/jobs/dyadrr.alive` in the last 30 seconds; `runnerLastSeen` is how many seconds ago (`null` when it never did, or merging is off). `languageSupported`: Dyadrr only works with Italian, so it is `false` unless `RIP_LANGUAGE` is `it`.
+
 ## WebSocket
 
 ### Connect

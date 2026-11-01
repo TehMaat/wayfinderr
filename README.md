@@ -26,6 +26,7 @@ Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitl
 - 🔐 **Login** - One password-protected account; the browser only talks to the frontend, which proxies the API, so one HTTPS reverse proxy entry is enough
 - 💿 **Automatic ripping** - Film discs that finish downloading are identified on TMDB and ripped with MakeMKV (main title, Italian + original language), then uploaded; anything unsure waits for a choice in the UI. When MakeMKV fails, unencrypted discs can be ripped without it (mkvmerge, ffmpeg)
 - 🏠 **Local release** - With room on this machine, a file is released from the local qBittorrent instead of uploaded: moved and sent to the tracker (ITTUP) over SSH on the machine qBittorrent runs on
+- 🔀 **Merge (in progress)** - Two rips of the same film, better video and Italian audio, merged into one file by [Dyadrr](https://github.com/TehMaat/dyadrr) in its own container, without re-encoding
 - 📦 **RAR archives** - Downloaded RAR archives are unpacked on whichever disk has more free space (downloads or watch folder): the disc inside is ripped, an .mkv is uploaded
 
 ---
@@ -193,6 +194,17 @@ With room on this machine, a file can be released from the qBittorrent client he
 
 Then **Release locally…** shows in the menu of an upload not on a server yet (queued, uploading, failed, skipped or stopped) and in its **Tracker** card: the upload stops, the file is moved into `<release folder>/<name>/<name>.mkv` on that machine and the tracker command uploads it and seeds it there. The upload then counts as completed (on the client, "qBittorrent (local)"), and its source torrent is cleaned up as after an upload.
 
+### Merge with Dyadrr (optional, in progress)
+
+[Dyadrr](https://github.com/TehMaat/dyadrr) merges two rips of the same film into one file: the better video (a foreign UHD, say) with the Italian audio and subtitles of the other (the Italian Blu-ray), lined up and added without re-encoding. It runs in its own container; Wayfinderr hands it jobs through the watch folder.
+
+1. In `.env`: `MERGE_ENABLED=true` (needs `RIP_LANGUAGE=it`: Dyadrr only works with Italian).
+2. Start the Dyadrr service too: `docker compose --profile merge up -d`. Its image is `ghcr.io/tehmaat/dyadrr` (`DYADRR_TAG`, `latest` by default).
+
+For now the **Merge** page only shows whether the Dyadrr container is running: holding the files of a pair, the analysis and the merge itself come in the next versions.
+
+The `dyadrr` service mounts the watch folder writable as `/data/watch` (the job files in `<watch folder>/.wayfinderr/dyadrr/jobs`, the merged film and Dyadrr's temporary files) and the downloads read-only as `/data/downloads`. It keeps the fixed host name `dyadrr`: Dyadrr recognizes its own temporary files by host name, so the ones left by a job stopped abruptly are removed by the next job only if the name stays the same. Only one Dyadrr container per watch folder.
+
 ---
 
 ## Configuration
@@ -226,6 +238,8 @@ Then **Release locally…** shows in the menu of an upload not on a server yet (
 | `MAKEMKV_KEY` | `BETA` | MakeMKV container: registration key, or `BETA` for the free beta key |
 | `WAYFINDERR_RUNNER` | `1` | MakeMKV container: `0` turns the runner off |
 | `WAYFINDERR_CACHE_MB` | `1024` | MakeMKV container: read cache of a rip |
+| `MERGE_ENABLED` | `false` | Merge two rips of a film with Dyadrr (needs the `dyadrr` service and `RIP_LANGUAGE=it`) |
+| `DYADRR_TAG` | `latest` | Docker: Dyadrr image version (`latest`, a release like `0.21.0`, or `sha-<commit>`) |
 
 ---
 
@@ -316,6 +330,9 @@ Served through the frontend (`http://localhost:3000/api/...`). Every route excep
 - `POST /api/rips/:id/rip-again` - Rip a done film again from its disc (same film and title)
 - `POST /api/rips/:id/skip` - Never rip it (stops a running rip)
 - `GET /api/rips/tmdb/search?query=&year=` - Search a film on TMDB
+
+### Merge
+- `GET /api/merge` - Merge status (enabled, Dyadrr runner online, language supported)
 
 ---
 

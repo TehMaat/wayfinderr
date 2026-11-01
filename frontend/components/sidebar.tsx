@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ArrowUpFromLine, Disc3, LayoutDashboard, Magnet, Plus, Server as ServerIcon, UploadCloud } from 'lucide-react';
+import { ArrowUpFromLine, Disc3, LayoutDashboard, Magnet, Merge, Plus, Server as ServerIcon, UploadCloud } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { AccentPicker } from '@/components/accent-picker';
@@ -15,6 +15,7 @@ const NAV = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/uploads', label: 'Uploads', icon: UploadCloud },
   { href: '/rips', label: 'Rips', icon: Disc3 },
+  { href: '/merge', label: 'Merge', icon: Merge },
   { href: '/servers', label: 'Servers', icon: ServerIcon },
   { href: '/clients', label: 'Clients', icon: Magnet },
 ];

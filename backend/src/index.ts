@@ -23,6 +23,7 @@ import { ripper } from './services/ripper/index.js';
 import systemRoutes from './routes/system.js';
 import clientRoutes from './routes/clients.js';
 import releaseRoutes from './routes/release.js';
+import mergeRoutes from './routes/merge.js';
 import { releaseManager } from './services/release/index.js';
 
 // Prisma returns BigInt for sizes: serialize them as strings in JSON responses
@@ -59,6 +60,7 @@ app.use('/api/space', spaceRoutes);
 app.use('/api/rips', ripRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/clients', clientRoutes);
+app.use('/api/merge', mergeRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
