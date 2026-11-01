@@ -136,7 +136,9 @@ const filmOfNames = async (names: MatchName[]): Promise<FilmTitles | null> => {
 };
 
 const ripFilm = (rip: Rip) =>
-  rip.tmdbId ? filmById(rip.tmdbId, rip.title || rip.originalTitle || rip.downloadName, rip.year) : Promise.resolve(null);
+  rip.tmdbId
+    ? filmById(rip.tmdbId, rip.title || rip.originalTitle || rip.downloadName, rip.year, rip.originalLanguage)
+    : Promise.resolve(null);
 
 const ripNames = (rip: Rip): MatchName[] =>
   rawNames(rip.downloadName, rip.title, rip.originalTitle).map((n) => ({ ...n, year: n.year ?? rip.year ?? undefined }));

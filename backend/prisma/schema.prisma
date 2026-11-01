@@ -228,3 +228,32 @@ model Rip {
   @@index([status])
   @@index([joinId])
 }
+
+// Two files of the same film merged with Dyadrr (see services/merge/pairs.ts): analyzed
+// first, in the Dyadrr container; the merge itself comes after a confirmation
+model MergePair {
+  id               String    @id @default(cuid())
+  // The two files, in the order passed to Dyadrr (it picks the reference and the donor)
+  uploadAId        String
+  uploadBId        String
+  fileA            String    // their paths, kept when an upload is deleted
+  fileB            String
+  originalLanguage String?   // passed as --original-language (from TMDB, or typed in)
+
+  // ANALYZING (job queued or running) | ELIGIBLE | REFUSED | ERROR | CANCELLED
+  status           String    @default("ANALYZING")
+  jobId            String?   // current Dyadrr job
+  phase            String?   // Dyadrr's progress phase (read, anchors, checkpoints...)
+  progress         Int?      // 0-100 within the phase, when known
+  reasonCode       String?   // refused, error or cancelled: Dyadrr's code
+  reasonMessage    String?
+  report           String?   // the analyze report (JSON), kept for the merge (--expect)
+  dyadrrVersion    String?
+
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([status])
+}

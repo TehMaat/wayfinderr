@@ -193,6 +193,24 @@ export const useRealtime = () => {
             break;
           }
 
+          case 'merge-pair-progress':
+            store.applyMergeProgress(message.pairId as string, (message.phase as string) ?? null, (message.progress as number) ?? null);
+            break;
+
+          case 'merge-pair-updated': {
+            const pairId = message.pairId as string;
+            await store.refreshMergePair(pairId);
+            const status = message.status as string;
+            if (status === 'ELIGIBLE') toast.success('Pair can be merged', { description: 'Dyadrr analysis passed' });
+            else if (status === 'REFUSED') toast.warning('Pair refused by Dyadrr', { description: 'See why on the Merge page' });
+            else if (status === 'ERROR') toast.error('Dyadrr analysis failed', { description: 'See why on the Merge page' });
+            break;
+          }
+
+          case 'merge-pair-removed':
+            store.removeMergePair(message.pairId as string);
+            break;
+
           case 'rip-progress':
             store.applyRipProgress(
               message.ripId as string,

@@ -207,7 +207,11 @@ With merging on, a new file in the watch folder can be **held** instead of uploa
 - a file **with Italian audio** is held when a **twin** of the same film is around, certain or doubtful: a held file without Italian, a rip not finished yet, or a torrent of the download clients (downloading or not; the one the file was ripped from left out). Names are compared against every TMDB title of the film (translations, alternative titles), so the Italian Blu-ray of *Altrimenti ci arrabbiamo!* finds the German UHD `Zwei.wie.Pech.und.Schwefel.1974`. A download client that cannot be reached counts as a doubt too;
 - with no twin it is uploaded as before.
 
-A held file is never uploaded, deleted, released locally, cleaned up with its archive or its torrent, until you choose on the **Merge** page, or on its upload page: **Upload as it is** (the server's media policy still applies) or **Delete file…**. Leaving it there waits for the twin, with no time limit. The page and the upload say why it was held, and which twin was found. The analysis and the merge itself come in the next versions.
+A held file is never uploaded, deleted, released locally, cleaned up with its archive or its torrent, until you choose on the **Merge** page, or on its upload page: **Pair…**, **Upload as it is** (the server's media policy still applies) or **Delete file…**. Leaving it there waits for the twin, with no time limit. The page and the upload say why it was held, and which twin was found.
+
+**Pairing and analysis.** **Pair…** on a held file (or **Pair files…** at the top of the page) pairs it with its twin: any two files still on the disk and not being uploaded, held or not; the likely twin is listed first. Dyadrr tells which one is the better video and which one the Italian file, and runs its analysis in its container: it measures how the Italian lines up with the video along the whole film, without writing anything. The page follows it live, then shows what it found: the offset, how much of the film the two files have in common, where the Italian audio goes, the Italian tracks, the warnings, and the choices still to make with what each value would do; or why the pair was refused (`CHECKPOINT_CONTRADICTION`, `LOW_COVERAGE`...), with Dyadrr's full report a click away. The original language (the sync is measured on it when both files have it, else on English) comes from the rip or TMDB, or is typed in. A file being analyzed cannot be uploaded or deleted until it ends or is stopped. The merge itself comes in the next version.
+
+**Choices.** Some pairs need a decision (Dyadrr's *scelte*): the Italian past the end of the video (cut or keep), which Italian audio tracks (all or the main one), Italian PGS already in the better video (keep or drop), the Italian over a different intro or ending (leave out or keep). **Choices** sets each one to a fixed value, passed to every analysis, or to *Ask each time* (the default): the analysis then leaves it pending and shows what each value does.
 
 The `dyadrr` service mounts the watch folder writable as `/data/watch` (the job files in `<watch folder>/.wayfinderr/dyadrr/jobs`, the merged film and Dyadrr's temporary files) and the downloads read-only as `/data/downloads`. It keeps the fixed host name `dyadrr`: Dyadrr recognizes its own temporary files by host name, so the ones left by a job stopped abruptly are removed by the next job only if the name stays the same. Only one Dyadrr container per watch folder.
 
@@ -341,6 +345,12 @@ Served through the frontend (`http://localhost:3000/api/...`). Every route excep
 - `GET /api/merge` - Merge status (enabled, Dyadrr runner online, language supported, files held)
 - `POST /api/uploads/:id/hold/upload` - Upload a file held for a merge as it is
 - `POST /api/uploads/:id/hold/delete` - Delete a file held for a merge (file and record)
+- `GET /api/merge/candidates` - Files that can be paired
+- `GET /api/merge/pairs` / `POST /api/merge/pairs` - Merge pairs / pair two files and analyze them
+- `GET /api/merge/pairs/:id` / `DELETE /api/merge/pairs/:id` - A pair / remove it (the files stay)
+- `POST /api/merge/pairs/:id/analyze` / `POST /api/merge/pairs/:id/cancel` - Analyze again / stop the analysis
+- `GET /api/merge/pairs/:id/report` - Dyadrr's full analyze report
+- `GET /api/merge/settings` / `PUT /api/merge/settings` - The four choices: a fixed value or `ask`
 
 ---
 
