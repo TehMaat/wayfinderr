@@ -19,7 +19,11 @@ const MAX_DUPLICATES = 2;
 const formatDuration = (seconds: number) =>
   `${Math.floor(seconds / 3600)}h${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}`;
 
-export const pickMainTitle = (titles: DiscTitle[], italianCodes: string[]): TitleChoice => {
+/**
+ * `withoutKept`: a film with no audio or subtitles in the kept language is ripped all
+ * the same (merging on: it may be the better video of a merge, see services/merge).
+ */
+export const pickMainTitle = (titles: DiscTitle[], italianCodes: string[], withoutKept = false): TitleChoice => {
   if (titles.length === 0) return { title: null, reason: 'No title long enough to be the film' };
 
   const byLength = [...titles].sort((a, b) => b.durationSec - a.durationSec);
@@ -48,7 +52,7 @@ export const pickMainTitle = (titles: DiscTitle[], italianCodes: string[]): Titl
 
   // Prefer the biggest of identical titles (more streams), then the first
   const title = [...sameLength].sort((a, b) => b.sizeBytes - a.sizeBytes || a.index - b.index)[0];
-  if (!hasLanguage(title, 'audio', italianCodes) && !hasLanguage(title, 'subtitle', italianCodes)) {
+  if (!withoutKept && !hasLanguage(title, 'audio', italianCodes) && !hasLanguage(title, 'subtitle', italianCodes)) {
     return { title: null, reason: `The film has no audio or subtitles in the kept language (${italianCodes[0]}) on this disc` };
   }
   return { title };

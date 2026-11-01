@@ -254,9 +254,11 @@ export function MergePairCard({ pair, runnerAlive }: { pair: MergePair; runnerAl
           <p className="text-xs text-muted-foreground">
             {pair.phase
               ? `${PHASE_LABELS[pair.phase] ?? pair.phase}${pair.progress !== null ? ` · ${pair.progress}%` : ''}`
-              : runnerAlive
-                ? 'Waiting for Dyadrr to start'
-                : 'Waiting for the Dyadrr container: it is not running'}
+              : pair.status === 'MERGING' && !pair.jobId
+                ? 'Waiting for the rip in progress to end'
+                : runnerAlive
+                  ? 'Waiting for Dyadrr to start'
+                  : 'Waiting for the Dyadrr container: it is not running'}
           </p>
           <Progress value={pair.progress ?? 0} animated={pair.progress === null} />
         </div>

@@ -8,7 +8,7 @@ import logger from '../../config/logger.js';
 import { db } from '../database.js';
 import { mkvNames } from '../torrentCleanup.js';
 import { filmByName } from '../filmLookup.js';
-import { outputName, safeFileName } from '../ripper/index.js';
+import { outputName, ripper, safeFileName } from '../ripper/index.js';
 import { dyadrr, mergeActive } from './index.js';
 import { currentProgress, DyadrrChoices, DyadrrEvent, DyadrrReport, jobOutcome } from './jobs.js';
 
@@ -332,6 +332,16 @@ class MergePairs extends EventEmitter {
   /** Stops an analysis or a merge: Dyadrr gets SIGTERM (or never starts it), and its report says cancelled. */
   async cancel(id: string): Promise<PublicPair> {
     const pair = await this.find(id);
+    // A merge still waiting for the rips: never started, eligible again
+    if (pair.status === 'MERGING' && !pair.jobId) {
+      const updated = await db.updateMergePair(id, {
+        status: 'ELIGIBLE',
+        mergeReasonCode: 'CANCELLED',
+        mergeReasonMessage: 'Stopped before it started',
+      });
+      this.emit('pair-updated', { pairId: id, status: updated.status });
+      return publicPair(updated);
+    }
     if (!ACTIVE.includes(pair.status) || !pair.jobId) throw new MergeError(`The pair is ${pair.status}, nothing to stop`);
     await dyadrr.cancel(pair.jobId);
     logger.info({ pairId: id, jobId: pair.jobId, status: pair.status }, 'Merge job stop requested');
@@ -413,23 +423,10 @@ class MergePairs extends EventEmitter {
       logger.info({ pairId: id, outputPath }, 'Existing file deleted before the merge');
     }
 
-    // The confirmed analysis: Dyadrr checks that inputs, roles, offset and plan are still the same
-    const expect = path.join(dyadrr.jobsDir, '..', 'expect', `${pair.id}.json`);
-    await mkdir(path.dirname(expect), { recursive: true });
-    await writeFile(expect, pair.report!, { mode: 0o666 });
-
-    const jobId = await dyadrr.submit({
-      command: 'merge',
-      inputs: [pair.fileA, pair.fileB],
-      output: outputPath,
-      expect,
-      originalLanguage: pair.originalLanguage ?? undefined,
-      ...choices,
-    });
     this.lastProgress.delete(id);
-    const updated = await db.updateMergePair(id, {
+    let updated = await db.updateMergePair(id, {
       status: 'MERGING',
-      jobId,
+      jobId: null,
       phase: null,
       progress: null,
       outputPath,
@@ -441,9 +438,34 @@ class MergePairs extends EventEmitter {
       outputUploadId: null,
       mergedAt: null,
     });
-    logger.info({ pairId: id, jobId, outputPath, choices }, 'Merge queued');
+    // One writer at a time: a rip running now (MakeMKV, unrar, a join) goes first, and
+    // the merge starts after it (poll); rips wait for the merge in turn
+    if (await ripper.writing()) {
+      logger.info({ pairId: id, outputPath, choices }, 'Merge waiting for the rips to end');
+    } else {
+      updated = await this.submitMerge(updated);
+    }
     this.emit('pair-updated', { pairId: id, status: updated.status });
     return publicPair(updated);
+  }
+
+  /** Writes the merge job of a pair that is MERGING: the confirmed analysis, then the job. */
+  private async submitMerge(pair: MergePair): Promise<MergePair> {
+    // The confirmed analysis: Dyadrr checks that inputs, roles, offset and plan are still the same
+    const expect = path.join(dyadrr.jobsDir, '..', 'expect', `${pair.id}.json`);
+    await mkdir(path.dirname(expect), { recursive: true });
+    await writeFile(expect, pair.report!, { mode: 0o666 });
+    const choices = parseJson<DyadrrChoices>(pair.mergeChoices) ?? {};
+    const jobId = await dyadrr.submit({
+      command: 'merge',
+      inputs: [pair.fileA, pair.fileB],
+      output: pair.outputPath!,
+      expect,
+      originalLanguage: pair.originalLanguage ?? undefined,
+      ...choices,
+    });
+    logger.info({ pairId: pair.id, jobId, outputPath: pair.outputPath, choices }, 'Merge queued');
+    return db.updateMergePair(pair.id, { jobId });
   }
 
   /** The choices for the merge: decided ones as the analysis used them, pending ones as given. */
@@ -565,6 +587,14 @@ class MergePairs extends EventEmitter {
   /** Follows the jobs of the pairs being analyzed: progress, then the report. */
   private async poll(): Promise<void> {
     for (const pair of await db.getMergePairsByStatus(ACTIVE)) {
+      // A merge waiting for the rips: started once none is writing
+      if (pair.status === 'MERGING' && !pair.jobId) {
+        if (!(await ripper.writing())) {
+          const started = await this.submitMerge(pair);
+          this.emit('pair-updated', { pairId: pair.id, status: started.status });
+        }
+        continue;
+      }
       if (!pair.jobId) continue;
       try {
         await this.follow(pair, pair.jobId);

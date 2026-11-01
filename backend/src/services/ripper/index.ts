@@ -39,6 +39,8 @@ import {
   submitJob,
 } from './runner.js';
 import { otherAudioLanguages, pickMainTitle } from './titlePicker.js';
+import { hasLanguage } from './makemkv.js';
+import { mergeActive } from '../merge/index.js';
 import { getMovie, matchMovie, TmdbMovie, tmdbConfigured } from './tmdb.js';
 
 /**
@@ -119,6 +121,15 @@ export interface ExclusionSettings {
 
 const keptLanguages = () => languageCodes(config.RIP.LANGUAGE);
 
+/**
+ * Merging on, a title without audio in the kept language is the better video of a
+ * merge: English is kept too beside the original language, since Dyadrr measures the
+ * sync on a language both files have (its study, §3.3 and §15).
+ */
+const forMerge = (title: DiscTitle | null | undefined) =>
+  mergeActive() && Boolean(title) && !hasLanguage(title!, 'audio', keptLanguages());
+const ENGLISH = languageCodes('en');
+
 /** "ja" or "jpn" -> "Japanese" (the code itself when unknown) */
 const languageName = (code: string) => {
   try {
@@ -133,11 +144,12 @@ const languageName = (code: string) => {
  * one and the one chosen in its place when the disc has no audio in it. Film not
  * identified (ripped by hand): its language is unknown, every one is kept.
  */
-const trackLanguages = (rip: Rip) => {
+const trackLanguages = (rip: Rip, title?: DiscTitle | null) => {
   const original = languageCodes(rip.originalLanguage);
   const second = rip.secondLanguage ? [rip.secondLanguage] : [];
+  const english = forMerge(title) ? ENGLISH : [];
   return {
-    languages: [keptLanguages(), original, second].filter((codes) => codes.length > 0),
+    languages: [keptLanguages(), original, english, second].filter((codes) => codes.length > 0),
     keepAll: original.length === 0,
   };
 };
@@ -407,6 +419,10 @@ class Ripper extends EventEmitter {
       await this.pollJoin();
       return;
     }
+    // A merge writing its file (Dyadrr): nothing else that fills the disk starts meanwhile,
+    // since neither counts the space the other is about to use (merges wait for rips too)
+    if ((await db.getMergePairsByStatus(['MERGING'])).some((p) => p.jobId)) return;
+
     if (await this.startReadyJoin()) return;
 
     // Unpacking an archive, moving its .mkv and ripping without MakeMKV don't need MakeMKV
@@ -739,11 +755,14 @@ class Ripper extends EventEmitter {
           `This download has ${siblings.length} discs: choose the film on the right one and skip the others, or join the discs of one film`
         );
       }
-      const choice = pickMainTitle(titles, keptLanguages());
+      // Merging on: a disc without the kept language is ripped too, as the better video of a merge
+      const choice = pickMainTitle(titles, keptLanguages(), mergeActive());
       if (choice.title) title = choice.title;
       else problems.push(choice.reason);
     }
-    const others = title ? otherAudioLanguages(title, keptLanguages(), languageCodes(rip.originalLanguage)) : [];
+    // English, kept for a merge, is never asked as the language in place of the original one
+    const kept = forMerge(title) ? [...keptLanguages(), ...ENGLISH] : keptLanguages();
+    const others = title ? otherAudioLanguages(title, kept, languageCodes(rip.originalLanguage)) : [];
     if (others.length > 0 && !others.includes(rip.secondLanguage ?? '')) {
       problems.push(
         `No ${languageName(rip.originalLanguage!)} audio (the film's original language) on this disc: choose the ` +
@@ -819,7 +838,7 @@ class Ripper extends EventEmitter {
       return;
     }
 
-    const { languages, keepAll } = trackLanguages(rip);
+    const { languages, keepAll } = trackLanguages(rip, title);
     const jobId = await submitJob({
       action: 'mkv',
       ...sourceOf(rip),
@@ -942,7 +961,7 @@ class Ripper extends EventEmitter {
       startedAt: new Date(),
     });
 
-    const { languages, keepAll } = trackLanguages(rip);
+    const { languages, keepAll } = trackLanguages(rip, title);
     const ripId = rip.id;
     const controller = new AbortController();
     const job = { ripId, controller, progress: 0, finished: false } as Remuxing;
@@ -1487,6 +1506,11 @@ class Ripper extends EventEmitter {
       logger.info({ exclusions: patterns, folders, arriveComplete, removed, skipped, restored }, 'Rip exclusions saved');
       return { exclusions: patterns, ignoredFolders: folders, arriveComplete, removed, skipped, restored };
     });
+  }
+
+  /** A rip, an unpacking or a join is writing to the disk now (a merge waits for it). */
+  async writing(): Promise<boolean> {
+    return Boolean(this.joining) || (await db.getRipsByStatus(['UNPACKING', 'RIPPING'])).length > 0;
   }
 
   async status() {
