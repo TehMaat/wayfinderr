@@ -27,6 +27,8 @@ services:
       - RIP_QUIET_MINUTES=${RIP_QUIET_MINUTES:-10}
       - RIP_MIN_LENGTH=${RIP_MIN_LENGTH:-2700}
       - RIP_LANGUAGE=${RIP_LANGUAGE:-it}
+      # Merge two rips of a film (better video + Italian audio) with Dyadrr (needs the dyadrr service)
+      - MERGE_ENABLED=${MERGE_ENABLED:-false}
     # Lets the backend reach qBittorrent on this machine as http://host.docker.internal:8080
     # (built into Docker Desktop, needed on Linux)
     extra_hosts:
@@ -75,6 +77,27 @@ services:
     # devices:
     #   - /dev/sr0:/dev/sr0
     #   - /dev/sg0:/dev/sg0
+    restart: unless-stopped
+    networks:
+      - wayfinderr
+
+  # Optional: Dyadrr, which merges the Italian audio of one rip into the better video
+  # of another without re-encoding (MERGE_ENABLED). Start it with:
+  # docker compose --profile merge up -d
+  dyadrr:
+    image: ${DYADRR_REGISTRY:-ghcr.io/tehmaat}/dyadrr:${DYADRR_TAG:-latest}
+    profiles: ["merge"]
+    # Fixed: Dyadrr knows its own temporary files by host name, so a job stopped
+    # abruptly is cleaned up by the next one only if the name stays the same
+    hostname: dyadrr
+    # A running job is cancelled cleanly on docker stop
+    stop_grace_period: 30s
+    volumes:
+      # The watch folder, writable: the jobs (.wayfinderr/dyadrr/jobs), the files to merge,
+      # the merged film and Dyadrr's temporary files (on the same disk as the merged film)
+      - ${MAKEMKV_OUTPUT_DIR:-./makemkv-output}:/data/watch
+      # The downloads, read only: an .mkv there can be merged too
+      - ${DOWNLOADS_DIR:-./downloads}:/data/downloads:ro
     restart: unless-stopped
     networks:
       - wayfinderr

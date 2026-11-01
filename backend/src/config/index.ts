@@ -10,6 +10,7 @@ try {
 
 export const loadConfig = (): Config => {
   const watchDir = process.env.WATCH_DIR || '/makemkv-output';
+  const sourceDir = process.env.RIP_SOURCE_DIR || '/downloads';
   return {
     NODE_ENV: (process.env.NODE_ENV as 'development' | 'production') || 'development',
     PORT: parseInt(process.env.PORT || '3001', 10),
@@ -22,7 +23,7 @@ export const loadConfig = (): Config => {
     DELETE_AFTER_UPLOAD: process.env.DELETE_AFTER_UPLOAD === 'true',
     RIP: {
       ENABLED: process.env.RIP_ENABLED === 'true',
-      SOURCE_DIR: process.env.RIP_SOURCE_DIR || '/downloads',
+      SOURCE_DIR: sourceDir,
       WORK_DIR: process.env.RIP_WORK_DIR || path.join(watchDir, '.wayfinderr'),
       QUIET_MINUTES: parseInt(process.env.RIP_QUIET_MINUTES || '10', 10),
       MIN_LENGTH: parseInt(process.env.RIP_MIN_LENGTH || '2700', 10),
@@ -37,6 +38,16 @@ export const loadConfig = (): Config => {
       SEVENZIP_PATH: process.env.SEVENZIP_PATH || '7zz',
       FFMPEG_PATH: process.env.FFMPEG_PATH || 'ffmpeg',
       FFPROBE_PATH: process.env.FFPROBE_PATH || 'ffprobe',
+    },
+    MERGE: {
+      ENABLED: process.env.MERGE_ENABLED === 'true',
+      // Fixed by Dyadrr's file job protocol: /data/watch/.wayfinderr/dyadrr/jobs in its container
+      JOBS_DIR: path.join(watchDir, '.wayfinderr', 'dyadrr', 'jobs'),
+      // The folders the dyadrr service mounts as /data/<name> (docker-compose.yml)
+      FOLDERS: [
+        { name: 'watch', dir: watchDir },
+        { name: 'downloads', dir: sourceDir },
+      ],
     },
   };
 };

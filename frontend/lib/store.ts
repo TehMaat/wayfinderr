@@ -312,6 +312,15 @@ export interface RipperStatus {
   remux?: { mkvmerge: boolean; sevenZip: boolean; dvd: boolean } | null;
 }
 
+// Merging with Dyadrr (MERGE_ENABLED): the dyadrr container's runner checks in every 5 s
+export interface MergeStatus {
+  enabled: boolean;
+  languageSupported: boolean; // Dyadrr only works with Italian (RIP_LANGUAGE=it)
+  language: string;
+  runnerAlive: boolean;
+  runnerLastSeen: number | null; // seconds since the runner last checked in
+}
+
 interface Transfer {
   bytes: number;
   time: number;

@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { useAuthStore } from './auth';
-import type { ReleaseFlags, ReleasePreview, ReleaseProposal, Rip, RipperStatus, TmdbMovie, Upload } from './store';
+import type { MergeStatus, ReleaseFlags, ReleasePreview, ReleaseProposal, Rip, RipperStatus, TmdbMovie, Upload } from './store';
 
 // Same-origin requests: the frontend server proxies /api to the backend.
 // The session is an HttpOnly cookie the browser sends on its own.
@@ -164,6 +164,11 @@ export const ripsApi = {
     apiClient.get<{ path: string; folders: string[] }>('/api/rips/folders', { params: { path: path || undefined } }),
   searchTmdb: (query: string, year?: number | null) =>
     apiClient.get<TmdbMovie[]>('/api/rips/tmdb/search', { params: { query, year: year || undefined } }),
+};
+
+// Merge API (Dyadrr: the Italian audio of one rip into the better video of another)
+export const mergeApi = {
+  getStatus: () => apiClient.get<{ status: MergeStatus }>('/api/merge'),
 };
 
 // Space API

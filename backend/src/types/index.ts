@@ -122,6 +122,15 @@ export interface Config {
   SSH_PRIVATE_KEY_PATH?: string;
   DELETE_AFTER_UPLOAD: boolean;
   RIP: RipConfig;
+  MERGE: MergeConfig;
+}
+
+// Merging the Italian audio of one rip into the better video of another, in the
+// Dyadrr container (services/merge)
+export interface MergeConfig {
+  ENABLED: boolean;
+  JOBS_DIR: string; // shared with the Dyadrr runner, inside the watch folder
+  FOLDERS: { name: string; dir: string }[]; // mounted in the Dyadrr container as /data/<name>
 }
 
 // Automatic ripping of film discs found in the downloads folder (services/ripper)
