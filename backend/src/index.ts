@@ -25,6 +25,8 @@ import clientRoutes from './routes/clients.js';
 import releaseRoutes from './routes/release.js';
 import mergeRoutes from './routes/merge.js';
 import { releaseManager } from './services/release/index.js';
+import { mergeActive } from './services/merge/index.js';
+import { checkHold, HoldDecision } from './services/merge/hold.js';
 
 // Prisma returns BigInt for sizes: serialize them as strings in JSON responses
 (BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function () {
@@ -248,6 +250,26 @@ ripper.on('rip-updated', ({ ripId, status }) => broadcast({ type: 'rip-updated',
 ripper.on('rip-progress', ({ ripId, progress, status }) => broadcast({ type: 'rip-progress', ripId, progress, status }));
 
 /**
+ * With merging on, holds the upload instead of queueing it when it has no Italian
+ * audio or a twin of the same film is around (services/merge/hold.ts). True when held.
+ */
+const holdForMerge = async (uploadId: string): Promise<boolean> => {
+  if (!mergeActive()) return false;
+  const upload = await db.getUploadById(uploadId);
+  if (!upload) return false;
+  const hold: HoldDecision | null = await checkHold(upload).catch((error: Error) => {
+    // Never uploaded for a search that failed: held, with the reason
+    logger.error({ uploadId, error }, 'Merge twin search failed');
+    return { kind: 'POSSIBLE_TWIN' as const, message: `Could not look for a twin: ${error.message}` };
+  });
+  if (!hold) return false;
+  await db.updateUpload(uploadId, { status: 'HELD', holdKind: hold.kind, holdMessage: hold.message });
+  logger.info({ uploadId, hold }, 'Held for a merge');
+  broadcast({ type: 'upload-held', uploadId, kind: hold.kind });
+  return true;
+};
+
+/**
  * A new .mkv to upload: one from the watch folder, or one unpacked from an
  * archive next to the downloads (its upload record is already created).
  */
@@ -294,6 +316,9 @@ const processFile = async (event: FileDetectedEvent, existingUploadId?: string) 
       mediaInfo,
       size: fileSize.toString(),
     });
+
+    // Merging on: a file without Italian audio, or one with a twin around, waits for a merge
+    if (await holdForMerge(upload.id)) return;
 
     // Enqueue for upload
     await jobQueue.enqueueUpload({
@@ -376,6 +401,11 @@ const startServer = async () => {
   try {
     // Without an account everything is closed until it is created with this code
     if (!(await getAccount())) ensureSetupCode();
+
+    // Files still being read when the backend stopped: checked for a merge before they resume
+    for (const upload of await db.getUploadsByStatus('PENDING')) {
+      if (upload.mediaInfo) await holdForMerge(upload.id);
+    }
 
     // Resume uploads left unfinished by a previous run
     await jobQueue.resumePending();

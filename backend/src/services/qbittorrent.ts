@@ -96,6 +96,15 @@ export class QbitClient {
     });
   }
 
+  /** Every torrent, downloading or not (in the category, when given) */
+  async getTorrents(category?: string | null): Promise<QbitTorrent[]> {
+    return this.request<QbitTorrent[]>({
+      method: 'GET',
+      url: '/api/v2/torrents/info',
+      params: category ? { category } : {},
+    });
+  }
+
   async getTorrent(hash: string): Promise<QbitTorrent | null> {
     const torrents = await this.request<QbitTorrent[]>({
       method: 'GET',

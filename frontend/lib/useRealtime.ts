@@ -133,6 +133,12 @@ export const useRealtime = () => {
             scheduleStats(true);
             break;
 
+          case 'upload-held':
+            await store.refreshUpload(uploadId);
+            toast.info('Held for a merge', { description: nameOf(uploadId) });
+            scheduleStats();
+            break;
+
           case 'upload-skipped':
             await store.refreshUpload(uploadId);
             toast.warning('Skipped: no Italian audio or subtitles', { description: nameOf(uploadId) });

@@ -7,9 +7,10 @@ import { config } from '../config/index.js';
 import { db } from './database.js';
 import { describeError, getQbitClient, QbitTorrent } from './qbittorrent.js';
 import { parseTorrent, TorrentFile, torrentTrackers, trackerHost } from './release/torrentFile.js';
-import { isMeaningfulTitle, MatchName, normalize, parseName, titleSimilarity } from './nameMatch.js';
+import { isMeaningfulTitle, MatchName, parseName, titleSimilarity } from './nameMatch.js';
 import { parseReleaseName } from './ripper/releaseName.js';
-import { getMovieTitles, matchMovie, tmdbConfigured } from './ripper/tmdb.js';
+import { tmdbConfigured } from './ripper/tmdb.js';
+import { filmByName } from './filmLookup.js';
 
 /**
  * Removes from qBittorrent the torrent an uploaded MKV was ripped from.
@@ -35,7 +36,8 @@ const TMDB_CONCURRENCY = 4;
 
 // Rips of a download still to finish: its torrent must stay
 const RIP_UNFINISHED = new Set(['WAITING', 'QUEUED', 'UNPACKING', 'SCANNING', 'RIPPING', 'JOINING', 'NEEDS_ATTENTION']);
-const UPLOAD_UNFINISHED = ['PENDING', 'QUEUED', 'UPLOADING'];
+// HELD: kept for a merge (services/merge), its torrent may still be needed
+const UPLOAD_UNFINISHED = ['PENDING', 'QUEUED', 'UPLOADING', 'HELD'];
 
 export type TorrentStatus = 'NO_MATCH' | 'REVIEW' | 'WAITING' | 'REMOVED' | 'ERROR';
 
@@ -79,7 +81,7 @@ export const topLevelName = (torrent: QbitTorrent): string => {
 };
 
 // Runs fn over items with at most `limit` calls in flight
-const mapLimit = async <T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> => {
+export const mapLimit = async <T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> => {
   const results: R[] = new Array(items.length);
   let next = 0;
   const worker = async () => {
@@ -137,8 +139,6 @@ const recentMkvActivity = async (): Promise<string | null> => {
 export class TorrentCleanup extends EventEmitter {
   // One pending removal per torrent hash
   private timers = new Map<string, NodeJS.Timeout>();
-  // TMDB titles per parsed torrent name (null: no film found); lives for the whole run
-  private tmdbTitles = new Map<string, { titles: string[]; year?: number; label: string } | null>();
 
   /** All the names a torrent is known by: its own name, its folder/file name, and its TMDB titles */
   private async torrentTitles(torrent: QbitTorrent): Promise<TorrentTitles> {
@@ -154,27 +154,8 @@ export class TorrentCleanup extends EventEmitter {
   }
 
   // The ripper's conservative TMDB match: a film only when exactly one has this title and year
-  private async lookupFilm(torrentName: string) {
-    if (!tmdbConfigured()) return null;
-    const name = parseReleaseName(torrentName);
-    const key = `${name.title}|${name.year ?? ''}`;
-    if (this.tmdbTitles.has(key)) return this.tmdbTitles.get(key) ?? null;
-    try {
-      const { movie } = await matchMovie(name);
-      const film = movie
-        ? {
-            titles: [...new Set((await getMovieTitles(movie.id)).map(normalize).filter(Boolean))],
-            year: movie.year ?? undefined,
-            label: `${movie.title}${movie.year ? ` (${movie.year})` : ''}`,
-          }
-        : null;
-      this.tmdbTitles.set(key, film);
-      return film;
-    } catch (error) {
-      // Not cached: a network error should not hide the film for the whole run
-      logger.warn({ torrent: torrentName, error: (error as Error).message }, 'TMDB lookup failed');
-      return null;
-    }
+  private lookupFilm(torrentName: string) {
+    return filmByName(parseReleaseName(torrentName));
   }
 
   /** The torrent's tracker host: the working one, else the first real one of its list (null when unknown) */
@@ -422,7 +403,9 @@ export class TorrentCleanup extends EventEmitter {
       if (ripping.length) return `${ripping.length} more rip(s) of this download not finished (${ripping[0].status})`;
       for (const rip of rips) {
         const upload = rip.outputFile ? await db.getUploadByPath(rip.outputFile) : null;
-        if (upload && UPLOAD_UNFINISHED.includes(upload.status)) return `${upload.filename} still uploading`;
+        if (upload && UPLOAD_UNFINISHED.includes(upload.status)) {
+          return `${upload.filename} ${upload.status === 'HELD' ? 'held for a merge' : 'still uploading'}`;
+        }
       }
       return null;
     }
@@ -432,7 +415,12 @@ export class TorrentCleanup extends EventEmitter {
     const unfinished = (await Promise.all(UPLOAD_UNFINISHED.map((status) => db.getUploadsByStatus(status))))
       .flat()
       .filter((u) => scoreAgainst(mkvNames(u.filepath), titles).score >= SUGGEST_SCORE);
-    if (unfinished.length) return `${unfinished.length} more file(s) of this disc still uploading`;
+    if (unfinished.length) {
+      const held = unfinished.filter((u) => u.status === 'HELD').length;
+      return held === unfinished.length
+        ? `${held} file(s) of this film held for a merge`
+        : `${unfinished.length} more file(s) of this disc still uploading`;
+    }
 
     const activeRip = await recentMkvActivity();
     return activeRip ? `MakeMKV is still writing ${activeRip}` : null;

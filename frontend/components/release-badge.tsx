@@ -32,7 +32,7 @@ export const canRelease = (u: Upload) =>
  * (its upload stops): the one of its source torrent, else the first set up for it, as the backend picks
  */
 export const localReleaseClient = (u: Upload, clients: TorrentClient[]) => {
-  if (u.status === 'COMPLETED' || u.status === 'PENDING' || u.localClientId) return undefined;
+  if (u.status === 'COMPLETED' || u.status === 'PENDING' || u.status === 'HELD' || u.localClientId) return undefined;
   const ready = clients.filter((c) => c.enabled && c.localRelease);
   return ready.find((c) => c.id === u.torrentClientId) ?? ready[0];
 };

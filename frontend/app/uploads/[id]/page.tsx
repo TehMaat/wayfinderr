@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
+import { HeldNotice } from '@/components/held-notice';
 import { ReleaseCard } from '@/components/release-card';
 import { StatusBadge } from '@/components/status-badge';
 import { StopUploadDialog, canDelete, canRetry, canStop } from '@/components/upload-actions';
@@ -483,6 +484,8 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
           <Progress value={upload.progress} animated className="h-2.5" />
         </Card>
       )}
+
+      {upload.status === 'HELD' && <HeldNotice upload={upload} onDeleted={() => router.push('/uploads')} />}
 
       {upload.error && (
         <div

@@ -60,7 +60,7 @@ model Upload {
   serverId             String?
   server               Server?  @relation(fields: [serverId], references: [id], onDelete: SetNull)
 
-  status               String   @default("PENDING")  // PENDING | QUEUED | UPLOADING | COMPLETED | FAILED | SKIPPED | CANCELLED
+  status               String   @default("PENDING")  // PENDING | QUEUED | UPLOADING | COMPLETED | FAILED | SKIPPED | CANCELLED | HELD
   progress             Int      @default(0)          // 0-100
   progressBytes        BigInt   @default(0)          // Bytes uploaded
 
@@ -114,6 +114,10 @@ model Upload {
 
   // The film on TMDB, as printed by the tracker command (found on its own or typed in, see release/output.ts)
   tmdbId               Int?
+
+  // Held for a merge (status HELD, see services/merge/hold.ts): never uploaded until released by hand
+  holdKind             String?  // NO_ITALIAN | TWIN | POSSIBLE_TWIN
+  holdMessage          String?  // why: the twin found, or what could not be searched
 
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

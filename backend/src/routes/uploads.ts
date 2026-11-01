@@ -1,4 +1,6 @@
 import { existsSync } from 'fs';
+import { rm } from 'fs/promises';
+import path from 'path';
 import express, { Router, Request, Response } from 'express';
 import { db } from '../services/database.js';
 import { jobQueue } from '../services/jobQueue.js';
@@ -7,6 +9,7 @@ import { describeError } from '../services/qbittorrent.js';
 import { mediaInfoParser } from '../services/mediaInfo.js';
 import { releaseManager, ReleaseError } from '../services/release/index.js';
 import logger from '../config/logger.js';
+import { config } from '../config/index.js';
 
 const router = Router();
 
@@ -197,6 +200,54 @@ router.get('/:id/torrent/file', async (req: Request, res: Response) => {
   }
 });
 
+// POST upload a file held for a merge as it is (the server's media policy still applies)
+router.post('/:id/hold/upload', async (req: Request, res: Response) => {
+  try {
+    const upload = await db.getUploadById(req.params.id);
+    if (!upload) {
+      res.status(404).json({ error: 'Upload not found' });
+      return;
+    }
+    if (upload.status !== 'HELD') {
+      res.status(409).json({ error: `Upload is ${upload.status}, not held for a merge` });
+      return;
+    }
+    await db.updateUpload(upload.id, { holdKind: null, holdMessage: null });
+    await jobQueue.enqueueUpload({ uploadId: upload.id, filepath: upload.filepath });
+    res.json(await db.getUploadById(upload.id));
+  } catch (error) {
+    logger.error(error, 'Failed to upload a held file');
+    res.status(500).json({ error: 'Failed to upload the held file' });
+  }
+});
+
+// POST delete a file held for a merge: the file in the watch folder, and its record
+router.post('/:id/hold/delete', async (req: Request, res: Response) => {
+  try {
+    const upload = await db.getUploadById(req.params.id);
+    if (!upload) {
+      res.status(404).json({ error: 'Upload not found' });
+      return;
+    }
+    if (upload.status !== 'HELD') {
+      res.status(409).json({ error: `Upload is ${upload.status}, not held for a merge` });
+      return;
+    }
+    // Only a file of the watch folder: one unpacked next to the downloads is deleted
+    // by the ripper once its record is gone
+    const relative = path.relative(config.WATCH_DIR, upload.filepath);
+    if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+      await rm(upload.filepath, { force: true });
+    }
+    await db.deleteUpload(upload.id);
+    logger.info({ uploadId: upload.id, filepath: upload.filepath }, 'Held file deleted');
+    res.json({ ok: true });
+  } catch (error) {
+    logger.error(error, 'Failed to delete a held file');
+    res.status(500).json({ error: 'Failed to delete the held file' });
+  }
+});
+
 // DELETE upload record (history only, the file is not touched)
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
@@ -207,6 +258,11 @@ router.delete('/:id', async (req: Request, res: Response) => {
     }
     if (upload.status === 'QUEUED' || upload.status === 'UPLOADING') {
       res.status(409).json({ error: `Upload is ${upload.status}, cannot delete` });
+      return;
+    }
+    // Its file would stay in the watch folder, never picked up again
+    if (upload.status === 'HELD') {
+      res.status(409).json({ error: 'The file is held for a merge: upload it as it is, or delete the file' });
       return;
     }
     if (releaseManager.isActive(upload)) {
