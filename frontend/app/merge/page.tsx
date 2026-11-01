@@ -1,12 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Cpu, Languages, Merge, RefreshCw } from 'lucide-react';
+import { Cpu, Languages, Link2, Merge, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Chip } from '@/components/chip';
 import { EmptyState } from '@/components/empty-state';
 import { HeldNotice } from '@/components/held-notice';
+import { MergeChoicesDialog } from '@/components/merge-choices-dialog';
+import { MergePairCard } from '@/components/merge-pair-card';
+import { MergePairDialog } from '@/components/merge-pair-dialog';
 import { PageHeader } from '@/components/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -29,7 +32,10 @@ function SetupStrip({ status }: { status: MergeStatus }) {
         <Chip icon={Cpu} tone="error">
           Dyadrr runner offline
           <span className="opacity-80">
-            · {status.runnerLastSeen === null ? 'The dyadrr container is not running' : `Last seen ${status.runnerLastSeen} s ago`}
+            ·{' '}
+            {status.runnerLastSeen === null
+              ? 'The dyadrr container is not running'
+              : `Last seen ${status.runnerLastSeen} s ago`}
           </span>
         </Chip>
       )}
@@ -52,7 +58,7 @@ function SetupStrip({ status }: { status: MergeStatus }) {
 }
 
 /** The files held for a merge, newest first, with why and what to do with each */
-function HeldFiles({ uploads }: { uploads: Upload[] }) {
+function HeldFiles({ uploads, onPair }: { uploads: Upload[]; onPair?: (uploadId: string) => void }) {
   return (
     <Card className="flex flex-col gap-3 p-4">
       <div className="space-y-1">
@@ -64,7 +70,7 @@ function HeldFiles({ uploads }: { uploads: Upload[] }) {
         </p>
       </div>
       {uploads.map((upload) => (
-        <HeldNotice key={upload.id} upload={upload} showName />
+        <HeldNotice key={upload.id} upload={upload} showName onPair={onPair ? () => onPair(upload.id) : undefined} />
       ))}
     </Card>
   );
@@ -76,6 +82,15 @@ export default function MergePage() {
   const [refreshing, setRefreshing] = useState(false);
   const allUploads = useAppStore((s) => s.uploads);
   const held = allUploads.filter((u) => u.status === 'HELD');
+  const pairs = useAppStore((s) => s.mergePairs);
+  const [pairOpen, setPairOpen] = useState(false);
+  const [pairFirst, setPairFirst] = useState<string | null>(null);
+  const [choicesOpen, setChoicesOpen] = useState(false);
+
+  const openPair = (uploadId: string | null) => {
+    setPairFirst(uploadId);
+    setPairOpen(true);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -95,7 +110,14 @@ export default function MergePage() {
 
   const refresh = async () => {
     setRefreshing(true);
-    await Promise.all([load(), useAppStore.getState().loadUploads().catch(() => undefined)]);
+    await Promise.all([
+      load(),
+      useAppStore
+        .getState()
+        .loadUploads()
+        .catch(() => undefined),
+      useAppStore.getState().loadMergePairs(),
+    ]);
     setRefreshing(false);
   };
 
@@ -105,11 +127,27 @@ export default function MergePage() {
         title="Merge"
         description="Two rips of the same film, one with the better video and one with the Italian audio, become one file with Dyadrr: the Italian audio is lined up with the better video and added to it, without re-encoding."
         actions={
-          <Tooltip content="Refresh">
-            <Button variant="ghost" size="icon" onClick={refresh} aria-label="Refresh">
-              <RefreshCw className={cn(refreshing && 'animate-spin')} />
-            </Button>
-          </Tooltip>
+          <>
+            {status?.enabled && (
+              <>
+                <Tooltip content="What to do when a pair needs a decision">
+                  <Button variant="outline" size="sm" onClick={() => setChoicesOpen(true)}>
+                    <SlidersHorizontal />
+                    Choices
+                  </Button>
+                </Tooltip>
+                <Button size="sm" onClick={() => openPair(null)} disabled={!status.languageSupported}>
+                  <Link2 />
+                  Pair files…
+                </Button>
+              </>
+            )}
+            <Tooltip content="Refresh">
+              <Button variant="ghost" size="icon" onClick={refresh} aria-label="Refresh">
+                <RefreshCw className={cn(refreshing && 'animate-spin')} />
+              </Button>
+            </Tooltip>
+          </>
         }
       />
 
@@ -117,14 +155,22 @@ export default function MergePage() {
         <Skeleton className="h-7 w-full max-w-xl" />
       ) : !status ? (
         <Card>
-          <EmptyState icon={Merge} title="Merge status unavailable" description="The backend did not answer." className="py-8" />
+          <EmptyState
+            icon={Merge}
+            title="Merge status unavailable"
+            description="The backend did not answer."
+            className="py-8"
+          />
         </Card>
       ) : status.enabled ? (
         <>
           <SetupStrip status={status} />
+          {pairs.map((pair) => (
+            <MergePairCard key={pair.id} pair={pair} runnerAlive={status.runnerAlive} />
+          ))}
           {held.length > 0 ? (
-            <HeldFiles uploads={held} />
-          ) : (
+            <HeldFiles uploads={held} onPair={status.languageSupported ? openPair : undefined} />
+          ) : pairs.length > 0 ? null : (
             <Card>
               <EmptyState
                 icon={Merge}
@@ -154,6 +200,12 @@ export default function MergePage() {
 
       {/* Held while merging was on: still here to upload or delete */}
       {status && !status.enabled && held.length > 0 && <HeldFiles uploads={held} />}
+      {status &&
+        !status.enabled &&
+        pairs.map((pair) => <MergePairCard key={pair.id} pair={pair} runnerAlive={status.runnerAlive} />)}
+
+      <MergePairDialog open={pairOpen} onOpenChange={setPairOpen} firstId={pairFirst} />
+      <MergeChoicesDialog open={choicesOpen} onOpenChange={setChoicesOpen} />
     </div>
   );
 }

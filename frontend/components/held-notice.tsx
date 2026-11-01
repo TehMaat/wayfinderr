@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { FileX2, Merge, Upload as UploadIcon } from 'lucide-react';
+import { FileX2, Link2, Merge, Upload as UploadIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DeleteHeldDialog } from '@/components/upload-actions';
 import { uploadHeld } from '@/lib/actions';
@@ -23,11 +23,14 @@ export function HeldNotice({
   upload,
   showName = false,
   onDeleted,
+  onPair,
   className,
 }: {
   upload: Upload;
   showName?: boolean;
   onDeleted?: () => void;
+  // Pairs it with its twin for a merge (shown when merging is on)
+  onPair?: () => void;
   className?: string;
 }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -55,7 +58,13 @@ export function HeldNotice({
           {upload.holdMessage ?? 'Waiting for its twin.'}
         </p>
       </div>
-      <div className="flex shrink-0 gap-2">
+      <div className="flex shrink-0 flex-wrap gap-2">
+        {onPair && (
+          <Button size="sm" onClick={onPair}>
+            <Link2 />
+            Pair…
+          </Button>
+        )}
         <Button variant="outline" size="sm" onClick={upload_} disabled={busy}>
           <UploadIcon />
           Upload as it is

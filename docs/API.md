@@ -872,6 +872,69 @@ GET /api/merge
 
 `runnerAlive`: the runner in the `dyadrr` container rewrote `<watch folder>/.wayfinderr/dyadrr/jobs/dyadrr.alive` in the last 30 seconds; `runnerLastSeen` is how many seconds ago (`null` when it never did, or merging is off). `languageSupported`: Dyadrr only works with Italian, so it is `false` unless `RIP_LANGUAGE` is `it`. `held`: the uploads held for a merge (`HELD`), also when merging was turned off since.
 
+### Merge Choices
+
+```
+GET /api/merge/settings
+PUT /api/merge/settings
+```
+
+Dyadrr's four choices (its `docs/CLI.md`, *Scelte*), each a fixed value passed to every analysis or `ask` (the default): `tail` (`trim` | `keep`), `italian` (`all` | `main`), `referenceItalianSubs` (`keep` | `drop`), `edgeMismatch` (`drop` | `keep`). A choice left to `ask` is pending in the analysis, with what each value does.
+
+**Body (PUT):** `{ "choices": { "tail": "trim", "edgeMismatch": "ask" } }`, any of the four. **Response:** 200 OK `{ "choices": { "tail": "trim", "italian": "ask", "referenceItalianSubs": "ask", "edgeMismatch": "ask" } }`; 400 for an unknown choice or value.
+
+### Files to Pair
+
+```
+GET /api/merge/candidates
+```
+
+The uploads that can be paired: held, completed, skipped, failed or stopped, with their file still on the disk, and not in a pair being analyzed; held ones first. Each: `id`, `filename`, `filepath`, `size`, `status`, `hasItalianAudio`, `holdKind`, `holdMessage`, `mediaInfo`.
+
+### Merge Pairs
+
+```
+GET /api/merge/pairs
+GET /api/merge/pairs/:id
+POST /api/merge/pairs              { "uploadIds": ["a", "b"], "originalLanguage": "en" }
+POST /api/merge/pairs/:id/analyze  { "originalLanguage": "ja" }
+POST /api/merge/pairs/:id/cancel
+DELETE /api/merge/pairs/:id
+GET /api/merge/pairs/:id/report
+```
+
+Two files of the same film, analyzed by Dyadrr (`dyadrr analyze` in the `dyadrr` container, through a file job). `POST /api/merge/pairs` pairs two candidates (in any order: Dyadrr picks the better video, the *reference*, and the Italian file, the *donor*) and queues the analysis; `originalLanguage` (ISO 639-1 or 639-2, an IETF tag) is optional: without it, it comes from a rip of either file, else TMDB, else none (the sync is then measured on English). The fixed choices of the settings are passed along. 409 with merging off, a file not pairable (uploading, gone from the disk, outside the watch folder and the downloads, already in a pair being analyzed); 400 for two equal ids or a bad language.
+
+A pair:
+
+```json
+{
+  "id": "pair123",
+  "uploadAId": "upload1",
+  "uploadBId": "upload2",
+  "fileA": "/makemkv-output/Up (2).mkv",
+  "fileB": "/downloads/Up.2009.2160p/Up.mkv",
+  "originalLanguage": "en",
+  "status": "ELIGIBLE",
+  "phase": null,
+  "progress": null,
+  "reasonCode": null,
+  "reasonMessage": null,
+  "dyadrrVersion": "0.21.1",
+  "summary": {
+    "decision": "eligible",
+    "roles": { "reference": 1, "donor": 0 },
+    "offsetMs": 667,
+    "coverage": 0.98,
+    "italian": { "startMs": 0, "endMs": 5625000 },
+    "choices": [{ "name": "edgeMismatch", "needed": true, "status": "pending", "value": null, "effects": [] }],
+    "warnings": [{ "code": "EDGE_CONTINUES_ELSEWHERE", "message": "..." }]
+  }
+}
+```
+
+`status`: `ANALYZING` (the job is queued, or running: `phase` is Dyadrr's progress phase and `progress` 0-100 within it, when known), then `ELIGIBLE`, `REFUSED`, `ERROR` or `CANCELLED`, Dyadrr's decision; `reasonCode` and `reasonMessage` say why (Dyadrr's codes, or `NO_REPORT` / `JOB_LOST` when its job ended without a report or its files are gone). `summary` is what the page shows of the report (`roles` are indexes: 0 is file A, 1 file B; also `measureLanguage`, `dispersionMs`, `film`, `commonMaterial`, `audio`, `failedChecks`, `reasons`); `/report` returns the whole report as Dyadrr wrote it (404 before it ends). `analyze` runs a pair that is not `ANALYZING` again (409 otherwise); `cancel` stops it (Dyadrr gets SIGTERM, or never starts the job), and it ends `CANCELLED`; `DELETE` removes the pair (204; 409 while Dyadrr runs it), never the files. While a pair is `ANALYZING`, its files cannot be uploaded, retried or deleted (409).
+
 ## WebSocket
 
 ### Connect
@@ -961,6 +1024,9 @@ A new file held for a merge instead of uploaded (`MERGE_ENABLED`): `kind` is its
   "kind": "TWIN"
 }
 ```
+
+#### merge-pair-updated, merge-pair-progress, merge-pair-removed
+A merge pair changed `status` (`{ "type": "merge-pair-updated", "pairId": "pair123", "status": "ELIGIBLE" }`), its analysis moved on (`{ "type": "merge-pair-progress", "pairId": "pair123", "phase": "checkpoints", "progress": 40, "done": 12, "total": 30 }`), or it was removed.
 
 #### upload-skipped
 Upload skipped (no Italian content).

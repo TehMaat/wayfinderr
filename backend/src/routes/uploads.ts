@@ -8,6 +8,7 @@ import { torrentCleanup, TorrentFileError } from '../services/torrentCleanup.js'
 import { describeError } from '../services/qbittorrent.js';
 import { mediaInfoParser } from '../services/mediaInfo.js';
 import { releaseManager, ReleaseError } from '../services/release/index.js';
+import { mergePairs } from '../services/merge/pairs.js';
 import logger from '../config/logger.js';
 import { config } from '../config/index.js';
 
@@ -63,6 +64,11 @@ router.post('/:id/retry', async (req: Request, res: Response) => {
 
     if (upload.status !== 'FAILED' && upload.status !== 'SKIPPED' && upload.status !== 'CANCELLED') {
       res.status(409).json({ error: `Upload is ${upload.status}, cannot retry` });
+      return;
+    }
+
+    if (await mergePairs.uploadBusy(upload.id)) {
+      res.status(409).json({ error: 'Dyadrr is analyzing this file in a pair: stop it first' });
       return;
     }
 
@@ -212,6 +218,10 @@ router.post('/:id/hold/upload', async (req: Request, res: Response) => {
       res.status(409).json({ error: `Upload is ${upload.status}, not held for a merge` });
       return;
     }
+    if (await mergePairs.uploadBusy(upload.id)) {
+      res.status(409).json({ error: 'Dyadrr is analyzing this file in a pair: stop it first' });
+      return;
+    }
     await db.updateUpload(upload.id, { holdKind: null, holdMessage: null });
     await jobQueue.enqueueUpload({ uploadId: upload.id, filepath: upload.filepath });
     res.json(await db.getUploadById(upload.id));
@@ -231,6 +241,10 @@ router.post('/:id/hold/delete', async (req: Request, res: Response) => {
     }
     if (upload.status !== 'HELD') {
       res.status(409).json({ error: `Upload is ${upload.status}, not held for a merge` });
+      return;
+    }
+    if (await mergePairs.uploadBusy(upload.id)) {
+      res.status(409).json({ error: 'Dyadrr is analyzing this file in a pair: stop it first' });
       return;
     }
     // Only a file of the watch folder: one unpacked next to the downloads is deleted

@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma, Rip, Upload, Server, TorrentClient } from '@prisma/client';
+import { MergePair, PrismaClient, Prisma, Rip, Upload, Server, TorrentClient } from '@prisma/client';
 import logger from '../config/logger.js';
 
 export class DatabaseService {
@@ -350,6 +350,36 @@ export class DatabaseService {
 
   async deleteSettings(keys: string[]): Promise<void> {
     await this.prisma.setting.deleteMany({ where: { key: { in: keys } } });
+  }
+
+  // Merge pairs (services/merge/pairs.ts)
+  async getMergePairs(): Promise<MergePair[]> {
+    return this.prisma.mergePair.findMany({ orderBy: { createdAt: 'desc' } });
+  }
+
+  async getMergePairsByStatus(statuses: string[]): Promise<MergePair[]> {
+    return this.prisma.mergePair.findMany({ where: { status: { in: statuses } }, orderBy: { createdAt: 'asc' } });
+  }
+
+  async getMergePairById(id: string): Promise<MergePair | null> {
+    return this.prisma.mergePair.findUnique({ where: { id } });
+  }
+
+  // The pairs an upload is part of
+  async getMergePairsOfUpload(uploadId: string): Promise<MergePair[]> {
+    return this.prisma.mergePair.findMany({ where: { OR: [{ uploadAId: uploadId }, { uploadBId: uploadId }] } });
+  }
+
+  async createMergePair(data: Prisma.MergePairUncheckedCreateInput): Promise<MergePair> {
+    return this.prisma.mergePair.create({ data });
+  }
+
+  async updateMergePair(id: string, data: Prisma.MergePairUncheckedUpdateInput): Promise<MergePair> {
+    return this.prisma.mergePair.update({ where: { id }, data });
+  }
+
+  async deleteMergePair(id: string): Promise<void> {
+    await this.prisma.mergePair.delete({ where: { id } });
   }
 
   async disconnect(): Promise<void> {

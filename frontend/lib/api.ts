@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { useAuthStore } from './auth';
-import type { MergeStatus, ReleaseFlags, ReleasePreview, ReleaseProposal, Rip, RipperStatus, TmdbMovie, Upload } from './store';
+import type { MergeCandidate, MergeChoiceSettings, MergePair, MergeStatus, ReleaseFlags, ReleasePreview, ReleaseProposal, Rip, RipperStatus, TmdbMovie, Upload } from './store';
 
 // Same-origin requests: the frontend server proxies /api to the backend.
 // The session is an HttpOnly cookie the browser sends on its own.
@@ -172,6 +172,20 @@ export const ripsApi = {
 // Merge API (Dyadrr: the Italian audio of one rip into the better video of another)
 export const mergeApi = {
   getStatus: () => apiClient.get<{ status: MergeStatus }>('/api/merge'),
+  getSettings: () => apiClient.get<{ choices: MergeChoiceSettings }>('/api/merge/settings'),
+  saveSettings: (choices: Partial<MergeChoiceSettings>) =>
+    apiClient.put<{ choices: MergeChoiceSettings }>('/api/merge/settings', { choices }),
+  listCandidates: () => apiClient.get<MergeCandidate[]>('/api/merge/candidates'),
+  listPairs: () => apiClient.get<MergePair[]>('/api/merge/pairs'),
+  getPair: (id: string) => apiClient.get<MergePair>(`/api/merge/pairs/${id}`),
+  // TMDB lookups for the original language can take a while
+  createPair: (uploadIds: [string, string], originalLanguage?: string | null) =>
+    apiClient.post<MergePair>('/api/merge/pairs', { uploadIds, originalLanguage }, { timeout: 60000 }),
+  analyzePair: (id: string, originalLanguage?: string | null) =>
+    apiClient.post<MergePair>(`/api/merge/pairs/${id}/analyze`, originalLanguage === undefined ? {} : { originalLanguage }),
+  cancelPair: (id: string) => apiClient.post<MergePair>(`/api/merge/pairs/${id}/cancel`),
+  removePair: (id: string) => apiClient.delete(`/api/merge/pairs/${id}`),
+  reportUrl: (id: string) => `/api/merge/pairs/${id}/report`,
 };
 
 // Space API

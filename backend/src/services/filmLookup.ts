@@ -13,20 +13,30 @@ export interface FilmTitles {
   titles: string[];
   year?: number;
   label: string; // "Title (Year)", for messages
+  originalLanguage?: string; // ISO 639-1, when TMDB said it
 }
 
 // Per parsed name (null: no film found) and per TMDB id
 const byName = new Map<string, FilmTitles | null>();
 const byId = new Map<number, FilmTitles>();
 
-const titlesOf = async (id: number, title: string, year: number | null | undefined): Promise<FilmTitles> => {
+const titlesOf = async (
+  id: number,
+  title: string,
+  year: number | null | undefined,
+  originalLanguage?: string | null
+): Promise<FilmTitles> => {
   const cached = byId.get(id);
-  if (cached) return cached;
+  if (cached) {
+    if (!cached.originalLanguage && originalLanguage) cached.originalLanguage = originalLanguage;
+    return cached;
+  }
   const film = {
     id,
     titles: [...new Set([title, ...(await getMovieTitles(id))].map(normalize).filter(Boolean))],
     year: year ?? undefined,
     label: `${title}${year ? ` (${year})` : ''}`,
+    originalLanguage: originalLanguage || undefined,
   };
   byId.set(id, film);
   return film;
@@ -42,7 +52,7 @@ export const filmByName = async (name: ParsedName): Promise<FilmTitles | null> =
   if (byName.has(key)) return byName.get(key) ?? null;
   try {
     const { movie } = await matchMovie(name);
-    const film = movie ? await titlesOf(movie.id, movie.title, movie.year) : null;
+    const film = movie ? await titlesOf(movie.id, movie.title, movie.year, movie.originalLanguage) : null;
     byName.set(key, film);
     return film;
   } catch (error) {
@@ -53,10 +63,15 @@ export const filmByName = async (name: ParsedName): Promise<FilmTitles | null> =
 };
 
 /** The titles of a film already identified (a rip's TMDB id); null when TMDB does not answer. */
-export const filmById = async (id: number, title: string, year?: number | null): Promise<FilmTitles | null> => {
+export const filmById = async (
+  id: number,
+  title: string,
+  year?: number | null,
+  originalLanguage?: string | null
+): Promise<FilmTitles | null> => {
   if (!tmdbConfigured()) return null;
   try {
-    return await titlesOf(id, title, year);
+    return await titlesOf(id, title, year, originalLanguage);
   } catch (error) {
     logger.warn({ tmdbId: id, error: (error as Error).message }, 'TMDB titles lookup failed');
     return null;

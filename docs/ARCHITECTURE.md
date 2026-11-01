@@ -105,7 +105,8 @@ src/
 │   ├── uploadManager.ts    # SSH/SCP handler
 │   ├── jobQueue.ts         # p-queue job queue
 │   ├── release/            # Rename on the server (moverr.py's name), then the tracker command (Unit3Dup) in tmux
-│   ├── merge/              # Dyadrr (MERGE_ENABLED): which files are held for a merge (twin search), file jobs for the dyadrr container
+│   ├── merge/              # Dyadrr (MERGE_ENABLED): which files are held for a merge (twin search), file jobs for the dyadrr container,
+│   │                       #   merge pairs and their analysis (pairs.ts)
 │   ├── filmLookup.ts       # A film's TMDB titles in every language, for name matching (torrent cleanup, twin search)
 │   ├── auth.ts             # Account, scrypt hashes, signed session tokens, setup code
 │   ├── loginLimiter.ts     # 5 failures / 15 min per client

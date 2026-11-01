@@ -27,6 +27,7 @@ import mergeRoutes from './routes/merge.js';
 import { releaseManager } from './services/release/index.js';
 import { mergeActive } from './services/merge/index.js';
 import { checkHold, HoldDecision } from './services/merge/hold.js';
+import { mergePairs } from './services/merge/pairs.js';
 
 // Prisma returns BigInt for sizes: serialize them as strings in JSON responses
 (BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function () {
@@ -244,6 +245,11 @@ jobQueue.on('upload-cancelled', ({ uploadId }) => {
   });
 });
 
+// Merge pairs: the page refetches the pair, progress updates it in place
+mergePairs.on('pair-updated', ({ pairId, status }) => broadcast({ type: 'merge-pair-updated', pairId, status }));
+mergePairs.on('pair-removed', ({ pairId }) => broadcast({ type: 'merge-pair-removed', pairId }));
+mergePairs.on('pair-progress', (event) => broadcast({ type: 'merge-pair-progress', ...event }));
+
 // Ripper events: the page refetches the rip, progress updates it in place
 // (status: UNPACKING or RIPPING, the step the progress is of)
 ripper.on('rip-updated', ({ ripId, status }) => broadcast({ type: 'rip-updated', ripId, status }));
@@ -361,6 +367,8 @@ const shutdown = async (signal: string) => {
     // Close file watcher and the rip loop (a running rip goes on in the MakeMKV container)
     await fileWatcher.stop();
     ripper.stop();
+    // A running analysis goes on in the Dyadrr container, followed again at the next start
+    mergePairs.stop();
 
     // Close SSH connections
     uploadManager.close();
@@ -420,6 +428,9 @@ const startServer = async () => {
 
     // Pause the torrents while a disk of this machine is low on space
     spaceGuard.start();
+
+    // Follow the Dyadrr jobs of the merge pairs (also when merging was turned off since)
+    mergePairs.start();
 
     // Start HTTP server
     httpServer.listen(config.PORT, () => {

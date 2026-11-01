@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { clientsApi, ripsApi, serversApi, spaceApi, systemApi, uploadsApi } from './api';
+import { clientsApi, mergeApi, ripsApi, serversApi, spaceApi, systemApi, uploadsApi } from './api';
 
 // HELD: kept for a merge (MERGE_ENABLED), uploaded only when released by hand
 export type UploadStatus = 'PENDING' | 'QUEUED' | 'UPLOADING' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'CANCELLED' | 'HELD';
@@ -329,6 +329,70 @@ export interface MergeStatus {
   held: number; // files held for a merge
 }
 
+// Dyadrr's four choices (its docs/CLI.md): a fixed value for every merge, or 'ask' each time
+export type MergeChoiceName = 'tail' | 'italian' | 'referenceItalianSubs' | 'edgeMismatch';
+export type MergeChoiceSettings = Record<MergeChoiceName, string>;
+
+export type MergePairStatus = 'ANALYZING' | 'ELIGIBLE' | 'REFUSED' | 'ERROR' | 'CANCELLED';
+
+// What the page shows of Dyadrr's analyze report (the backend keeps the whole one)
+export interface MergeSummary {
+  dyadrr: string | null;
+  decision: 'eligible' | 'refused' | 'error' | 'cancelled';
+  reasons: { code: string; message: string }[];
+  roles: { reference: 0 | 1; donor: 0 | 1 } | null; // 0: file A, 1: file B
+  measureLanguage: string | null;
+  offsetMs: number | null;
+  dispersionMs: number | null;
+  coverage: number | null; // 0-1
+  film: { startMs: number; endMs: number } | null;
+  commonMaterial: { startMs: number; endMs: number } | null;
+  italian: { startMs: number | null; endMs: number | null } | null;
+  audio: { id: number; name: string | null; role: string; taken: boolean | null }[];
+  failedChecks: { name: string; code: string | null; blocking: boolean; detail: string | null }[];
+  warnings: { code: string; message: string }[];
+  choices: {
+    name: MergeChoiceName;
+    needed: boolean;
+    status: 'decided' | 'pending' | 'ignored' | 'not-needed';
+    value: string | null;
+    effects: { value: string; italianStartMs: number | null; italianEndMs: number | null; warnings: string[] }[];
+  }[];
+}
+
+export interface MergePair {
+  id: string;
+  uploadAId: string;
+  uploadBId: string;
+  fileA: string;
+  fileB: string;
+  originalLanguage: string | null;
+  status: MergePairStatus;
+  jobId: string | null;
+  phase: string | null;
+  progress: number | null;
+  reasonCode: string | null;
+  reasonMessage: string | null;
+  dyadrrVersion: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  summary: MergeSummary | null;
+}
+
+// A file that can be paired: on the disk, not uploading, not in a pair being analyzed
+export interface MergeCandidate {
+  id: string;
+  filename: string;
+  filepath: string;
+  size: string;
+  status: UploadStatus;
+  hasItalianAudio: boolean;
+  holdKind: HoldKind | null;
+  holdMessage: string | null;
+  mediaInfo: string | null;
+}
+
 interface Transfer {
   bytes: number;
   time: number;
@@ -360,6 +424,8 @@ interface AppState {
   rips: Rip[];
   ripsLoaded: boolean;
   ripStatus: RipperStatus | null;
+  mergePairs: MergePair[];
+  mergePairsLoaded: boolean;
 
   loadUploads: () => Promise<void>;
   loadServers: () => Promise<void>;
@@ -378,6 +444,10 @@ interface AppState {
   refreshRip: (id: string) => Promise<void>;
   removeRip: (id: string) => void;
   applyRipProgress: (id: string, progress: number, status?: 'UNPACKING' | 'RIPPING' | 'JOINING') => void;
+  loadMergePairs: () => Promise<void>;
+  refreshMergePair: (id: string) => Promise<void>;
+  removeMergePair: (id: string) => void;
+  applyMergeProgress: (id: string, phase: string | null, progress: number | null) => void;
 }
 
 const UPLOADS_LIMIT = 500;
@@ -400,6 +470,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   rips: [],
   ripsLoaded: false,
   ripStatus: null,
+  mergePairs: [],
+  mergePairsLoaded: false,
 
   loadUploads: async () => {
     const { data } = await uploadsApi.listUploads({ limit: UPLOADS_LIMIT });
@@ -473,6 +545,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       get().loadServers(),
       get().loadStats(),
       get().loadRips(),
+      get().loadMergePairs(),
       get().loadDisks(),
       get().loadClients(),
     ]);
@@ -545,6 +618,35 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   removeRip: (id) => set((state) => ({ rips: state.rips.filter((r) => r.id !== id) })),
+
+  loadMergePairs: async () => {
+    try {
+      const { data } = await mergeApi.listPairs();
+      set({ mergePairs: data, mergePairsLoaded: true });
+    } catch {
+      set({ mergePairsLoaded: true });
+    }
+  },
+
+  refreshMergePair: async (id) => {
+    try {
+      const { data } = await mergeApi.getPair(id);
+      set((state) => {
+        const exists = state.mergePairs.some((p) => p.id === id);
+        return { mergePairs: exists ? state.mergePairs.map((p) => (p.id === id ? data : p)) : [data, ...state.mergePairs] };
+      });
+    } catch {
+      // Removed meanwhile: the next list load drops it
+    }
+  },
+
+  removeMergePair: (id) => set((state) => ({ mergePairs: state.mergePairs.filter((p) => p.id !== id) })),
+
+  // A late progress event must not bring back an analysis that has ended
+  applyMergeProgress: (id, phase, progress) =>
+    set((state) => ({
+      mergePairs: state.mergePairs.map((p) => (p.id === id && p.status === 'ANALYZING' ? { ...p, phase, progress } : p)),
+    })),
 
   // A late progress event must not bring back a rip that has already ended
   applyRipProgress: (id, progress, status = 'RIPPING') =>
