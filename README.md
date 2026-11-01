@@ -26,7 +26,7 @@ Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitl
 - 🔐 **Login** - One password-protected account; the browser only talks to the frontend, which proxies the API, so one HTTPS reverse proxy entry is enough
 - 💿 **Automatic ripping** - Film discs that finish downloading are identified on TMDB and ripped with MakeMKV (main title, Italian + original language), then uploaded; anything unsure waits for a choice in the UI. When MakeMKV fails, unencrypted discs can be ripped without it (mkvmerge, ffmpeg)
 - 🏠 **Local release** - With room on this machine, a file is released from the local qBittorrent instead of uploaded: moved and sent to the tracker (ITTUP) over SSH on the machine qBittorrent runs on
-- 🔀 **Merge (in progress)** - Two rips of the same film, better video and Italian audio, merged into one file by [Dyadrr](https://github.com/TehMaat/dyadrr) in its own container, without re-encoding
+- 🔀 **Merge (in progress)** - Two rips of the same film, better video and Italian audio, merged into one file by [Dyadrr](https://github.com/TehMaat/dyadrr) in its own container, without re-encoding; the files of a pair are held instead of uploaded until then
 - 📦 **RAR archives** - Downloaded RAR archives are unpacked on whichever disk has more free space (downloads or watch folder): the disc inside is ripped, an .mkv is uploaded
 
 ---
@@ -201,7 +201,13 @@ Then **Release locally…** shows in the menu of an upload not on a server yet (
 1. In `.env`: `MERGE_ENABLED=true` (needs `RIP_LANGUAGE=it`: Dyadrr only works with Italian).
 2. Start the Dyadrr service too: `docker compose --profile merge up -d`. Its image is `ghcr.io/tehmaat/dyadrr` (`DYADRR_TAG`, `latest` by default).
 
-For now the **Merge** page only shows whether the Dyadrr container is running: holding the files of a pair, the analysis and the merge itself come in the next versions.
+With merging on, a new file in the watch folder can be **held** instead of uploaded, so both files of a pair are still on the disk when they are merged:
+
+- a file **without Italian audio** is always held: it may be the better video of a merge (it would otherwise be skipped, or uploaded without Italian);
+- a file **with Italian audio** is held when a **twin** of the same film is around, certain or doubtful: a held file without Italian, a rip not finished yet, or a torrent of the download clients (downloading or not; the one the file was ripped from left out). Names are compared against every TMDB title of the film (translations, alternative titles), so the Italian Blu-ray of *Altrimenti ci arrabbiamo!* finds the German UHD `Zwei.wie.Pech.und.Schwefel.1974`. A download client that cannot be reached counts as a doubt too;
+- with no twin it is uploaded as before.
+
+A held file is never uploaded, deleted, released locally, cleaned up with its archive or its torrent, until you choose on the **Merge** page, or on its upload page: **Upload as it is** (the server's media policy still applies) or **Delete file…**. Leaving it there waits for the twin, with no time limit. The page and the upload say why it was held, and which twin was found. The analysis and the merge itself come in the next versions.
 
 The `dyadrr` service mounts the watch folder writable as `/data/watch` (the job files in `<watch folder>/.wayfinderr/dyadrr/jobs`, the merged film and Dyadrr's temporary files) and the downloads read-only as `/data/downloads`. It keeps the fixed host name `dyadrr`: Dyadrr recognizes its own temporary files by host name, so the ones left by a job stopped abruptly are removed by the next job only if the name stays the same. Only one Dyadrr container per watch folder.
 
@@ -332,7 +338,9 @@ Served through the frontend (`http://localhost:3000/api/...`). Every route excep
 - `GET /api/rips/tmdb/search?query=&year=` - Search a film on TMDB
 
 ### Merge
-- `GET /api/merge` - Merge status (enabled, Dyadrr runner online, language supported)
+- `GET /api/merge` - Merge status (enabled, Dyadrr runner online, language supported, files held)
+- `POST /api/uploads/:id/hold/upload` - Upload a file held for a merge as it is
+- `POST /api/uploads/:id/hold/delete` - Delete a file held for a merge (file and record)
 
 ---
 

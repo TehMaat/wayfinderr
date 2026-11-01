@@ -6,12 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Chip } from '@/components/chip';
 import { EmptyState } from '@/components/empty-state';
+import { HeldNotice } from '@/components/held-notice';
 import { PageHeader } from '@/components/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip } from '@/components/ui/tooltip';
 import { mergeApi } from '@/lib/api';
 import { languageName } from '@/lib/rips';
-import type { MergeStatus } from '@/lib/store';
+import { useAppStore, type MergeStatus, type Upload } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 // The dyadrr container starts and stops outside Wayfinderr: refresh while the page is open
@@ -50,10 +51,31 @@ function SetupStrip({ status }: { status: MergeStatus }) {
   );
 }
 
+/** The files held for a merge, newest first, with why and what to do with each */
+function HeldFiles({ uploads }: { uploads: Upload[] }) {
+  return (
+    <Card className="flex flex-col gap-3 p-4">
+      <div className="space-y-1">
+        <h2 className="text-sm font-medium">Held for a merge ({uploads.length})</h2>
+        <p className="text-xs text-muted-foreground">
+          Not uploaded until you say so: files without Italian audio, and files whose twin of the same film (another
+          file, a rip or a torrent, by its titles in every language) is around, for sure or maybe. Leave them here to
+          wait for the twin, upload them as they are, or delete them.
+        </p>
+      </div>
+      {uploads.map((upload) => (
+        <HeldNotice key={upload.id} upload={upload} showName />
+      ))}
+    </Card>
+  );
+}
+
 export default function MergePage() {
   const [status, setStatus] = useState<MergeStatus | null>(null);
   const [failed, setFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const allUploads = useAppStore((s) => s.uploads);
+  const held = allUploads.filter((u) => u.status === 'HELD');
 
   const load = useCallback(async () => {
     try {
@@ -73,7 +95,7 @@ export default function MergePage() {
 
   const refresh = async () => {
     setRefreshing(true);
-    await load();
+    await Promise.all([load(), useAppStore.getState().loadUploads().catch(() => undefined)]);
     setRefreshing(false);
   };
 
@@ -100,14 +122,18 @@ export default function MergePage() {
       ) : status.enabled ? (
         <>
           <SetupStrip status={status} />
-          <Card>
-            <EmptyState
-              icon={Merge}
-              title="Nothing to merge yet"
-              description="The pairs of rips to merge will show here."
-              className="py-8"
-            />
-          </Card>
+          {held.length > 0 ? (
+            <HeldFiles uploads={held} />
+          ) : (
+            <Card>
+              <EmptyState
+                icon={Merge}
+                title="Nothing held for a merge"
+                description="A new file without Italian audio, or with a twin of the same film around, waits here instead of being uploaded."
+                className="py-8"
+              />
+            </Card>
+          )}
         </>
       ) : (
         <Card>
@@ -125,6 +151,9 @@ export default function MergePage() {
           />
         </Card>
       )}
+
+      {/* Held while merging was on: still here to upload or delete */}
+      {status && !status.enabled && held.length > 0 && <HeldFiles uploads={held} />}
     </div>
   );
 }

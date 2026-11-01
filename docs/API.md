@@ -325,7 +325,7 @@ GET /api/uploads?limit=50&offset=0&status=COMPLETED
 **Query Parameters:**
 - `limit`: Max results (default 50)
 - `offset`: Pagination offset (default 0)
-- `status`: Filter by status (PENDING, QUEUED, UPLOADING, COMPLETED, FAILED, SKIPPED, CANCELLED)
+- `status`: Filter by status (PENDING, QUEUED, UPLOADING, COMPLETED, FAILED, SKIPPED, CANCELLED, HELD)
 - `serverId`: Filter by server
 
 **Response:**
@@ -438,6 +438,24 @@ upload. Its `status` is `CANCELLED`, or `COMPLETED` if the transfer finished
 before it could be stopped.
 
 **Response:** 200 OK (the upload), 409 if the upload is not queued or uploading
+
+### Files Held for a Merge
+
+With `MERGE_ENABLED=true` a new file can be held for a merge instead of uploaded: its `status` is `HELD`, `holdKind` says why (`NO_ITALIAN`: no Italian audio; `TWIN`: a twin of the same film is around; `POSSIBLE_TWIN`: maybe one, or the download clients could not be searched) and `holdMessage` names the twin found (a held file, a rip, a torrent). See the README's *Merge with Dyadrr*. A held file is never uploaded, deleted, released locally or removed from the history until one of these:
+
+```
+POST /api/uploads/:id/hold/upload
+```
+
+Uploads it as it is: it goes to the upload queue (the server's media policy still applies, so a file without Italian is skipped with `SKIP_NO_ITA`). **Response:** 200 OK (the upload), 404, 409 if it is not held.
+
+```
+POST /api/uploads/:id/hold/delete
+```
+
+Deletes the file from the watch folder (one unpacked from an archive next to the downloads is deleted by the ripper) and its record. **Response:** 200 OK `{ "ok": true }`, 404, 409 if it is not held.
+
+`DELETE /api/uploads/:id` (remove from the history) answers 409 for a held file: its file would stay in the watch folder, never picked up again.
 
 ### Match Upload to its Torrent
 
@@ -846,12 +864,13 @@ GET /api/merge
     "languageSupported": true,
     "language": "it",
     "runnerAlive": true,
-    "runnerLastSeen": 3
+    "runnerLastSeen": 3,
+    "held": 2
   }
 }
 ```
 
-`runnerAlive`: the runner in the `dyadrr` container rewrote `<watch folder>/.wayfinderr/dyadrr/jobs/dyadrr.alive` in the last 30 seconds; `runnerLastSeen` is how many seconds ago (`null` when it never did, or merging is off). `languageSupported`: Dyadrr only works with Italian, so it is `false` unless `RIP_LANGUAGE` is `it`.
+`runnerAlive`: the runner in the `dyadrr` container rewrote `<watch folder>/.wayfinderr/dyadrr/jobs/dyadrr.alive` in the last 30 seconds; `runnerLastSeen` is how many seconds ago (`null` when it never did, or merging is off). `languageSupported`: Dyadrr only works with Italian, so it is `false` unless `RIP_LANGUAGE` is `it`. `held`: the uploads held for a merge (`HELD`), also when merging was turned off since.
 
 ## WebSocket
 
@@ -930,6 +949,16 @@ Upload failed.
     "error": "SSH connection timeout",
     "retryCount": 0
   }
+}
+```
+
+#### upload-held
+A new file held for a merge instead of uploaded (`MERGE_ENABLED`): `kind` is its `holdKind`.
+```json
+{
+  "type": "upload-held",
+  "uploadId": "upload123",
+  "kind": "TWIN"
 }
 ```
 

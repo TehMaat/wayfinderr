@@ -5,6 +5,7 @@ import {
   Clock,
   Combine,
   Hourglass,
+  Merge,
   Loader2,
   PackageOpen,
   ScanSearch,
@@ -28,6 +29,7 @@ export const STATUS_META: Record<
   FAILED: { label: 'Failed', icon: XCircle, variant: 'destructive', color: 'text-destructive' },
   CANCELLED: { label: 'Stopped', icon: CircleStop, variant: 'secondary', color: 'text-muted-foreground' },
   SKIPPED: { label: 'Skipped', icon: SkipForward, variant: 'warning', color: 'text-warning' },
+  HELD: { label: 'Held for merge', icon: Merge, variant: 'info', color: 'text-info' },
 };
 
 export function StatusBadge({ status, className }: { status: UploadStatus; className?: string }) {

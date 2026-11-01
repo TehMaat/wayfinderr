@@ -341,6 +341,7 @@ class ReleaseManager extends EventEmitter {
     if (local) {
       if (upload.status === 'COMPLETED') throw new ReleaseError('The file is already on a server: release it from there');
       if (upload.status === 'PENDING') throw new ReleaseError('The file is still being read: try again in a moment');
+      if (upload.status === 'HELD') throw new ReleaseError('The file is held for a merge: upload it as it is, or delete it, first');
       if (!existsSync(upload.filepath)) throw new ReleaseError(`The file is no longer here: ${upload.filepath}`);
       return { upload, server: localTarget(await this.localClientFor(upload)) };
     }

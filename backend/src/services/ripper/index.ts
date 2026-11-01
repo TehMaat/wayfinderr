@@ -1355,6 +1355,9 @@ class Ripper extends EventEmitter {
       if (upload && UPLOAD_RUNNING.includes(upload.status)) {
         throw new Error('The film is still being uploaded: wait for the upload to end, or stop it');
       }
+      if (upload?.status === 'HELD') {
+        throw new Error('The film is held for a merge: upload it or delete it first');
+      }
 
       // Only a film in the watch folder (every rip's is, but the path comes from the database)
       const relative = rip.outputFile ? path.relative(config.WATCH_DIR, rip.outputFile) : '';

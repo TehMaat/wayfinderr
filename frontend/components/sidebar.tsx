@@ -31,6 +31,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const filters = useAppStore((s) => s.filters);
   const setFilters = useAppStore((s) => s.setFilters);
   const ripsToChoose = useAppStore((s) => s.rips.filter((r) => r.status === 'NEEDS_ATTENTION').length);
+  const heldForMerge = useAppStore((s) => s.uploads.filter((u) => u.status === 'HELD').length);
 
   const activeServerIds = new Set(uploads.filter((u) => u.status === 'UPLOADING').map((u) => u.serverId));
 
@@ -68,6 +69,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 <Tooltip content={`${ripsToChoose} need a choice`} side="right">
                   <span className="ml-auto rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-warning tabular">
                     {ripsToChoose}
+                  </span>
+                </Tooltip>
+              )}
+              {href === '/merge' && heldForMerge > 0 && (
+                <Tooltip content={`${heldForMerge} held for a merge`} side="right">
+                  <span className="ml-auto rounded-full bg-info/15 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-info tabular">
+                    {heldForMerge}
                   </span>
                 </Tooltip>
               )}

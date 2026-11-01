@@ -1,4 +1,5 @@
 import { config } from '../../config/index.js';
+import { db } from '../database.js';
 import { DyadrrJobs } from './jobs.js';
 
 /**
@@ -10,7 +11,10 @@ import { DyadrrJobs } from './jobs.js';
 export const dyadrr = new DyadrrJobs(config.MERGE.JOBS_DIR, config.MERGE.FOLDERS);
 
 // Dyadrr only works with Italian: the merge needs the kept language to be Italian
-const languageSupported = () => config.RIP.LANGUAGE.toLowerCase() === 'it';
+export const languageSupported = () => config.RIP.LANGUAGE.toLowerCase() === 'it';
+
+/** Merging is on: new files may be held for a merge (see hold.ts). */
+export const mergeActive = () => config.MERGE.ENABLED && languageSupported();
 
 export const mergeStatus = async () => {
   const enabled = config.MERGE.ENABLED;
@@ -22,5 +26,7 @@ export const mergeStatus = async () => {
     // The Dyadrr container: seconds since its runner last checked in (null: never)
     runnerAlive: enabled ? await dyadrr.alive() : false,
     runnerLastSeen: lastSeen,
+    // Files held for a merge (also when merging was turned off since)
+    held: (await db.getUploadsByStatus('HELD')).length,
   };
 };

@@ -40,6 +40,32 @@ export async function deleteUpload(id: string): Promise<boolean> {
   }
 }
 
+/** A file held for a merge goes to the upload queue as it is */
+export async function uploadHeld(id: string) {
+  try {
+    await uploadsApi.uploadHeld(id);
+    await useAppStore.getState().refreshUpload(id);
+    useAppStore.getState().loadStats().catch(() => undefined);
+    toast.success('Upload queued');
+  } catch (err) {
+    toast.error('Upload failed', { description: errorMessage(err) });
+  }
+}
+
+/** A file held for a merge is deleted, file and record */
+export async function deleteHeld(id: string): Promise<boolean> {
+  try {
+    await uploadsApi.deleteHeld(id);
+    useAppStore.getState().removeUpload(id);
+    useAppStore.getState().loadStats().catch(() => undefined);
+    toast.success('File deleted');
+    return true;
+  } catch (err) {
+    toast.error('Delete failed', { description: errorMessage(err) });
+    return false;
+  }
+}
+
 /** Several uploads removed from the history at once */
 export async function deleteUploads(ids: string[]) {
   const results = await Promise.allSettled(ids.map((id) => uploadsApi.deleteUpload(id)));

@@ -1,7 +1,11 @@
 import { create } from 'zustand';
 import { clientsApi, ripsApi, serversApi, spaceApi, systemApi, uploadsApi } from './api';
 
-export type UploadStatus = 'PENDING' | 'QUEUED' | 'UPLOADING' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'CANCELLED';
+// HELD: kept for a merge (MERGE_ENABLED), uploaded only when released by hand
+export type UploadStatus = 'PENDING' | 'QUEUED' | 'UPLOADING' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'CANCELLED' | 'HELD';
+
+// Why a file is held: no Italian audio, a twin of the same film around, or maybe one
+export type HoldKind = 'NO_ITALIAN' | 'TWIN' | 'POSSIBLE_TWIN';
 
 export type TorrentStatus = 'NO_MATCH' | 'REVIEW' | 'WAITING' | 'REMOVED' | 'ERROR';
 
@@ -68,7 +72,7 @@ export interface ReleasePreview {
   error: string | null;
 }
 
-export const UPLOAD_STATUSES: UploadStatus[] = ['UPLOADING', 'QUEUED', 'PENDING', 'COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED'];
+export const UPLOAD_STATUSES: UploadStatus[] = ['UPLOADING', 'QUEUED', 'PENDING', 'HELD', 'COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED'];
 
 export interface Upload {
   id: string;
@@ -116,6 +120,9 @@ export interface Upload {
   releaseTorrentPath: string | null;
   releaseTorrentHash: string | null;
   tmdbId: number | null; // the film on TMDB the tracker command went on with
+  // Held for a merge (status HELD): why, and the twin found
+  holdKind: HoldKind | null;
+  holdMessage: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -319,6 +326,7 @@ export interface MergeStatus {
   language: string;
   runnerAlive: boolean;
   runnerLastSeen: number | null; // seconds since the runner last checked in
+  held: number; // files held for a merge
 }
 
 interface Transfer {

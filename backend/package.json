@@ -1,6 +1,6 @@
 {
   "name": "wayfinderr-backend",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "description": "Wayfinderr - Automatic MKV file uploader with smart server selection",
   "main": "dist/index.js",
   "scripts": {
