@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowLeft, AudioLines, Captions, Clapperboard, Download, ExternalLink, FilePlus, FileVideo, Film, Magnet, RotateCcw, Search, Square, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, AudioLines, Captions, Clapperboard, Download, ExternalLink, FilePlus, FileVideo, Film, Magnet, RefreshCw, RotateCcw, Search, Square, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -378,6 +379,20 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
       .catch((err) => setProbe((p) => ({ ...p, running: false, error: errorMessage(err) })));
   }, [needsProbe, probe.tried, params.id]);
 
+  // By hand: the file changed (track languages fixed with mkvpropedit, a new rip): read it again
+  const readMediaAgain = async () => {
+    setProbe({ running: true, error: null, tried: true });
+    try {
+      await uploadsApi.probeMedia(params.id);
+      await useAppStore.getState().refreshUpload(params.id);
+      setProbe((p) => ({ ...p, running: false }));
+      toast.success('Media info read again');
+    } catch (err) {
+      setProbe((p) => ({ ...p, running: false, error: errorMessage(err) }));
+      toast.error('Could not read the media info', { description: errorMessage(err) });
+    }
+  };
+
   if (!upload) {
     return (
       <div className="mx-auto max-w-5xl p-4 md:p-6">
@@ -556,6 +571,18 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
       <TorrentCard upload={upload} />
 
       <ReleaseCard upload={upload} />
+
+      {upload.status !== 'PENDING' && (
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-medium">Media info</h2>
+          <Tooltip content="Read the file's tracks again (after fixing their languages with mkvpropedit, say)">
+            <Button variant="outline" size="sm" onClick={readMediaAgain} disabled={probe.running}>
+              <RefreshCw className={cn(probe.running && 'animate-spin')} />
+              Read again
+            </Button>
+          </Tooltip>
+        </div>
+      )}
 
       {media.detailed && media.container ? (
         <div className="grid gap-4 md:grid-cols-2">
