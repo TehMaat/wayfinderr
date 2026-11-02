@@ -404,7 +404,7 @@ GET /api/uploads/:id
 POST /api/uploads/:id/media
 ```
 
-Runs ffprobe on the local file again and stores the result (the upload detail page calls it for uploads without `container`). When the local file is gone, a `COMPLETED` upload is probed on the server instead (ffprobe over SSH, on `remotePath`). Returns the updated upload; `409` when the file is in neither place.
+Runs ffprobe on the local file again and stores the result (the upload detail page calls it for uploads without `container`, and its **Read again** button any time). When the local file is gone, a `COMPLETED` upload is probed on the server instead (ffprobe over SSH, on `remotePath`). Returns the updated upload; `409` when the file is in neither place.
 
 ### Retry Failed Upload
 
