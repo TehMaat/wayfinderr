@@ -210,3 +210,20 @@ test('the container is alive when dyadrr.alive is at most 30 s old', async () =>
     assert.equal(await jobs.lastSeen(now), null);
   });
 });
+
+test('a job still queued is withdrawn; one the runner claimed is not', async () => {
+  await withJobs(async (jobs, root) => {
+    const inputs: [string, string] = [path.join(root, 'watch', 'A.mkv'), path.join(root, 'watch', 'B.mkv')];
+    const queued = await jobs.submit({ command: 'analyze', inputs });
+    assert.equal(await jobs.withdraw(queued), true);
+    assert.deepEqual(await jobs.state(queued), { state: 'missing' });
+
+    const claimed = await jobs.submit({ command: 'analyze', inputs });
+    const file = (ext: string) => path.join(jobs.jobsDir, `${claimed}.${ext}`);
+    await rm(file('job'));
+    await writeFile(file('run'), '');
+    assert.equal(await jobs.withdraw(claimed), false);
+    assert.deepEqual(await jobs.state(claimed), { state: 'running' });
+    assert.deepEqual(await readdir(jobs.jobsDir), [`${claimed}.run`]);
+  });
+});

@@ -272,6 +272,23 @@ export class DyadrrJobs {
     await writeFile(this.file(id, 'cancel'), '', { mode: 0o666 });
   }
 
+  /**
+   * Takes back a job the runner has not claimed yet (it runs one job at a time, so a
+   * job can wait behind a long one): true when withdrawn, false when the runner got it
+   * first. Both sides rename the .job, so only one of them can win.
+   */
+  async withdraw(id: string): Promise<boolean> {
+    const taken = path.join(this.jobsDir, `.${id}.withdrawn`);
+    try {
+      await rename(this.file(id, 'job'), taken);
+    } catch {
+      return false;
+    }
+    await rm(taken, { force: true });
+    await this.remove(id);
+    return true;
+  }
+
   /** Removes the job's files, once its .exit has been read (or it never started). */
   async remove(id: string): Promise<void> {
     for (const ext of JOB_FILES) await rm(this.file(id, ext), { force: true });
