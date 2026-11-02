@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Merge: stopping an analysis or a merge still queued in the Dyadrr container (which runs one job at a time, so a job can wait behind a long one) did nothing until its turn came. The queued job is now withdrawn at once and the pair is stopped right away; a running one gets SIGTERM as before. The card says the job is queued behind another one
+
 ### Added
 - Merge with Dyadrr, fifth part: with merging on, a disc without Italian is ripped instead of waiting for a choice, keeping the original language and English (never offered as the language in place of a missing original one), and its file is held for the merge. One writer at a time: a merge waits for the rip, unpacking or join in progress (a waiting merge can be stopped before it starts), and the rips wait for a running merge
 - Merge with Dyadrr, fourth part: the merge. **Merge…** on a pair that can be merged asks the choices left pending (with what each value does) and the merged file's name, the film's usual one (rip, TMDB, or the better video's name), in the watch folder; a file with that name already there (locally or on a server) is replaced only once confirmed, else the merge stops to let you check. Dyadrr merges with `--expect` on the confirmed analysis, followed live; the merged file is uploaded as it is (never held), the two inputs become `MERGED` and are kept or deleted (new setting in **Choices**; files in the downloads are never deleted), and once the merged file is on a server the source torrents of both inputs are cleaned up. A merge stopped or failed leaves the pair mergeable, with the reason. `POST /api/merge/pairs/:id/merge`, `GET /api/merge/pairs/:id/merge-preview`, `GET /api/merge/pairs/:id/merge-report`, `inputs` in `/api/merge/settings`, `MERGING`/`MERGED` pair statuses, `MERGED` upload status, `upload-merged` WebSocket event

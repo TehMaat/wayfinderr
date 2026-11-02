@@ -343,6 +343,14 @@ class MergePairs extends EventEmitter {
       return publicPair(updated);
     }
     if (!ACTIVE.includes(pair.status) || !pair.jobId) throw new MergeError(`The pair is ${pair.status}, nothing to stop`);
+    // Still queued (the runner is busy with another job): withdrawn now, not when its turn comes
+    if (await dyadrr.withdraw(pair.jobId)) {
+      logger.info({ pairId: id, jobId: pair.jobId, status: pair.status }, 'Merge job withdrawn before it started');
+      const message = 'Stopped before Dyadrr started it';
+      if (pair.status === 'MERGING') await this.finishMerge(pair, null, 'cancelled', 'CANCELLED', message);
+      else await this.finish(pair, null, 'cancelled', 'CANCELLED', message);
+      return publicPair(await this.find(id));
+    }
     await dyadrr.cancel(pair.jobId);
     logger.info({ pairId: id, jobId: pair.jobId, status: pair.status }, 'Merge job stop requested');
     return publicPair(pair);
