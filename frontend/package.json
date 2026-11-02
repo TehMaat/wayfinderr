@@ -1,6 +1,6 @@
 {
   "name": "wayfinderr-frontend",
-  "version": "0.23.1",
+  "version": "0.23.2",
   "description": "Wayfinderr - Frontend UI for automatic MKV file uploader",
   "private": true,
   "scripts": {

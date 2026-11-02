@@ -288,6 +288,11 @@ class MergePairs extends EventEmitter {
       fileA: uploads[0].filepath,
       fileB: uploads[1].filepath,
       originalLanguage: language ?? (await this.originalLanguageOf(uploads)),
+      // Not ANALYZING (the column's default) until its job is written: analyze() refuses
+      // a pair already analyzing, and one that fails to start can be analyzed again
+      status: 'ERROR',
+      reasonCode: 'NOT_STARTED',
+      reasonMessage: 'The analysis has not started yet',
     });
     logger.info({ pairId: pair.id, files: [pair.fileA, pair.fileB], originalLanguage: pair.originalLanguage }, 'Merge pair created');
     return this.analyze(pair.id);
@@ -332,6 +337,11 @@ class MergePairs extends EventEmitter {
   /** Stops an analysis or a merge: Dyadrr gets SIGTERM (or never starts it), and its report says cancelled. */
   async cancel(id: string): Promise<PublicPair> {
     const pair = await this.find(id);
+    // An analysis that never got its job (pairs created before 0.23.2): nothing runs
+    if (pair.status === 'ANALYZING' && !pair.jobId) {
+      await this.finish(pair, null, 'cancelled', 'CANCELLED', 'Stopped before Dyadrr started it');
+      return publicPair(await this.find(id));
+    }
     // A merge still waiting for the rips: never started, eligible again
     if (pair.status === 'MERGING' && !pair.jobId) {
       const updated = await db.updateMergePair(id, {
@@ -603,7 +613,11 @@ class MergePairs extends EventEmitter {
         }
         continue;
       }
-      if (!pair.jobId) continue;
+      // An analysis without a job never started (a pair created before 0.23.2): analyze again
+      if (!pair.jobId) {
+        await this.finish(pair, null, 'error', 'NOT_STARTED', 'The analysis never started: analyze again');
+        continue;
+      }
       try {
         await this.follow(pair, pair.jobId);
       } catch (error) {
