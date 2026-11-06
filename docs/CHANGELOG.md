@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Read again** button over the media info of an upload page: reads the file's tracks again with ffprobe, after it changed on the disk (track languages fixed with `mkvpropedit`, a disc whose English is tagged as Italian), so the page shows them (Dyadrr always reads the file itself). Uses `POST /api/uploads/:id/media`, so a file already on a server is read there
+
 ### Fixed
 - Merge: pairing two files never started their analysis. The new pair was saved as already analyzing (the column's default), so the analysis refused to start ("already being analyzed"): the pair stayed *Queued* for good, with no Dyadrr job, and Stop could not stop it. A new pair now starts as not analyzed and goes to analyzing once its job is written; pairs left stuck that way end as *Error* (`NOT_STARTED`) on their own, to analyze again, and Stop works on them too
 - Merge: stopping an analysis or a merge still queued in the Dyadrr container (which runs one job at a time, so a job can wait behind a long one) did nothing until its turn came. The queued job is now withdrawn at once and the pair is stopped right away; a running one gets SIGTERM as before. The card says the job is queued behind another one
