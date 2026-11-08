@@ -19,7 +19,11 @@ const KEYS = {
   passwordHash: 'auth_password_hash',
   tokenVersion: 'auth_token_version',
   sessionSecret: 'auth_session_secret',
+  apiKey: 'api_key',
 };
+
+// Header other services (bookrr, scripts) send the API key in
+export const API_KEY_HEADER = 'x-api-key';
 
 export const SESSION_COOKIE = 'wayfinderr_session';
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -129,7 +133,32 @@ export const changePassword = async (newPassword: string): Promise<string> =>
 /** Deletes the account (CLI recovery): the setup screen opens again. */
 export const resetAccount = async (): Promise<void> => {
   await revokeAllSessions();
-  await db.deleteSettings([KEYS.username, KEYS.passwordHash]);
+  await db.deleteSettings([KEYS.username, KEYS.passwordHash, KEYS.apiKey]);
+};
+
+// --- API key ---
+
+const newApiKey = () => randomBytes(24).toString('hex');
+
+/**
+ * The API key, created on first use: sent in the X-Api-Key header it works like a
+ * login on every /api route and on the WebSocket. Read from the database each time
+ * (never cached), so a key regenerated or deleted by `reset-auth` stops at once.
+ */
+export const getApiKey = (): Promise<string> => db.getOrCreateSetting(KEYS.apiKey, newApiKey);
+
+/** A new API key: the old one stops working at once. */
+export const regenerateApiKey = async (): Promise<string> => {
+  const key = newApiKey();
+  await db.setSettings({ [KEYS.apiKey]: key });
+  return key;
+};
+
+/** The X-Api-Key header, when sent (the first one if repeated). */
+export const apiKeyOf = (headers: IncomingHttpHeaders): string | null => {
+  const value = headers[API_KEY_HEADER];
+  const key = (Array.isArray(value) ? value[0] : value)?.trim();
+  return key ? key : null;
 };
 
 // --- Session tokens ---
@@ -165,8 +194,17 @@ const readCookie = (cookieHeader: string | undefined, name: string): string | un
   return undefined;
 };
 
-/** The username of a valid session cookie, otherwise null. */
+/** The username of a valid session cookie or API key, otherwise null. */
 export const authenticate = async (headers: IncomingHttpHeaders, account?: Account | null): Promise<string | null> => {
+  // An API key, when sent, decides alone: a wrong one is refused even with a cookie
+  const key = apiKeyOf(headers);
+  if (key !== null) {
+    const current = account === undefined ? await getAccount() : account;
+    if (!current) return null;
+    const stored = (await db.getSettings([KEYS.apiKey]))[KEYS.apiKey];
+    return stored && safeEqual(key, stored) ? current.username : null;
+  }
+
   const token = readCookie(headers.cookie, SESSION_COOKIE);
   if (!token) return null;
   const [payload, signature] = token.split('.');

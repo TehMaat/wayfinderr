@@ -24,6 +24,8 @@ import systemRoutes from './routes/system.js';
 import clientRoutes from './routes/clients.js';
 import releaseRoutes from './routes/release.js';
 import mergeRoutes from './routes/merge.js';
+import sourceTorrentRoutes from './routes/sourceTorrents.js';
+import { sourceTorrents } from './services/sourceTorrents.js';
 import { releaseManager } from './services/release/index.js';
 import { mergeActive } from './services/merge/index.js';
 import { checkHold, HoldDecision } from './services/merge/hold.js';
@@ -64,6 +66,7 @@ app.use('/api/rips', ripRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/merge', mergeRoutes);
+app.use('/api/source-torrents', sourceTorrentRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -224,6 +227,10 @@ torrentCleanup.on('torrent-updated', ({ uploadId, torrentStatus, byHand }) => {
     byHand,
   });
 });
+// A .torrent sent beforehand (bookrr) copied into its upload: nothing removed
+sourceTorrents.on('torrent-updated', ({ uploadId, torrentStatus }) => {
+  broadcast({ type: 'torrent-updated', uploadId, torrentStatus, byHand: true });
+});
 
 // Torrents paused or resumed for low disk space: the Clients page refetches
 spaceGuard.on('client-updated', ({ clientId, paused, message, first }) => {
@@ -305,6 +312,11 @@ const processFile = async (event: FileDetectedEvent, existingUploadId?: string) 
             status: 'PENDING',
           });
     uploadId = upload.id;
+
+    // The rip is done (or the file is here): the source .torrent sent beforehand, if any
+    await sourceTorrents
+      .attachToNewUpload(upload.id)
+      .catch((error) => logger.error({ uploadId: upload.id, error }, 'Failed to copy the source .torrent'));
 
     // Parse media info
     const mediaInfo = await mediaInfoParser.parseFile(event.filepath);

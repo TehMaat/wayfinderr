@@ -33,6 +33,7 @@ import { ClientDialog } from '@/components/client-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
+import { SourceTorrentsCard } from '@/components/source-torrents-card';
 import { deleteClient, testClient } from '@/lib/actions';
 import { useAppStore, type TorrentClient } from '@/lib/store';
 import { cn, timeAgo } from '@/lib/utils';
@@ -251,6 +252,8 @@ export default function ClientsPage() {
           ))}
         </div>
       )}
+
+      <SourceTorrentsCard />
 
       <ClientDialog open={dialogOpen} onOpenChange={setDialogOpen} client={editing} />
     </div>

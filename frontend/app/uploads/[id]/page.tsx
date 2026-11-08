@@ -35,7 +35,7 @@ import {
 } from '@/lib/media';
 import { destinationName, missingInfo, uploadName } from '@/lib/release';
 import { tmdbUrl } from '@/lib/rips';
-import { useAppStore, type TorrentStatus, type Upload } from '@/lib/store';
+import { useAppStore, type MergePair, type TorrentStatus, type Upload } from '@/lib/store';
 import { cn, errorMessage, formatBitrate, formatBytes, formatDate, formatDuration, formatSpeed } from '@/lib/utils';
 
 
@@ -206,7 +206,8 @@ const TORRENT_STATUS: Record<TorrentStatus, { label: string; variant: 'success' 
   ERROR: { label: 'Error', variant: 'destructive' },
 };
 
-function TorrentCard({ upload }: { upload: Upload }) {
+/** The source torrent card; source: shown on a merged file, for one of its two inputs */
+function TorrentCard({ upload, source }: { upload: Upload; source?: string }) {
   const hasClients = useAppStore((s) => s.clients.some((c) => c.enabled));
   const client = useAppStore((s) => s.clients.find((c) => c.id === upload.torrentClientId));
   const clientName = client?.name;
@@ -214,9 +215,16 @@ function TorrentCard({ upload }: { upload: Upload }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Shown while the upload runs too (removal by hand only), and when the feature is set up
+  // Shown while the upload runs too (removal by hand only), for a file held for (or done by) a
+  // merge, and when the feature is set up or a .torrent is kept
   const inProgress = upload.status === 'PENDING' || upload.status === 'QUEUED' || upload.status === 'UPLOADING';
-  if ((upload.status !== 'COMPLETED' && !inProgress) || (!upload.torrentStatus && !hasClients)) return null;
+  const merging = upload.status === 'HELD' || upload.status === 'MERGED';
+  if (
+    (upload.status !== 'COMPLETED' && !inProgress && !merging) ||
+    (!upload.torrentStatus && !hasClients && !upload.torrentFileName)
+  ) {
+    return null;
+  }
 
   const status = upload.torrentStatus ? TORRENT_STATUS[upload.torrentStatus] : null;
   const canRemove =
@@ -244,9 +252,15 @@ function TorrentCard({ upload }: { upload: Upload }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Magnet className="h-4 w-4 text-muted-foreground" />
-          Source torrent
+        <CardTitle className="flex min-w-0 items-center gap-2">
+          <Magnet className="h-4 w-4 shrink-0 text-muted-foreground" />
+          {source ? (
+            <Link href={`/uploads/${upload.id}`} className="min-w-0 truncate hover:text-primary hover:underline" title={upload.filename}>
+              {source}: {upload.filename}
+            </Link>
+          ) : (
+            'Source torrent'
+          )}
         </CardTitle>
         {status ? <Badge variant={status.variant}>{status.label}</Badge> : <Badge variant="secondary">Not checked</Badge>}
       </CardHeader>
@@ -341,11 +355,54 @@ function TorrentCard({ upload }: { upload: Upload }) {
   );
 }
 
+/** A merged file has no source torrent of its own: its sources are the torrents of its two inputs */
+function MergeSourcesCard({ pair }: { pair: MergePair }) {
+  const inputA = useAppStore((s) => s.uploads.find((u) => u.id === pair.uploadAId));
+  const inputB = useAppStore((s) => s.uploads.find((u) => u.id === pair.uploadBId));
+  const inputs = [inputA, inputB];
+  const missing = inputs.map((u, i) => (u ? null : [pair.uploadAId, pair.uploadBId][i])).filter(Boolean).join(',');
+
+  // Inputs older than the loaded list are fetched on demand
+  useEffect(() => {
+    if (missing) missing.split(',').forEach((id) => useAppStore.getState().refreshUpload(id));
+  }, [missing]);
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <h2 className="flex items-center gap-2 text-sm font-medium">
+          <Magnet className="h-4 w-4 text-muted-foreground" />
+          Source torrents
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          Merged from two files: each one has its own source torrent and .torrent. The merged file&apos;s own .torrent is the
+          release one, below, once it is on the tracker.
+        </p>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        {inputs.map((input, i) => {
+          const label = i === 0 ? 'A' : 'B';
+          if (input) return <TorrentCard key={input.id} upload={input} source={label} />;
+          return (
+            <Card key={label}>
+              <CardContent className="pt-6 text-sm text-muted-foreground">
+                {label}: {(i === 0 ? pair.fileA : pair.fileB).split(/[\\/]/).pop()} is no longer in the uploads.
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function UploadDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const upload = useAppStore((s) => s.uploads.find((u) => u.id === params.id));
   const transfer = useAppStore((s) => s.transfers[params.id]);
   const rip = useAppStore((s) => (upload ? ripOfUpload(s.rips, upload) : undefined));
+  // The merged file of a pair: its sources are the pair's two inputs
+  const mergedFrom = useAppStore((s) => (upload ? s.mergePairs.find((p) => p.outputUploadId === upload.id) : undefined));
   const [loading, setLoading] = useState(!upload);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
@@ -568,7 +625,7 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
         </Card>
       </div>
 
-      <TorrentCard upload={upload} />
+      {mergedFrom ? <MergeSourcesCard pair={mergedFrom} /> : <TorrentCard upload={upload} />}
 
       <ReleaseCard upload={upload} />
 

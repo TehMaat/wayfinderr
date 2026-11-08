@@ -1,4 +1,4 @@
-import { MergePair, PrismaClient, Prisma, Rip, Upload, Server, TorrentClient } from '@prisma/client';
+import { MergePair, PrismaClient, Prisma, Rip, SourceTorrent, Upload, Server, TorrentClient } from '@prisma/client';
 import logger from '../config/logger.js';
 
 export class DatabaseService {
@@ -380,6 +380,69 @@ export class DatabaseService {
 
   async deleteMergePair(id: string): Promise<void> {
     await this.prisma.mergePair.delete({ where: { id } });
+  }
+
+  // Source torrents' .torrent files sent before their upload (services/sourceTorrents.ts)
+  private sourceTorrentFields = Object.fromEntries(
+    Object.values(Prisma.SourceTorrentScalarFieldEnum)
+      .filter((field) => field !== 'data')
+      .map((field) => [field, true])
+  ) as Record<Prisma.SourceTorrentScalarFieldEnum, boolean>;
+
+  async getSourceTorrents(): Promise<Omit<SourceTorrent, 'data'>[]> {
+    return this.prisma.sourceTorrent.findMany({ select: this.sourceTorrentFields, orderBy: { createdAt: 'desc' } });
+  }
+
+  async getSourceTorrent(infoHash: string): Promise<SourceTorrent | null> {
+    return this.prisma.sourceTorrent.findUnique({ where: { infoHash } });
+  }
+
+  async getSourceTorrentsByNames(names: string[]): Promise<SourceTorrent[]> {
+    return names.length ? this.prisma.sourceTorrent.findMany({ where: { name: { in: names } } }) : [];
+  }
+
+  async upsertSourceTorrent(
+    infoHash: string,
+    create: Omit<Prisma.SourceTorrentCreateInput, 'infoHash'>,
+    update: Prisma.SourceTorrentUpdateInput
+  ): Promise<void> {
+    await this.prisma.sourceTorrent.upsert({ where: { infoHash }, create: { infoHash, ...create }, update, select: { infoHash: true } });
+  }
+
+  async markSourceTorrentAttached(infoHash: string): Promise<void> {
+    await this.prisma.sourceTorrent.updateMany({ where: { infoHash }, data: { attachedAt: new Date() } });
+  }
+
+  async deleteSourceTorrent(infoHash: string): Promise<boolean> {
+    return (await this.prisma.sourceTorrent.deleteMany({ where: { infoHash } })).count > 0;
+  }
+
+  // The uploads whose source torrent has one of these hashes, by hash (lowercase)
+  async getUploadIdsByTorrentHashes(hashes: string[]): Promise<Record<string, string[]>> {
+    if (hashes.length === 0) return {};
+    const variants = [...new Set(hashes.flatMap((h) => [h.toLowerCase(), h.toUpperCase()]))];
+    const uploads = await this.prisma.upload.findMany({
+      where: { torrentHash: { in: variants } },
+      select: { id: true, torrentHash: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const out: Record<string, string[]> = {};
+    for (const { id, torrentHash } of uploads) (out[torrentHash!.toLowerCase()] ??= []).push(id);
+    return out;
+  }
+
+  async getUploadsByTorrentHash(hash: string): Promise<Upload[]> {
+    return this.prisma.upload.findMany({
+      where: { torrentHash: { in: [hash.toLowerCase(), hash.toUpperCase()] } },
+      select: this.detailFields,
+    }) as Promise<Upload[]>;
+  }
+
+  // Uploads whose file is under this folder, or is this file
+  async getUploadsByPathPrefix(prefix: string): Promise<Upload[]> {
+    return this.prisma.upload.findMany({ where: { filepath: { startsWith: prefix } }, select: this.detailFields }) as Promise<
+      Upload[]
+    >;
   }
 
   async disconnect(): Promise<void> {

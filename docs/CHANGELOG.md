@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Source .torrent files sent before their upload exists (issue #60): by bookrr, once the download is complete, or by hand (**Clients** page, *Source .torrent files*, which lists them, downloads and deletes them). Each one is kept for good and copied into its upload as soon as the rip of its download is done (the rip's download has the torrent's name), or when a file of the watch folder sits under that name, or when the upload is matched to its hash; the torrent cleanup then looks for that very hash in the clients, a certain match. A torrent cleanup that finds no torrent no longer drops the .torrent kept. `SourceTorrent` model, `/api/source-torrents`
+- API key (issue #60), for bookrr and scripts: sent in the `X-Api-Key` header it works like a login on every API and on the WebSocket. Shown, copied and regenerated from the account menu (**API key**). `GET/POST /api/auth/api-key`
+- Merge: a source .torrent for each of the two files (issue #60). The **Source torrent** card now shows on files held for a merge and on merged inputs too, and "Add .torrent…" works on them; the merged file has no source torrent of its own (no more name match on it, which found one of the two at random or none) and its page shows the two inputs' source torrents instead
 - **Read again** button over the media info of an upload page: reads the file's tracks again with ffprobe, after it changed on the disk (track languages fixed with `mkvpropedit`, a disc whose English is tagged as Italian), so the page shows them (Dyadrr always reads the file itself). Uses `POST /api/uploads/:id/media`, so a file already on a server is read there
 
 ### Fixed

@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { useAuthStore } from './auth';
-import type { MergeCandidate, MergeChoiceSettings, MergeInputsAfter, MergePair, MergeStatus, ReleaseFlags, ReleasePreview, ReleaseProposal, Rip, RipperStatus, TmdbMovie, Upload } from './store';
+import type { MergeCandidate, MergeChoiceSettings, MergeInputsAfter, MergePair, MergeStatus, ReleaseFlags, ReleasePreview, ReleaseProposal, Rip, RipperStatus, SourceTorrent, TmdbMovie, Upload } from './store';
 
 // Same-origin requests: the frontend server proxies /api to the backend.
 // The session is an HttpOnly cookie the browser sends on its own.
@@ -57,6 +57,9 @@ export const authApi = {
   logoutEverywhere: () => trackSessionChange(apiClient.post('/api/auth/logout-everywhere')),
   changePassword: (data: { currentPassword: string; newPassword: string }) =>
     trackSessionChange(apiClient.post('/api/auth/change-password', data)),
+  // The API key other services (bookrr, scripts) send as X-Api-Key
+  getApiKey: () => apiClient.get<{ apiKey: string }>('/api/auth/api-key'),
+  regenerateApiKey: () => apiClient.post<{ apiKey: string }>('/api/auth/api-key'),
 };
 
 // Servers API
@@ -139,6 +142,17 @@ export const clientsApi = {
   testClient: (id: string) => apiClient.post(`/api/clients/${id}/test`, null, { timeout: 45000 }),
 };
 
+// Source torrents' .torrent files sent before their upload exists (bookrr, by hand)
+export const sourceTorrentsApi = {
+  list: () => apiClient.get<SourceTorrent[]>('/api/source-torrents'),
+  add: (file: File) =>
+    apiClient.post<SourceTorrent>('/api/source-torrents', file, {
+      params: { name: file.name },
+      headers: { 'Content-Type': 'application/x-bittorrent' },
+    }),
+  remove: (infoHash: string) => apiClient.delete(`/api/source-torrents/${infoHash}`),
+  fileUrl: (infoHash: string) => `/api/source-torrents/${infoHash}/file`,
+};
 
 // Rips API (film discs ripped with MakeMKV)
 export const ripsApi = {

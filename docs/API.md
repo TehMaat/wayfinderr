@@ -19,7 +19,13 @@ One account, created on first access with the setup code from the backend log. S
 | Status | `code` | When |
 |--------|--------|------|
 | 401 | `auth_setup_required` | The account does not exist yet (or was deleted with `reset-auth`) |
-| 401 | `auth_required` | No cookie, or a session that expired or was revoked (password changed, sign out everywhere) |
+| 401 | `auth_required` | No cookie, or a session that expired or was revoked (password changed, sign out everywhere); a wrong API key |
+
+**API key.** Other services (bookrr) and scripts send the API key in the `X-Api-Key` header instead of the cookie: it works like a login on every `/api` route and on the WebSocket. A key is created on first use, shown in the account menu (**API key**) and regenerated there; the old one stops working at once. When the header is sent it alone decides: a wrong key is refused even with a valid cookie. `reset-auth` deletes it.
+
+```bash
+curl -H "X-Api-Key: $WAYFINDERR_API_KEY" http://localhost:3001/api/source-torrents
+```
 
 **Cross-site requests.** POST, PUT, PATCH and DELETE on any route, and the WebSocket, are refused with 403 `cross_site_request` when the browser marks them as coming from another site: `Sec-Fetch-Site` other than `same-origin`/`none` or, without it, an `Origin` whose host differs from the page's host. curl and scripts send neither header and pass.
 
@@ -107,6 +113,15 @@ POST /api/auth/logout-everywhere
 ```
 
 Needs a session. **Response:** 204 No Content. Every session ends, this one included, and the cookie is cleared.
+
+### API Key
+
+```
+GET /api/auth/api-key
+POST /api/auth/api-key
+```
+
+Needs a session (or the key). `GET` returns `{ "apiKey": "…" }`, creating it on first use; `POST` makes a new one and returns it, and the old one stops working at once.
 
 ## Servers API
 
@@ -483,7 +498,7 @@ Content-Type: application/x-bittorrent
 
 For source torrents removed before their tracker was kept, or not found: the body is the source torrent's .torrent file (up to 10 MB), downloaded again from its tracker, its file name in `?name=` (optional, else the torrent's name). Its tracker host (from `announce`, else `announce-list`) goes into `torrentTracker`; the file itself is kept with each upload it is for (`torrentFileName`), replacing the one before.
 
-- `/:id/torrent/file`: for this upload. `REMOVED`: fills `torrentHash` (and `torrentName`) when unknown; `409` when the upload knows another hash. Any other `torrentStatus` (not checked, `NO_MATCH`, `REVIEW`, `ERROR`) on a `COMPLETED` upload: the .torrent becomes its source torrent (`torrentName`, `torrentHash`, `torrentTracker`, `torrentScore` `null`), and the enabled clients are asked for its hash: still in one, `REVIEW` (removed by hand only, never automatically), in none `REMOVED`. `409` while `WAITING` or before the upload completes, `502` when a client cannot be reached to tell. Returns the updated upload.
+- `/:id/torrent/file`: for this upload. `REMOVED`: fills `torrentHash` (and `torrentName`) when unknown; `409` when the upload knows another hash. Any other `torrentStatus` (not checked, `NO_MATCH`, `REVIEW`, `ERROR`) on a `COMPLETED` upload, or on one `HELD` for a merge or `MERGED` (an input of a merge): the .torrent becomes its source torrent (`torrentName`, `torrentHash`, `torrentTracker`, `torrentScore` `null`), and the enabled clients are asked for its hash: still in one, `REVIEW` (removed by hand only, never automatically), in none `REMOVED`. `409` while `WAITING` or before the upload completes, and on the merged file of a pair (its source torrents are the ones of its two inputs: add each .torrent there), `502` when a client cannot be reached to tell. Returns the updated upload.
 - `/torrent-file`: for every `REMOVED` upload with the .torrent's info hash (several .torrents are sent one per request). Returns `{ name, infoHash, tracker, uploadIds }`, `404` when no removed source torrent has that hash.
 
 `400` when the body is not a .torrent, `415` without the content type, `422` when the .torrent names no tracker. Each upload changed sends `torrent-updated` with `byHand: true`.
@@ -492,7 +507,59 @@ For source torrents removed before their tracker was kept, or not found: the bod
 GET /api/uploads/:id/torrent/file
 ```
 
-The source .torrent kept, as a download (`application/x-bittorrent`); `404` when there is none. It is dropped when "Check again" matches the upload to another torrent.
+The source .torrent kept, as a download (`application/x-bittorrent`); `404` when there is none. It is dropped when "Check again" matches the upload to another torrent (and that torrent's .torrent is copied in, when it was sent beforehand); a check that finds no torrent keeps it, with its hash.
+
+**Merged files.** The merged file of a pair has no source torrent of its own: it is never matched to one (`POST /api/uploads/:id/torrent/check` answers `409`), and its sources are the torrents of the pair's two inputs (`uploadAId`, `uploadBId`), each with its own .torrent, shown on its page. Its own .torrent is the release one, once it is on the tracker.
+
+### Source .torrent Files Sent Beforehand
+
+The source torrent's .torrent, sent before its upload exists: by [bookrr](https://github.com/TehMaat/bookrr) once the download is complete, or by hand (**Clients** page, *Source .torrent files*). Each one is kept for good and copied into its upload (`torrentFileName`, plus `torrentHash`, `torrentName` and `torrentTracker` when the upload has none yet):
+
+- as soon as the rip of its download is done: the upload of a rip whose download (`downloadName`, the torrent's folder or file in the downloads) has the torrent's name, the same exact match the torrent cleanup makes with the torrents in the clients;
+- for a file in the watch folder that comes from no rip: when the folder (or the file, with or without `.mkv`) it sits in at the top of the watch folder has the torrent's name;
+- when the upload is matched to its info hash, and at once when the upload already exists.
+
+Names are compared exactly; two stored torrents with the same name copy neither. The torrent cleanup then looks for that very hash in every client: found, a certain match (score 100, removed as usual once the upload is on a server); in none, `REMOVED`.
+
+```
+POST /api/source-torrents?name=Dune.torrent&tmdbId=438631&label=video&origin=bookrr
+Content-Type: application/x-bittorrent
+```
+
+The body is the .torrent (up to 10 MB); every parameter is optional: `name` its file name, `tmdbId` the film, `label` what it is for (a merge's *video* or *audio ITA*, up to 100 characters), `origin` who sends it (up to 40). The same info hash again replaces the file and keeps the fields not given. **Response:** `201` stored, `200` already there, with the torrent as below; `400` not a .torrent, `415` without the content type, `422` no tracker in it. Each upload it is copied into sends `torrent-updated` with `byHand: true`.
+
+```
+GET /api/source-torrents
+GET /api/source-torrents/:infoHash
+```
+
+Every stored torrent, the last first, or one by its v1 info hash (`404` when it is not stored, `400` when not 40 hex characters):
+
+```json
+{
+  "infoHash": "edfb378dedd9bc772ded2f449f4b9219a41b5a32",
+  "name": "Dune.2021.1080p.BluRay",
+  "fileName": "Dune.torrent",
+  "size": "48318382080",
+  "tracker": "tracker.example.org",
+  "tmdbId": 438631,
+  "label": "video",
+  "origin": "bookrr",
+  "attachedAt": "2026-11-08T10:47:00.364Z",
+  "createdAt": "2026-11-08T10:46:30.226Z",
+  "updatedAt": "2026-11-08T10:47:00.364Z",
+  "uploadIds": ["cmw7pjrb20001yofarl1zcapu"]
+}
+```
+
+`uploadIds`: the uploads whose source torrent has this hash; `attachedAt`: last copied into an upload.
+
+```
+GET /api/source-torrents/:infoHash/file
+DELETE /api/source-torrents/:infoHash
+```
+
+The file, as a download; or forget it (`204`; the copies already in the uploads stay). `404` when it is not stored.
 
 **Torrent fields on an upload:**
 

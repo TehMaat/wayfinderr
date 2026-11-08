@@ -11,6 +11,7 @@ import { isMeaningfulTitle, MatchName, parseName, titleSimilarity } from './name
 import { parseReleaseName } from './ripper/releaseName.js';
 import { tmdbConfigured } from './ripper/tmdb.js';
 import { filmByName } from './filmLookup.js';
+import { sourceTorrents, torrentFileName } from './sourceTorrents.js';
 
 /**
  * Removes from qBittorrent the torrent an uploaded MKV was ripped from.
@@ -38,6 +39,8 @@ const TMDB_CONCURRENCY = 4;
 const RIP_UNFINISHED = new Set(['WAITING', 'QUEUED', 'UNPACKING', 'SCANNING', 'RIPPING', 'JOINING', 'NEEDS_ATTENTION']);
 // HELD: kept for a merge (services/merge), its torrent may still be needed
 const UPLOAD_UNFINISHED = ['PENDING', 'QUEUED', 'UPLOADING', 'HELD'];
+// A source .torrent given by hand: once the upload is on a server, or kept for (or done by) a merge
+const TORRENT_FILE_STATUSES = ['COMPLETED', 'HELD', 'MERGED'];
 
 export type TorrentStatus = 'NO_MATCH' | 'REVIEW' | 'WAITING' | 'REMOVED' | 'ERROR';
 
@@ -47,12 +50,6 @@ export class TorrentFileError extends Error {
     super(message);
   }
 }
-
-/** The name the .torrent was sent with (no folders), else the torrent's own */
-const torrentFileName = (given: string | undefined, torrentName: string): string => {
-  const base = path.basename((given ?? '').replace(/\\/g, '/')).trim().slice(0, 255);
-  return base || `${torrentName.replace(/[\\/:*?"<>|]/g, '_').slice(0, 240)}.torrent`;
-};
 
 interface TorrentTitles {
   titles: string[];
@@ -136,6 +133,10 @@ const recentMkvActivity = async (): Promise<string | null> => {
   return null;
 };
 
+/** Whether the upload is the merged file of a pair (its sources are the pair's two inputs) */
+const isMergeOutput = async (uploadId: string): Promise<boolean> =>
+  (await db.getMergePairsByStatus(['MERGING', 'MERGED'])).some((p) => p.outputUploadId === uploadId);
+
 export class TorrentCleanup extends EventEmitter {
   // One pending removal per torrent hash
   private timers = new Map<string, NodeJS.Timeout>();
@@ -181,11 +182,25 @@ export class TorrentCleanup extends EventEmitter {
     torrentFileName?: string | null;
     torrentFileData?: Buffer | null;
   }, byHand = false): Promise<void> {
-    // Matched to another torrent: the .torrent added by hand was not its own
     const hash = (h: string | null | undefined) => h?.toLowerCase() ?? null;
-    const otherTorrent =
-      !byHand && data.torrentHash !== undefined && hash((await db.getUploadById(uploadId))?.torrentHash) !== hash(data.torrentHash);
-    await db.updateUpload(uploadId, otherTorrent ? { ...data, torrentFileName: null, torrentFileData: null } : data);
+    let update: typeof data = data;
+    let otherTorrent = false;
+    const current = !byHand && data.torrentHash !== undefined ? await db.getUploadById(uploadId) : null;
+    // With a .torrent kept, the upload's hash is the one of that file
+    if (current?.torrentFileName) {
+      if (data.torrentHash === null) {
+        // No source torrent found in the clients: the .torrent still tells which one it is
+        const { torrentHash: _hash, torrentName: _name, torrentTracker: _tracker, ...rest } = data;
+        update = rest;
+      } else if (hash(current.torrentHash) !== hash(data.torrentHash)) {
+        // Matched to another torrent: the .torrent kept was not its own
+        otherTorrent = true;
+        update = { ...data, torrentFileName: null, torrentFileData: null };
+      }
+    }
+    await db.updateUpload(uploadId, update);
+    // That other torrent's .torrent, when it was sent beforehand
+    if (otherTorrent) await sourceTorrents.attachByHash(uploadId, data.torrentHash);
     this.emit('torrent-updated', { uploadId, torrentStatus: data.torrentStatus, byHand });
   }
 
@@ -205,6 +220,8 @@ export class TorrentCleanup extends EventEmitter {
     const upload = await db.getUploadById(uploadId);
     // MERGED: an input of a merge, done once the merged file is on a server
     if (!upload || (upload.status !== 'COMPLETED' && upload.status !== 'MERGED')) return;
+    // A merged file has no source torrent of its own: its sources are its two inputs'
+    if (await isMergeOutput(uploadId)) return;
     await this.findTorrent(upload);
   }
 
@@ -226,6 +243,13 @@ export class TorrentCleanup extends EventEmitter {
   }
 
   private async matchAndSchedule(upload: Upload, clients: TorrentClient[]): Promise<void> {
+    // Its .torrent was sent beforehand (bookrr): the source is that very torrent
+    const sent = upload.torrentFileName ? await sourceTorrents.has(upload.torrentHash) : null;
+    if (sent) {
+      await this.matchSentTorrent(upload, clients, sent.infoHash, sent.origin);
+      return;
+    }
+
     const torrentsByClient: { client: TorrentClient; torrents: QbitTorrent[] }[] = [];
     const errors: string[] = [];
     for (const client of clients) {
@@ -347,6 +371,38 @@ export class TorrentCleanup extends EventEmitter {
     }
 
     await this.matched(upload, best, `Matched on "${best.matched}"${via}`);
+  }
+
+  /** The source torrent known by its .torrent sent beforehand: looked for by hash in every client */
+  private async matchSentTorrent(upload: Upload, clients: TorrentClient[], infoHash: string, origin: string | null): Promise<void> {
+    const why = `Its .torrent was sent${origin ? ` by ${origin}` : ' beforehand'}`;
+    const unreachable: string[] = [];
+    for (const client of clients) {
+      let torrent: QbitTorrent | null;
+      try {
+        torrent = await getQbitClient(client).getTorrent(infoHash);
+      } catch (error) {
+        unreachable.push(`${client.name} (${describeError(error)})`);
+        continue;
+      }
+      if (torrent) {
+        await this.matched(upload, { client, torrent, score: 100, matched: '' }, why);
+        return;
+      }
+    }
+    if (unreachable.length) {
+      await this.setStatus(upload.id, {
+        torrentStatus: 'ERROR',
+        torrentMessage: `${why}: cannot tell whether it is still in a client, unreachable: ${unreachable.join('; ')}`,
+      });
+      return;
+    }
+    await this.setStatus(upload.id, {
+      torrentStatus: 'REMOVED',
+      torrentMessage: `${why}: in no download client.`,
+      torrentClientId: null,
+      torrentScore: 100,
+    });
   }
 
   // A certain match: removal scheduled, or left to the user when automatic removal is off
@@ -503,6 +559,9 @@ export class TorrentCleanup extends EventEmitter {
     if (upload.status !== 'COMPLETED' && upload.status !== 'MERGED' && !UPLOAD_UNFINISHED.includes(upload.status)) {
       throw new Error('Only uploads in progress or completed are matched to a torrent');
     }
+    if (await isMergeOutput(uploadId)) {
+      throw new Error('A merged file has no source torrent of its own: its sources are the ones of its two inputs');
+    }
     if ((await db.getTorrentClients()).filter((c) => c.enabled).length === 0) {
       throw new Error('No download client configured');
     }
@@ -535,6 +594,9 @@ export class TorrentCleanup extends EventEmitter {
     if (uploadId) {
       const upload = await db.getUploadById(uploadId);
       if (!upload) throw new TorrentFileError('Upload not found', 404);
+      if (await isMergeOutput(uploadId)) {
+        throw new TorrentFileError('A merged file: add the .torrent on each of its two inputs', 409);
+      }
       if (upload.torrentStatus !== 'REMOVED') return this.matchTorrentFile(upload, torrent, tracker, file);
       if (upload.torrentHash && upload.torrentHash.toLowerCase() !== infoHash) {
         throw new TorrentFileError(`Another torrent: "${name}" is ${infoHash}, the source torrent was ${upload.torrentHash}`, 409);
@@ -560,7 +622,9 @@ export class TorrentCleanup extends EventEmitter {
     tracker: string,
     file: { torrentFileName: string; torrentFileData: Buffer }
   ): Promise<{ name: string; infoHash: string; tracker: string; uploadIds: string[] }> {
-    if (upload.status !== 'COMPLETED') throw new TorrentFileError('Only once the upload has completed', 409);
+    if (!TORRENT_FILE_STATUSES.includes(upload.status)) {
+      throw new TorrentFileError('Only once the upload has completed (or while held for a merge)', 409);
+    }
     if (upload.torrentStatus === 'WAITING') {
       throw new TorrentFileError(`"${upload.torrentName}" is about to be removed: remove it now first, or wait`, 409);
     }
