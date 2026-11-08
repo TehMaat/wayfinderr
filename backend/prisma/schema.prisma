@@ -268,3 +268,24 @@ model MergePair {
 
   @@index([status])
 }
+
+// A source torrent's .torrent sent before its upload exists (by bookrr through the API,
+// or by hand): kept for good, and copied into the upload it is for (torrentFileName,
+// torrentFileData) once the rip of its download is done, or once the upload is
+// matched to its info hash (see services/sourceTorrents.ts)
+model SourceTorrent {
+  infoHash   String    @id // v1, lowercase hex
+  name       String    // the torrent's name: its folder, or its file for a single-file torrent
+  fileName   String    // the .torrent's file name
+  data       Bytes     // the file itself (left out of the list)
+  size       BigInt    // the single file's length, or the sum of the files
+  tracker    String    // the tracker host (no passkey)
+  tmdbId     Int?
+  label      String?   // what it is for, e.g. "video", "audio ITA" (a merge's two sources)
+  origin     String?   // who sent it: "bookrr", or null by hand
+  attachedAt DateTime? // last copied into an upload
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([name])
+}

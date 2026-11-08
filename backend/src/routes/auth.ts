@@ -6,7 +6,9 @@ import {
   createAccount,
   ensureSetupCode,
   getAccount,
+  getApiKey,
   issueSessionToken,
+  regenerateApiKey,
   revokeAllSessions,
   SESSION_COOKIE,
   SESSION_TTL_MS,
@@ -164,6 +166,25 @@ router.post(
     logger.info('Signed out of every session');
     res.clearCookie(SESSION_COOKIE, cookieOptions(req));
     res.status(204).end();
+  })
+);
+
+// The API key, for other services (bookrr, scripts): sent as X-Api-Key it works like a login
+router.get(
+  '/api-key',
+  requireAuth,
+  handle(async (req, res) => {
+    res.json({ apiKey: await getApiKey() });
+  })
+);
+
+router.post(
+  '/api-key',
+  requireAuth,
+  handle(async (req, res) => {
+    const apiKey = await regenerateApiKey();
+    logger.info('API key regenerated');
+    res.json({ apiKey });
   })
 );
 

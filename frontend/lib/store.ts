@@ -103,7 +103,7 @@ export interface Upload {
   torrentScore: number | null;
   torrentMessage: string | null;
   torrentTracker: string | null; // the torrent's tracker host, kept once it is removed
-  torrentFileName: string | null; // its .torrent added by hand (downloaded with uploadsApi.torrentFileUrl)
+  torrentFileName: string | null; // its .torrent, added by hand or sent beforehand (downloaded with uploadsApi.torrentFileUrl)
   // Where the file is on the server (null for uploads before it was stored)
   remotePath: string | null;
   remoteFound: boolean | null; // false: looked for on the server and not found
@@ -333,6 +333,22 @@ export interface MergeStatus {
 // Dyadrr's four choices (its docs/CLI.md): a fixed value for every merge, or 'ask' each time
 export type MergeChoiceName = 'tail' | 'italian' | 'referenceItalianSubs' | 'edgeMismatch';
 export type MergeChoiceSettings = Record<MergeChoiceName, string>;
+
+// A source torrent's .torrent sent before its upload exists (bookrr, by hand): copied
+// into its upload once the rip of its download is done (GET /api/source-torrents)
+export interface SourceTorrent {
+  infoHash: string;
+  name: string; // the torrent's folder, or its file
+  fileName: string;
+  size: string; // BigInt as a string
+  tracker: string;
+  tmdbId: number | null;
+  label: string | null;
+  origin: string | null; // "bookrr", null by hand
+  attachedAt: string | null;
+  createdAt: string;
+  uploadIds: string[]; // the uploads it was copied into
+}
 
 export type MergePairStatus = 'ANALYZING' | 'ELIGIBLE' | 'REFUSED' | 'ERROR' | 'CANCELLED' | 'MERGING' | 'MERGED';
 export type MergeInputsAfter = 'keep' | 'delete';

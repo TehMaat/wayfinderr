@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { KeyRound, Loader2, LogOut, MonitorX, UserRound } from 'lucide-react';
+import { Check, Copy, KeyRound, KeySquare, Loader2, LogOut, MonitorX, RefreshCw, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -134,9 +134,92 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   );
 }
 
+function ApiKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setApiKey(null);
+    setError(null);
+    setCopied(false);
+    authApi
+      .getApiKey()
+      .then(({ data }) => setApiKey(data.apiKey))
+      .catch((err) => setError(errorMessage(err, 'Could not read the API key')));
+  }, [open]);
+
+  const copy = async () => {
+    if (!apiKey) return;
+    try {
+      await navigator.clipboard.writeText(apiKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error('Could not copy: select the key and copy it by hand');
+    }
+  };
+
+  const regenerate = async () => {
+    try {
+      const { data } = await authApi.regenerateApiKey();
+      setApiKey(data.apiKey);
+      toast.success('New API key', { description: 'The old one no longer works: update it in bookrr and your scripts' });
+    } catch (err) {
+      toast.error('Could not regenerate the API key', { description: errorMessage(err) });
+    }
+  };
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>API key</DialogTitle>
+            <DialogDescription>
+              For other services, such as bookrr, and scripts: sent in the <code className="font-mono">X-Api-Key</code> header it
+              works like a login on every API. Keep it secret.
+            </DialogDescription>
+          </DialogHeader>
+          {error ? (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Input readOnly value={apiKey ?? ''} placeholder="Loading…" className="font-mono text-xs" onFocus={(e) => e.target.select()} />
+              <Button type="button" size="icon" variant="outline" disabled={!apiKey} onClick={copy} aria-label="Copy the API key">
+                {copied ? <Check /> : <Copy />}
+              </Button>
+            </div>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="ghost" disabled={!apiKey} onClick={() => setConfirmRegenerate(true)}>
+              <RefreshCw />
+              Regenerate
+            </Button>
+            <Button type="button" onClick={() => onOpenChange(false)}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <ConfirmDialog
+        open={confirmRegenerate}
+        onOpenChange={setConfirmRegenerate}
+        title="Regenerate the API key?"
+        description="The current key stops working at once: bookrr and every script using it must be given the new one."
+        confirmLabel="Regenerate"
+        onConfirm={regenerate}
+      />
+    </>
+  );
+}
+
 export function AccountMenu() {
   const username = useAuthStore((s) => s.username);
   const [changing, setChanging] = useState(false);
+  const [showingKey, setShowingKey] = useState(false);
   const [confirmEverywhere, setConfirmEverywhere] = useState(false);
 
   const logout = async () => {
@@ -171,6 +254,10 @@ export function AccountMenu() {
             <KeyRound />
             Change password
           </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setShowingKey(true)}>
+            <KeySquare />
+            API key
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setConfirmEverywhere(true)}>
             <MonitorX />
             Sign out everywhere
@@ -184,6 +271,7 @@ export function AccountMenu() {
       </DropdownMenu>
 
       <ChangePasswordDialog open={changing} onOpenChange={setChanging} />
+      <ApiKeyDialog open={showingKey} onOpenChange={setShowingKey} />
       <ConfirmDialog
         open={confirmEverywhere}
         onOpenChange={setConfirmEverywhere}

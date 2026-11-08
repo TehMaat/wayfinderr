@@ -86,7 +86,7 @@ Wayfinderr stays closed until its single account exists.
 
 Anyone with the setup code can create the account: treat that log line as a secret, and create the account before exposing the app outside the LAN.
 
-Sessions last 30 days (HttpOnly cookie). The account menu at the bottom of the sidebar (your username) has **Change password** (signs out every other device), **Sign out** and **Sign out everywhere**. After 5 failed attempts in 15 minutes, a client has to wait before trying again.
+Sessions last 30 days (HttpOnly cookie). The account menu at the bottom of the sidebar (your username) has **Change password** (signs out every other device), **API key** (for bookrr and scripts, sent as `X-Api-Key`), **Sign out** and **Sign out everywhere**. After 5 failed attempts in 15 minutes, a client has to wait before trying again.
 
 **Forgotten password**: delete the account, then reopen the page and create it again with the new setup code from the log (servers and history are kept):
 
@@ -180,11 +180,23 @@ If the films come from qBittorrent, Wayfinderr can remove each torrent once its 
 
 How a torrent is matched and removed:
 
+- **Its .torrent sent beforehand** (by [bookrr](https://github.com/TehMaat/bookrr), or added in **Clients** → *Source .torrent files*): copied into the upload as soon as the rip of its download is done, the torrent is the one with that very info hash, whatever client it is in. See below
 - **Ripped by Wayfinderr** (automatic ripping above): the torrent is the one whose folder or file is the rip's download, an exact match whatever the names. With several discs in one download, it waits for all of them
 - **Any other MKV**: the MKV name and its folders inside the watch folder (`_t00`, `DISC_1`, release tags and the leading article are ignored) are compared with every finished torrent's name, content folder and TMDB titles. Generic names such as `title_t00.mkv` never match: rename the file or rip into a folder named after the movie
 - **Automatic** only when it is 100% the torrent: the rip's download, or for a name match the very same title (score 100) with a year in both the MKV name (file or folder, e.g. `Il padrino (1972)`) and the torrent (its name, or its TMDB film) that agrees, and no other torrent matching at all. Anything less (`Blade Runner` vs `Blade Runner 2049`, `IL_PADRINO_t00.mkv` with no year, the title spelled differently, two torrents of the same movie) only shows a suggestion and a **Remove torrent now** button on the upload page
 - The removal waits 5 minutes, then until no other rip or upload of the same download is still running (for an MKV matched by name: no other MKV of the same film queued or uploading, and no MKV in the watch folder written in the last 2 minutes, since MakeMKV may still be ripping the other titles from that ISO)
 - Only finished torrents are ever considered. Note that removing a torrent stops seeding: on private trackers check your ratio rules, or leave **When matched** on "Only suggest"
+
+### Source .torrent files from bookrr (optional)
+
+[bookrr](https://github.com/TehMaat/bookrr) can send the source torrent's .torrent of a film it downloaded, so that the upload keeps it (to download it again) without adding it by hand:
+
+1. Account menu (your username at the bottom of the sidebar) → **API key** → copy it
+2. In bookrr, give that client the address of Wayfinderr and the key
+
+Once the download is complete bookrr sends the .torrent (`POST /api/source-torrents`); Wayfinderr keeps it and copies it into the upload as soon as the rip of that download is done (the rip's download has the torrent's name), or when a file in the watch folder sits under that name. **Clients** → *Source .torrent files* lists them (with the ones still waiting for their rip), downloads and deletes them, and takes .torrent files by hand too. They are kept for good. With a merge, each of the two files gets its own; the merged file's page shows both.
+
+The API key works for every API: keep it secret, and regenerate it from the same dialog if it leaks.
 
 ### Release locally (optional)
 
