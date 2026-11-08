@@ -726,6 +726,7 @@ class Ripper extends EventEmitter {
         );
         if (!updated) continue;
         this.changed(updated);
+        if (movie && updated.joinId) await this.exclusive(() => this.shareFilm(updated, film));
         if (movie) logger.info({ ripId: rip.id, tmdbId: movie.id, film: movie.title, status: updated.status }, 'Film identified on a second look');
       }
     } catch (error) {
@@ -789,8 +790,13 @@ class Ripper extends EventEmitter {
     } else {
       const identified = await this.identify(rip, discName);
       movie = identified.movie;
-      if (movie) rip = await this.update(rip.id, this.movieFields(movie));
-      else problems.push(identified.reason);
+      if (movie) {
+        rip = await this.update(rip.id, this.movieFields(movie));
+        // A part of a join: the film of every disc, those waiting for it go on
+        if (rip.joinId) await this.shareFilm(rip, this.movieFields(movie));
+      } else {
+        problems.push(identified.reason);
+      }
     }
 
     const { title, problems: titleProblems } = await this.pickTitle(rip, titles);
@@ -1047,6 +1053,19 @@ class Ripper extends EventEmitter {
     return (await db.getRipsByJoinId(rip.joinId)).find((p) => p.tmdbId !== null) ?? null;
   }
 
+  /**
+   * The film (and second language) of a part of a join, set on its other parts:
+   * one film for every disc. The parts waiting for a choice go back in the queue,
+   * where their title is picked again with the film (or they ask what is still unsure).
+   */
+  private async shareFilm(rip: Rip, shared: Parameters<typeof db.updateRip>[1]) {
+    for (const part of await db.getRipsByJoinId(rip.joinId!)) {
+      if (part.id === rip.id) continue;
+      const waiting = part.status === 'NEEDS_ATTENTION';
+      await this.update(part.id, { ...shared, ...(waiting ? { status: 'QUEUED', reason: null } : {}) });
+    }
+  }
+
   /** A part of a join ripped: kept in the join's folder until every part is there. */
   private async stashPart(rip: Rip, file: string) {
     const target = partFile(rip.joinId!, rip.joinPart!);
@@ -1231,28 +1250,30 @@ class Ripper extends EventEmitter {
       ...(movie ? this.movieFields(movie) : {}),
       ...(choice.secondLanguage !== undefined ? { secondLanguage: choice.secondLanguage } : {}),
     };
-    const updated = await this.update(id, {
-      status: 'QUEUED',
-      reason: null,
-      ...(choice.titleIndex !== undefined ? { titleIndex: choice.titleIndex } : {}),
-      ...shared,
+    return this.exclusive(async () => {
+      const current = await this.visibleRip(id);
+      if (!['NEEDS_ATTENTION', 'FAILED', 'SKIPPED'].includes(current.status)) throw new Error(`Rip is ${current.status}`);
+      const updated = await this.update(id, {
+        status: 'QUEUED',
+        reason: null,
+        ...(choice.titleIndex !== undefined ? { titleIndex: choice.titleIndex } : {}),
+        ...shared,
+      });
+      // A part of a join: one film, with the same languages, for every part
+      if (updated.joinId && Object.keys(shared).length > 0) await this.shareFilm(updated, shared);
+      return updated;
     });
-    // A part of a join: one film, with the same languages, for every part
-    if (rip.joinId && Object.keys(shared).length > 0) {
-      for (const part of await db.getRipsByJoinId(rip.joinId)) {
-        if (part.id !== id) await this.update(part.id, shared);
-      }
-    }
-    return updated;
   }
 
   /**
    * Joins discs of one download into one film, in the given order: each one is
-   * ripped as usual (with the title chosen on it, if any; the film is the first
-   * identified part's), then mkvmerge appends them. Discs in another join leave
-   * it, and so do that join's other discs.
+   * ripped as usual (with the title chosen on it, if any), then mkvmerge appends
+   * them. The film is the given one, else the first identified part's, else it is
+   * looked up when a disc is ripped and, when unsure, chosen once on any disc for
+   * all of them. Discs in another join leave it, and so do that join's other discs.
    */
-  async join(ripIds: string[]) {
+  async join(ripIds: string[], tmdbId?: number) {
+    const movie = tmdbId !== undefined ? await getMovie(tmdbId) : null;
     return this.exclusive(async () => {
       if (ripIds.length < 2 || new Set(ripIds).size !== ripIds.length) throw new Error('Choose at least two discs');
       const rips: Rip[] = [];
@@ -1266,7 +1287,13 @@ class Ripper extends EventEmitter {
         if (joinId) await this.cancelJoin(joinId, 'NEEDS_ATTENTION', 'Its discs were joined again in another way');
       }
 
-      const film = rips.find((rip) => rip.tmdbId !== null);
+      const identified = rips.find((rip) => rip.tmdbId !== null);
+      // A part's second language goes with its film (it depends on the original language)
+      const film = movie
+        ? { ...this.movieFields(movie), secondLanguage: identified?.tmdbId === movie.id ? identified.secondLanguage : null }
+        : identified
+          ? { ...this.movieFields(filmOf(identified)), secondLanguage: identified.secondLanguage }
+          : {};
       const joinId = rips[0].id;
       const parts: Rip[] = [];
       for (const [i, rip] of rips.entries()) {
@@ -1277,11 +1304,11 @@ class Ripper extends EventEmitter {
             progress: 0,
             joinId,
             joinPart: i + 1,
-            ...(film ? { ...this.movieFields(filmOf(film)), secondLanguage: film.secondLanguage } : {}),
+            ...film,
           })
         );
       }
-      logger.info({ joinId, parts: rips.map((rip) => rip.sourcePath) }, 'Discs joined into one film');
+      logger.info({ joinId, parts: rips.map((rip) => rip.sourcePath), tmdbId: 'tmdbId' in film ? film.tmdbId : null }, 'Discs joined into one film');
       return parts;
     });
   }

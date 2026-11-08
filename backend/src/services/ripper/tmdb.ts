@@ -121,34 +121,57 @@ const sameTitle = (movie: TmdbMovie, title: string, lettersOnly: boolean) => {
   return [movie.title, movie.originalTitle].some((t) => titleKeys(t, lettersOnly).some((key) => wanted.has(key)));
 };
 
+/** The films found for a title, and those that are the same film (see matchMovie). */
+const findMatches = async (title: string, year: number | null) => {
+  const withYear = year ? await searchMovies(title, year) : [];
+  const anyYear = await searchMovies(title);
+  const found = [...new Map([...withYear, ...anyYear].map((m) => [m.id, m])).values()];
+
+  const words = found.filter((m) => sameTitle(m, title, false));
+  const letters = found.filter((m) => sameTitle(m, title, true)); // the same words have the same letters too
+  let matches: TmdbMovie[];
+  if (!year) {
+    matches = words.length ? words : letters;
+  } else {
+    const exact = (movies: TmdbMovie[]) => movies.filter((m) => m.year === year);
+    const near = (movies: TmdbMovie[]) => movies.filter((m) => m.year !== null && Math.abs(m.year - year) <= 1);
+    if (exact(words).length) matches = exact(words);
+    else if (exact(letters).length) matches = [...new Set([...exact(letters), ...near(words)])];
+    else matches = near(words).length ? near(words) : near(letters);
+  }
+  return { found, matches };
+};
+
+// Between the two titles of a release named in two languages: "Vom Winde verweht - Gone with the Wind"
+const TITLE_SEPARATOR = /\s+[-–—]\s+/;
+
 /**
  * Conservative match: automatic only when exactly one film has the same title
  * (localized or original, signs apart) and, when the name has a year, a release
  * year within one year of it. The release year counts first, then the same words
  * over the same letters ("I.T." is not "It"); when the same letters give the
- * release year and the same words a year off, it asks. Anything else is left to
- * the user, with the candidates.
+ * release year and the same words a year off, it asks. A title that matches no
+ * film but has a separator ("Vom Winde verweht - Gone with the Wind") may be two
+ * titles of the film: each side is matched the same way, and it is automatic only
+ * when the sides together give exactly one film. Anything else is left to the
+ * user, with the candidates.
  */
 export const matchMovie = async (name: ParsedName): Promise<TmdbMatch> => {
   if (!name.title) return { movie: null, candidates: [], reason: 'No title in the download name' };
 
-  const withYear = name.year ? await searchMovies(name.title, name.year) : [];
-  const anyYear = await searchMovies(name.title);
-  const found = [...new Map([...withYear, ...anyYear].map((m) => [m.id, m])).values()];
-  const candidates = found.slice(0, 10);
-
-  const words = found.filter((m) => sameTitle(m, name.title, false));
-  const letters = found.filter((m) => sameTitle(m, name.title, true)); // the same words have the same letters too
-  let matches: TmdbMovie[];
-  if (!name.year) {
-    matches = words.length ? words : letters;
-  } else {
-    const exact = (movies: TmdbMovie[]) => movies.filter((m) => m.year === name.year);
-    const near = (movies: TmdbMovie[]) => movies.filter((m) => m.year !== null && Math.abs(m.year - name.year!) <= 1);
-    if (exact(words).length) matches = exact(words);
-    else if (exact(letters).length) matches = [...new Set([...exact(letters), ...near(words)])];
-    else matches = near(words).length ? near(words) : near(letters);
+  let { found, matches } = await findMatches(name.title, name.year);
+  const sides = name.title.split(TITLE_SEPARATOR).map((side) => side.trim()).filter(Boolean);
+  if (matches.length === 0 && sides.length > 1) {
+    const matched = new Map<number, TmdbMovie>();
+    for (const side of sides) {
+      const result = await findMatches(side, name.year);
+      found = [...found, ...result.found];
+      for (const movie of result.matches) matched.set(movie.id, movie);
+    }
+    found = [...new Map(found.map((m) => [m.id, m])).values()];
+    matches = [...matched.values()];
   }
+  const candidates = found.slice(0, 10);
 
   if (matches.length === 1) return { movie: await getMovie(matches[0].id), candidates };
   if (matches.length > 1) {

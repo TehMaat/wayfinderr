@@ -14,8 +14,8 @@ import {
 } from '@/components/ui/dialog';
 import { RipStatusBadge } from '@/components/status-badge';
 import { ripsApi } from '@/lib/api';
-import { joinCandidates, sourceLabel } from '@/lib/rips';
-import { useAppStore, type Rip } from '@/lib/store';
+import { joinCandidates, ripName, sourceLabel } from '@/lib/rips';
+import { useAppStore, type Rip, type TmdbMovie } from '@/lib/store';
 import { cn, errorMessage, formatRuntime } from '@/lib/utils';
 
 /** The film's length on the disc: the title chosen, or the longest one once scanned */
@@ -28,9 +28,20 @@ const filmLength = (rip: Rip) => {
 /**
  * Joins discs of the rip's download into one film ("Disc 1" and "Disc 2" of a
  * long film): the ones ticked, in the order shown, each ripped then appended
- * with mkvmerge by the backend.
+ * with mkvmerge by the backend. The film is the given one (picked in Choose),
+ * else the first ticked disc's that has one.
  */
-export function RipJoinDialog({ rip, open, onOpenChange }: { rip: Rip; open: boolean; onOpenChange: (open: boolean) => void }) {
+export function RipJoinDialog({
+  rip,
+  film,
+  open,
+  onOpenChange,
+}: {
+  rip: Rip;
+  film?: TmdbMovie | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const rips = useAppStore((s) => s.rips);
   const candidates = useMemo(() => joinCandidates(rip, rips), [rip, rips]);
   const [order, setOrder] = useState<string[]>([]);
@@ -51,6 +62,12 @@ export function RipJoinDialog({ rip, open, onOpenChange }: { rip: Rip; open: boo
   const parts = rows.filter((r) => selected.has(r.id));
   const lengths = parts.map(filmLength);
   const total = lengths.every(Boolean) ? lengths.reduce((sum, l) => sum + l!.seconds, 0) : null;
+  const identified = parts.find((r) => r.tmdbId !== null);
+  const joinedFilm = film
+    ? { title: film.title, year: film.year }
+    : identified
+      ? { title: identified.title ?? identified.originalTitle, year: identified.year }
+      : null;
 
   const toggle = (id: string) =>
     setSelected((current) => {
@@ -69,7 +86,10 @@ export function RipJoinDialog({ rip, open, onOpenChange }: { rip: Rip; open: boo
     setSaving(true);
     setError(null);
     try {
-      await ripsApi.joinRips(parts.map((r) => r.id));
+      await ripsApi.joinRips(
+        parts.map((r) => r.id),
+        film?.id
+      );
       await useAppStore.getState().loadRips();
       toast.success(`${parts.length} discs joined into one film`, {
         description: 'Each disc is ripped, then mkvmerge joins them',
@@ -165,6 +185,22 @@ export function RipJoinDialog({ rip, open, onOpenChange }: { rip: Rip; open: boo
               </div>
             );
           })}
+        </div>
+
+        <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+          {joinedFilm ? (
+            <>
+              <span className="text-muted-foreground">Film for every disc: </span>
+              <span className="font-medium">
+                {ripName({ title: joinedFilm.title, year: joinedFilm.year, downloadName: rip.downloadName })}
+              </span>
+            </>
+          ) : (
+            <span className="text-muted-foreground">
+              No disc has its film yet: it is looked up on TMDB when a disc is ripped. If it isn’t certain, choose it
+              once on any of the discs and it applies to all of them.
+            </span>
+          )}
         </div>
 
         <p className="text-xs text-muted-foreground">

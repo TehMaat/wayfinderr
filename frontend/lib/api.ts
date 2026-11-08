@@ -165,7 +165,7 @@ export const ripsApi = {
   ripAgain: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/rip-again`),
   skipRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/skip`),
   removeRip: (id: string) => apiClient.delete(`/api/rips/${id}`),
-  joinRips: (ripIds: string[]) => apiClient.post<Rip[]>('/api/rips/join', { ripIds }),
+  joinRips: (ripIds: string[], tmdbId?: number) => apiClient.post<Rip[]>('/api/rips/join', { ripIds, tmdbId }),
   clearSkippedRips: () => apiClient.post<{ removed: number }>('/api/rips/clear-skipped'),
   setExclusions: (settings: { patterns?: string[]; folders?: string[]; arriveComplete?: boolean }) =>
     apiClient.put<{

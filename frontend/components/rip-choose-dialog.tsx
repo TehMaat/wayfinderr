@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AudioLines, Captions, ExternalLink, Loader2, RotateCcw, Search, TriangleAlert } from 'lucide-react';
+import { AudioLines, Captions, Combine, ExternalLink, Info, Loader2, RotateCcw, Search, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,10 +15,11 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Tooltip } from '@/components/ui/tooltip';
+import { RipJoinDialog } from '@/components/rip-join-dialog';
 import { RIP_STATUS_META } from '@/components/status-badge';
 import { retryRip } from '@/lib/actions';
 import { ripsApi } from '@/lib/api';
-import { languageCodes, languageName, otherAudioLanguages, ripName, tmdbUrl } from '@/lib/rips';
+import { canJoin, languageCodes, languageName, otherAudioLanguages, ripName, tmdbUrl } from '@/lib/rips';
 import { useAppStore, type DiscStream, type DiscTitle, type Rip, type TmdbMovie } from '@/lib/store';
 import { cn, errorMessage, formatBytes, formatRuntime } from '@/lib/utils';
 
@@ -236,7 +237,13 @@ export function RipChooseDialog({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Join discs… from here: the film picked in this dialog goes with the join
+  const [joinOpen, setJoinOpen] = useState(false);
+  const [joinFilm, setJoinFilm] = useState<TmdbMovie | null>(null);
   const searchId = useRef(0);
+  const joinable = useAppStore((s) => (rip ? canJoin(rip, s.rips) : false));
+  // A part of a join: the film and second language chosen here are every disc's
+  const joinParts = useAppStore((s) => (rip?.joinId ? s.rips.filter((r) => r.joinId === rip.joinId).length : 0));
 
   const titles = rip?.titles ?? null;
   const longest = useMemo(
@@ -304,8 +311,12 @@ export function RipChooseDialog({
     try {
       await ripsApi.chooseRip(rip.id, payload);
       await useAppStore.getState().refreshRip(rip.id);
-      toast.success(titles ? 'Rip queued' : 'Film saved', {
-        description: film ? ripName({ title: film.title, year: film.year, downloadName: rip.downloadName }) : rip.downloadName,
+      const name = film ? ripName({ title: film.title, year: film.year, downloadName: rip.downloadName }) : rip.downloadName;
+      toast.success(titles ? (joinParts > 0 ? `Part ${rip.joinPart} of ${joinParts} queued` : 'Rip queued') : 'Film saved', {
+        description:
+          joinParts > 0 && (payload.tmdbId !== undefined || payload.secondLanguage !== undefined)
+            ? `${name} · the other discs of the film go on with it`
+            : name,
       });
       onOpenChange(false);
     } catch (err) {
@@ -322,216 +333,241 @@ export function RipChooseDialog({
         ? 'border-border bg-muted/50 text-muted-foreground'
         : 'border-warning/40 bg-warning/10 text-warning';
 
+  const openJoin = () => {
+    setJoinFilm(film);
+    setJoinOpen(true);
+    onOpenChange(false);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* minmax(0, 1fr): long unbreakable names must not widen the dialog on phones */}
-      <DialogContent className="max-w-2xl grid-cols-[minmax(0,1fr)]">
-        <DialogHeader>
-          <DialogTitle>Choose what to rip</DialogTitle>
-          <DialogDescription className="break-all">
-            {rip.discName && rip.discName !== rip.downloadName ? `${rip.discName} · ` : ''}
-            {rip.downloadName}
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        {/* minmax(0, 1fr): long unbreakable names must not widen the dialog on phones */}
+        <DialogContent className="max-w-2xl grid-cols-[minmax(0,1fr)]">
+          <DialogHeader>
+            <DialogTitle>Choose what to rip</DialogTitle>
+            <DialogDescription className="break-all">
+              {rip.discName && rip.discName !== rip.downloadName ? `${rip.discName} · ` : ''}
+              {rip.downloadName}
+            </DialogDescription>
+          </DialogHeader>
 
-        {rip.reason && (
-          <div className={cn('flex items-start gap-2.5 rounded-md border px-3 py-2 text-sm', reasonTone)}>
-            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-            <span className="break-words">{rip.reason}</span>
-          </div>
-        )}
-        {!allowed && (
-          <p className="text-xs text-muted-foreground">
-            This rip is {RIP_STATUS_META[rip.status].label.toLowerCase()} now: nothing to choose.
-          </p>
-        )}
-
-        {/* Title on the disc */}
-        <section className="space-y-2.5">
-          <SectionTitle
-            hint={
-              titles && (
-                <>
-                  <span className="text-success">{keptName}</span> and{' '}
-                  <span className="text-info">
-                    {second ? others.find((o) => o.lang === second)?.name : 'original-language'}
-                  </span>{' '}
-                  tracks are kept
-                </>
-              )
-            }
-          >
-            Title on the disc
-          </SectionTitle>
-          {!titles ? (
-            <div className="flex flex-col gap-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-              <span>Not scanned yet: a retry scans the disc and picks the title on its own. Here you can only set the film.</span>
-              {allowed && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={async () => {
-                    await retryRip(rip.id);
-                    onOpenChange(false);
-                  }}
-                >
-                  <RotateCcw />
-                  Retry
-                </Button>
-              )}
-            </div>
-          ) : titles.length === 0 ? (
-            <div className="rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
-              No titles long enough on this disc.
-            </div>
-          ) : (
-            <div role="radiogroup" aria-label="Title on the disc" className="space-y-1.5">
-              {titles.map((t) => (
-                <TitleOption
-                  key={t.index}
-                  title={t}
-                  checked={titleIndex === t.index}
-                  longest={titles.length > 1 && longest?.index === t.index}
-                  current={rip.titleIndex === t.index}
-                  kept={kept}
-                  original={original}
-                  onSelect={() => setTitleIndex(t.index)}
-                />
-              ))}
+          {rip.reason && (
+            <div className={cn('flex items-start gap-2.5 rounded-md border px-3 py-2 text-sm', reasonTone)}>
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <span className="break-words">{rip.reason}</span>
             </div>
           )}
-        </section>
+          {joinParts > 0 && (
+            <div className="flex items-start gap-2.5 rounded-md border border-info/40 bg-info/10 px-3 py-2 text-sm text-info">
+              <Info className="mt-0.5 h-4 w-4 shrink-0" />
+              <span className="break-words">
+                Disc {rip.joinPart} of {joinParts} of a joined film: the title is this disc’s, the film and second language
+                are set on every disc. The other discs then go on by themselves, and once all of them are ripped they are
+                joined into one film.
+              </span>
+            </div>
+          )}
+          {!allowed && (
+            <p className="text-xs text-muted-foreground">
+              This rip is {RIP_STATUS_META[rip.status].label.toLowerCase()} now: nothing to choose.
+            </p>
+          )}
 
-        {/* Language kept in place of the original one, missing on the chosen title */}
-        {others.length > 0 && (
+          {/* Title on the disc */}
           <section className="space-y-2.5">
-            <SectionTitle hint={`No ${languageName(originalLanguage)} audio on this title`}>Second language</SectionTitle>
-            <div role="radiogroup" aria-label="Second language" className="flex flex-wrap gap-1.5">
-              {[{ lang: null, name: `Only ${keptName}` }, ...others].map((option) => (
-                <button
-                  key={option.lang ?? ''}
-                  type="button"
-                  role="radio"
-                  aria-checked={second === option.lang}
-                  onClick={() => setSecondLanguage(option.lang)}
-                  className={cn(
-                    'flex items-start gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors',
-                    second === option.lang ? 'border-primary/60 bg-primary/10' : 'hover:bg-accent/50'
-                  )}
-                >
-                  <RadioDot checked={second === option.lang} />
-                  {option.name}
-                  {option.lang && <span className="font-mono text-xs uppercase text-muted-foreground">{option.lang}</span>}
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Film on TMDB */}
-        <section className="space-y-2.5">
-          <SectionTitle hint="Names the file and sets the original language">Film on TMDB</SectionTitle>
-
-          {film ? (
-            <div className="flex items-center gap-3 rounded-md border bg-muted/40 px-3 py-2.5">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">
-                  {film.title}
-                  {film.year && <span className="font-normal text-muted-foreground"> ({film.year})</span>}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {[film.originalTitle !== film.title && film.originalTitle, film.originalLanguage && `Original language: ${languageName(film.originalLanguage)}`]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </p>
+            <SectionTitle
+              hint={
+                titles && (
+                  <>
+                    <span className="text-success">{keptName}</span> and{' '}
+                    <span className="text-info">
+                      {second ? others.find((o) => o.lang === second)?.name : 'original-language'}
+                    </span>{' '}
+                    tracks are kept
+                  </>
+                )
+              }
+            >
+              Title on the disc
+            </SectionTitle>
+            {!titles ? (
+              <div className="flex flex-col gap-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                <span>Not scanned yet: a retry scans the disc and picks the title on its own. Here you can only set the film.</span>
+                {allowed && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={async () => {
+                      await retryRip(rip.id);
+                      onOpenChange(false);
+                    }}
+                  >
+                    <RotateCcw />
+                    Retry
+                  </Button>
+                )}
               </div>
-              {film.id === rip.tmdbId ? (
-                <Badge variant="secondary">Current match</Badge>
-              ) : (
-                <Badge>Selected</Badge>
-              )}
-              {current && film.id !== current.id && (
-                <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setFilm(current)}>
-                  Undo
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="rounded-md border border-dashed px-3 py-2.5 text-sm text-muted-foreground">
-              No film identified
-              {titles ? ': pick one below, or the rip keeps every language and is named after the download' : ''}.
+            ) : titles.length === 0 ? (
+              <div className="rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
+                No titles long enough on this disc.
+              </div>
+            ) : (
+              <div role="radiogroup" aria-label="Title on the disc" className="space-y-1.5">
+                {titles.map((t) => (
+                  <TitleOption
+                    key={t.index}
+                    title={t}
+                    checked={titleIndex === t.index}
+                    longest={titles.length > 1 && longest?.index === t.index}
+                    current={rip.titleIndex === t.index}
+                    kept={kept}
+                    original={original}
+                    onSelect={() => setTitleIndex(t.index)}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Language kept in place of the original one, missing on the chosen title */}
+          {others.length > 0 && (
+            <section className="space-y-2.5">
+              <SectionTitle hint={`No ${languageName(originalLanguage)} audio on this title`}>Second language</SectionTitle>
+              <div role="radiogroup" aria-label="Second language" className="flex flex-wrap gap-1.5">
+                {[{ lang: null, name: `Only ${keptName}` }, ...others].map((option) => (
+                  <button
+                    key={option.lang ?? ''}
+                    type="button"
+                    role="radio"
+                    aria-checked={second === option.lang}
+                    onClick={() => setSecondLanguage(option.lang)}
+                    className={cn(
+                      'flex items-start gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors',
+                      second === option.lang ? 'border-primary/60 bg-primary/10' : 'hover:bg-accent/50'
+                    )}
+                  >
+                    <RadioDot checked={second === option.lang} />
+                    {option.name}
+                    {option.lang && <span className="font-mono text-xs uppercase text-muted-foreground">{option.lang}</span>}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Film on TMDB */}
+          <section className="space-y-2.5">
+            <SectionTitle hint="Names the file and sets the original language">Film on TMDB</SectionTitle>
+
+            {film ? (
+              <div className="flex items-center gap-3 rounded-md border bg-muted/40 px-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">
+                    {film.title}
+                    {film.year && <span className="font-normal text-muted-foreground"> ({film.year})</span>}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {[film.originalTitle !== film.title && film.originalTitle, film.originalLanguage && `Original language: ${languageName(film.originalLanguage)}`]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                </div>
+                {film.id === rip.tmdbId ? (
+                  <Badge variant="secondary">Current match</Badge>
+                ) : (
+                  <Badge>Selected</Badge>
+                )}
+                {current && film.id !== current.id && (
+                  <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setFilm(current)}>
+                    Undo
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-md border border-dashed px-3 py-2.5 text-sm text-muted-foreground">
+                No film identified
+                {titles ? ': pick one below, or the rip keeps every language and is named after the download' : ''}.
+              </div>
+            )}
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                search(query, year);
+              }}
+              className="flex gap-2"
+            >
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Film title"
+                  aria-label="Film title"
+                  disabled={!tmdbConfigured}
+                  className="h-8 pl-8"
+                />
+              </div>
+              <Input
+                value={year}
+                onChange={(e) => setYear(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                placeholder="Year"
+                aria-label="Year"
+                inputMode="numeric"
+                disabled={!tmdbConfigured}
+                className="h-8 w-20"
+              />
+              <Button type="submit" size="sm" variant="secondary" disabled={!tmdbConfigured || searching || !query.trim()}>
+                {searching && <Loader2 className="animate-spin" />}
+                Search
+              </Button>
+            </form>
+
+            {!tmdbConfigured ? (
+              <p className="text-xs text-warning">Searching needs TMDB_API_KEY on the backend.</p>
+            ) : searchError ? (
+              <p className="text-xs text-destructive">{searchError}</p>
+            ) : results && results.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No films found. Try the original title or no year.</p>
+            ) : results ? (
+              <div
+                role="radiogroup"
+                aria-label="Film on TMDB"
+                className="max-h-56 divide-y divide-border/60 overflow-y-auto rounded-md border scrollbar-thin"
+              >
+                {results.map((movie) => (
+                  <FilmOption key={movie.id} movie={movie} checked={film?.id === movie.id} onSelect={() => setFilm(movie)} />
+                ))}
+              </div>
+            ) : null}
+          </section>
+
+          {error && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
             </div>
           )}
 
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              search(query, year);
-            }}
-            className="flex gap-2"
-          >
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Film title"
-                aria-label="Film title"
-                disabled={!tmdbConfigured}
-                className="h-8 pl-8"
-              />
-            </div>
-            <Input
-              value={year}
-              onChange={(e) => setYear(e.target.value.replace(/\D/g, '').slice(0, 4))}
-              placeholder="Year"
-              aria-label="Year"
-              inputMode="numeric"
-              disabled={!tmdbConfigured}
-              className="h-8 w-20"
-            />
-            <Button type="submit" size="sm" variant="secondary" disabled={!tmdbConfigured || searching || !query.trim()}>
-              {searching && <Loader2 className="animate-spin" />}
-              Search
+          <DialogFooter>
+            {joinable && (
+              <Button variant="outline" className="sm:mr-auto" onClick={openJoin} disabled={saving}>
+                <Combine />
+                {rip.joinId ? 'Join discs again…' : 'Join discs…'}
+              </Button>
+            )}
+            <Button variant="ghost" onClick={() => onOpenChange(false)}>
+              Cancel
             </Button>
-          </form>
-
-          {!tmdbConfigured ? (
-            <p className="text-xs text-warning">Searching needs TMDB_API_KEY on the backend.</p>
-          ) : searchError ? (
-            <p className="text-xs text-destructive">{searchError}</p>
-          ) : results && results.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No films found. Try the original title or no year.</p>
-          ) : results ? (
-            <div
-              role="radiogroup"
-              aria-label="Film on TMDB"
-              className="max-h-56 divide-y divide-border/60 overflow-y-auto rounded-md border scrollbar-thin"
-            >
-              {results.map((movie) => (
-                <FilmOption key={movie.id} movie={movie} checked={film?.id === movie.id} onSelect={() => setFilm(movie)} />
-              ))}
-            </div>
-          ) : null}
-        </section>
-
-        {error && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </div>
-        )}
-
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={!canSubmit}>
-            {saving && <Loader2 className="animate-spin" />}
-            {titles ? 'Rip this title' : 'Use this film'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+            <Button onClick={submit} disabled={!canSubmit}>
+              {saving && <Loader2 className="animate-spin" />}
+              {titles ? (joinParts > 0 ? 'Rip this part' : 'Rip this title') : 'Use this film'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {(joinable || joinOpen) && <RipJoinDialog rip={rip} film={joinFilm} open={joinOpen} onOpenChange={setJoinOpen} />}
+    </>
   );
 }
