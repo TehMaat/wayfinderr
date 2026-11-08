@@ -153,3 +153,50 @@ test('the film is found past the first ten results', async () => {
   assert.equal(match.movie?.id, 95610);
   assert.equal(match.candidates.length, 10);
 });
+
+// Fake TMDB that answers each query with its own results, as the real search does
+const respondByQuery = (byQuery: Record<string, Movie[]>) => {
+  const all = Object.values(byQuery).flat();
+  globalThis.fetch = (async (input: string | URL) => {
+    const url = new URL(String(input));
+    const id = url.pathname.match(/\/movie\/(\d+)$/)?.[1];
+    if (id) return new Response(JSON.stringify(all.find((m) => m.id === Number(id))), { status: 200 });
+    const year = url.searchParams.get('year');
+    const results = (byQuery[url.searchParams.get('query') ?? ''] ?? []).filter((m) => !year || m.release_date.startsWith(year));
+    return new Response(JSON.stringify({ results }), { status: 200 });
+  }) as typeof fetch;
+};
+
+test('a title in two languages, "A - B": one side is the film', async () => {
+  const { matchMovie } = await import('./tmdb.js');
+  const gone = movie(770, 'Via col vento', 'Gone with the Wind', 1939);
+  respondByQuery({ 'Gone with the Wind': [gone, movie(99, 'Gone with the Wind II', 'Gone with the Wind II', 1994)] });
+  const match = await matchMovie({ title: 'Vom Winde verweht - Gone with the Wind', year: 1939 });
+  assert.equal(match.movie?.id, 770);
+
+  // Both sides give the same film
+  respondByQuery({ 'Vom Winde verweht': [gone], 'Gone with the Wind': [gone] });
+  assert.equal((await matchMovie({ title: 'Vom Winde verweht - Gone with the Wind', year: 1939 })).movie?.id, 770);
+});
+
+test('a title in two languages: sides giving different films, or none, ask with the candidates', async () => {
+  const { matchMovie } = await import('./tmdb.js');
+  respondByQuery({ Alpha: [movie(1, 'Alpha', 'Alpha', 2000)], Beta: [movie(2, 'Beta', 'Beta', 2000)] });
+  const two = await matchMovie({ title: 'Alpha - Beta', year: 2000 });
+  assert.equal(two.movie, null);
+  assert.match(two.reason ?? '', /2 films on TMDB match "Alpha - Beta"/);
+  assert.deepEqual(two.candidates.map((m) => m.id).sort(), [1, 2]);
+
+  respondByQuery({ Alpha: [movie(1, 'Alphaville', 'Alphaville', 2000)] });
+  const none = await matchMovie({ title: 'Alpha - Beta', year: 2000 });
+  assert.equal(none.movie, null);
+  assert.equal(none.candidates[0]?.id, 1);
+  assert.match(none.reason ?? '', /No TMDB film matches "Alpha - Beta \(2000\)" exactly/);
+});
+
+test('a title with " - " in it: the whole title wins over its sides', async () => {
+  const { matchMovie } = await import('./tmdb.js');
+  const part2 = movie(240, 'Il padrino - Parte II', 'The Godfather Part II', 1974);
+  respondByQuery({ 'Il padrino - Parte II': [part2], 'Il padrino': [movie(238, 'Il padrino', 'The Godfather', 1972)] });
+  assert.equal((await matchMovie({ title: 'Il padrino - Parte II', year: 1974 })).movie?.id, 240);
+});
