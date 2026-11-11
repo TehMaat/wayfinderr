@@ -181,6 +181,31 @@ export async function testServer(id: string) {
   }
 }
 
+/** Runs Ultra's Ultra-API script on the server ("Restart"), then checks the API again */
+export async function restartServerApi(id: string) {
+  const name = useAppStore.getState().servers.find((s) => s.id === id)?.name ?? 'Server';
+  const pending = toast.loading(`Restarting the Ultra-API on ${name}…`, {
+    description: 'Can take a couple of minutes',
+  });
+  try {
+    const { data } = await serversApi.restartApi(id);
+    toast.success(`${name}: Ultra-API restarted`, { id: pending, description: `${data.freeSpaceGB} GB free` });
+  } catch (err) {
+    toast.error(`${name}: Ultra-API restart failed`, { id: pending, description: errorMessage(err) });
+  } finally {
+    useAppStore.getState().loadServers().catch(() => undefined);
+  }
+}
+
+export async function setAutoRestartApi(id: string, autoRestartApi: boolean) {
+  try {
+    await serversApi.updateServer(id, { autoRestartApi });
+    await useAppStore.getState().loadServers();
+  } catch (err) {
+    toast.error('Could not change the automatic restart', { description: errorMessage(err) });
+  }
+}
+
 export async function refreshServerSpace(id: string) {
   try {
     await serversApi.refreshSpace(id);

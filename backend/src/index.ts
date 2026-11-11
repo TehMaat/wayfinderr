@@ -14,6 +14,7 @@ import { authEvents, authenticate, ensureSetupCode, getAccount } from './service
 import { isCrossSite, requireAuth, securityMiddleware } from './middleware/security.js';
 import { torrentCleanup } from './services/torrentCleanup.js';
 import { spaceGuard } from './services/spaceGuard.js';
+import { serverManager } from './services/serverManager.js';
 import authRoutes from './routes/auth.js';
 import serverRoutes from './routes/servers.js';
 import uploadRoutes from './routes/uploads.js';
@@ -239,6 +240,12 @@ sourceTorrents.on('torrent-updated', ({ uploadId, torrentStatus }) => {
 spaceGuard.on('client-updated', ({ clientId, paused, message, first }) => {
   broadcast({ type: 'client-updated', clientId, paused, message, first });
 });
+
+// Ultra-API restarts (by hand or automatic): the Servers page refetches
+serverManager.on('api-restarting', ({ serverId, auto }) => broadcast({ type: 'server-api-restart', serverId, auto, running: true }));
+serverManager.on('api-restarted', ({ serverId, ok, message, auto }) =>
+  broadcast({ type: 'server-api-restart', serverId, auto, running: false, ok, message })
+);
 
 jobQueue.on('upload-failed', ({ uploadId }) => {
   broadcast({

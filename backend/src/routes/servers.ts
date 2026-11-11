@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Server } from '@prisma/client';
 import { db } from '../services/database.js';
-import { serverManager } from '../services/serverManager.js';
+import { ApiRestartBusyError, serverManager } from '../services/serverManager.js';
 import { uploadManager } from '../services/uploadManager.js';
 import logger from '../config/logger.js';
 
@@ -12,6 +12,7 @@ const toPublic = ({ sshPassword, apiToken, ...server }: Server) => ({
   ...server,
   hasSshPassword: Boolean(sshPassword),
   hasApiToken: Boolean(apiToken),
+  apiRestarting: serverManager.isRestartingApi(server.id),
 });
 
 const STRING_FIELDS = [
@@ -44,7 +45,9 @@ const parseServerBody = (body: Record<string, unknown>) => {
     const value = body[field];
     if (typeof value === 'string') data[field] = value.trim() || null;
   }
-  if (typeof body.releaseAuto === 'boolean') data.releaseAuto = body.releaseAuto;
+  for (const field of ['releaseAuto', 'autoRestartApi'] as const) {
+    if (typeof body[field] === 'boolean') data[field] = body[field];
+  }
   for (const field of INT_FIELDS) {
     const value = parseInt(String(body[field] ?? ''), 10);
     if (!Number.isNaN(value)) {
@@ -143,6 +146,31 @@ router.post('/:id/test', async (req: Request, res: Response) => {
     ok: true,
     freeSpaceGB: (Number(space.freeSpaceBytes) / 1024 / 1024 / 1024).toFixed(2),
   });
+});
+
+// POST restart the Ultra-API: Ultra's Ultra-API script over SSH, "Restart" entry
+router.post('/:id/restart-api', async (req: Request, res: Response) => {
+  const server = await db.getServerById(req.params.id).catch(() => null);
+  if (!server) {
+    res.status(404).json({ error: 'Server not found' });
+    return;
+  }
+
+  try {
+    const result = await serverManager.restartApi(server);
+    if (!result.ok) {
+      res.status(502).json({ error: result.message, output: result.output });
+      return;
+    }
+    res.json(result);
+  } catch (error) {
+    if (error instanceof ApiRestartBusyError) {
+      res.status(409).json({ error: error.message });
+      return;
+    }
+    logger.error(error, 'Failed to restart the Ultra-API');
+    res.status(500).json({ error: 'Failed to restart the Ultra-API' });
+  }
 });
 
 // DELETE server

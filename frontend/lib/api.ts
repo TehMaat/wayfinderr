@@ -72,6 +72,8 @@ export const serversApi = {
   updateServer: (id: string, data: Record<string, unknown>) => apiClient.put(`/api/servers/${id}`, data),
   deleteServer: (id: string) => apiClient.delete(`/api/servers/${id}`),
   testServer: (id: string) => apiClient.post(`/api/servers/${id}/test`, null, { timeout: 45000 }),
+  // SSH login, script (up to 3 min) and up to 30 s waiting for the API to answer again
+  restartApi: (id: string) => apiClient.post(`/api/servers/${id}/restart-api`, null, { timeout: 290000 }),
   refreshSpace: (id: string) => apiClient.post(`/api/space/${id}/refresh`),
 };
 

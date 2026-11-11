@@ -33,6 +33,11 @@ model Server {
   trackerCommand       String?  // {path} {folder} {name} are replaced; blank = rename only
   releaseAuto          Boolean  @default(false) // after each upload, ask for the name right away
 
+  // Ultra-API restart (services/ultraApi.ts): runs Ultra's Ultra-API script over SSH, "Restart" entry
+  autoRestartApi       Boolean  @default(false) // restart it by itself when unreachable (with a cooldown)
+  apiRestartAt         DateTime? // last restart, by hand or automatic
+  apiRestartError      String?   // why the last restart failed (null = it worked)
+
   // Caching
   lastSpaceCheckAt     DateTime?
   cachedFreeSpaceBytes BigInt?

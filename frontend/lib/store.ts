@@ -174,6 +174,11 @@ export interface Server {
   releaseTag: string | null;
   trackerCommand: string | null;
   releaseAuto: boolean;
+  // Ultra-API restart over SSH: automatic when unreachable, last run and why it failed
+  autoRestartApi: boolean;
+  apiRestartAt: string | null;
+  apiRestartError: string | null;
+  apiRestarting: boolean;
   lastSpaceCheckAt: string | null;
   // From /api/space (missing until loaded)
   reachable?: boolean;

@@ -10,6 +10,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  RotateCw,
   Server as ServerIcon,
   ShieldCheck,
   Trash2,
@@ -31,7 +32,8 @@ import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
 import { ServerDialog } from '@/components/server-dialog';
 import { StorageBar } from '@/components/storage-bar';
-import { deleteServer, refreshServerSpace, testServer } from '@/lib/actions';
+import { Switch } from '@/components/ui/switch';
+import { deleteServer, refreshServerSpace, restartServerApi, setAutoRestartApi, testServer } from '@/lib/actions';
 import { useAppStore, type Server } from '@/lib/store';
 import { cn, timeAgo } from '@/lib/utils';
 
@@ -40,6 +42,63 @@ function Detail({ icon: Icon, children }: { icon: typeof ServerIcon; children: R
     <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
       <Icon className="h-3.5 w-3.5 shrink-0" />
       <span className="truncate">{children}</span>
+    </div>
+  );
+}
+
+/** Ultra-API restart over SSH: the button runs it now, the switch when the API is unreachable */
+function UltraApiRestart({ server }: { server: Server }) {
+  const [restarting, setRestarting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const running = restarting || server.apiRestarting;
+  const unreachable = server.reachable === false;
+
+  return (
+    <div className="space-y-2 border-t px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-medium">Ultra-API</p>
+          <p className="truncate text-[11px] text-muted-foreground">
+            {running
+              ? 'Restarting…'
+              : server.apiRestartAt
+                ? `${server.apiRestartError ? 'Restart failed' : 'Restarted'} ${timeAgo(server.apiRestartAt)}`
+                : 'Restart it over SSH when unreachable'}
+          </p>
+        </div>
+        <Button
+          variant={unreachable ? 'default' : 'outline'}
+          size="sm"
+          disabled={running}
+          title="Runs Ultra's Ultra-API script on the server and picks Restart"
+          onClick={async () => {
+            setRestarting(true);
+            await restartServerApi(server.id);
+            setRestarting(false);
+          }}
+        >
+          <RotateCw className={cn(running && 'animate-spin')} />
+          {running ? 'Restarting…' : 'Restart API'}
+        </Button>
+      </div>
+      {server.apiRestartError && !running && (
+        <p className="line-clamp-2 text-[11px] text-destructive" title={server.apiRestartError}>
+          {server.apiRestartError}
+        </p>
+      )}
+      <label className="flex cursor-pointer items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span>Restart automatically when unreachable (at most every 15 min)</span>
+        <Switch
+          checked={server.autoRestartApi}
+          disabled={saving}
+          aria-label="Restart the Ultra-API automatically"
+          onCheckedChange={async (checked) => {
+            setSaving(true);
+            await setAutoRestartApi(server.id, checked);
+            setSaving(false);
+          }}
+        />
+      </label>
     </div>
   );
 }
@@ -128,6 +187,8 @@ function ServerCard({ server, onEdit }: { server: Server; onEdit: () => void }) 
           {refreshing && '…'}
         </Detail>
       </div>
+
+      <UltraApiRestart server={server} />
 
       <div className="mt-auto flex gap-2 border-t p-3">
         <Button
