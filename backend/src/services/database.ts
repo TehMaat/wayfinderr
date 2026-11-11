@@ -1,4 +1,4 @@
-import { MergePair, PrismaClient, Prisma, Rip, SourceTorrent, Upload, Server, TorrentClient } from '@prisma/client';
+import { MergePair, MergePlan, PrismaClient, Prisma, Rip, SourceTorrent, Upload, Server, TorrentClient } from '@prisma/client';
 import logger from '../config/logger.js';
 
 export class DatabaseService {
@@ -265,6 +265,11 @@ export class DatabaseService {
     return this.prisma.rip.findFirst({ where: { outputFile }, orderBy: { updatedAt: 'desc' } });
   }
 
+  // Every rip that produced this file: the parts of a join share it
+  async getRipsByOutputFile(outputFile: string): Promise<Rip[]> {
+    return this.prisma.rip.findMany({ where: { outputFile } });
+  }
+
   // Every rip of one download (a film can span several discs)
   async getRipsByDownloadName(downloadName: string): Promise<Rip[]> {
     return this.prisma.rip.findMany({ where: { downloadName } });
@@ -380,6 +385,36 @@ export class DatabaseService {
 
   async deleteMergePair(id: string): Promise<void> {
     await this.prisma.mergePair.delete({ where: { id } });
+  }
+
+  // Pairs planned before their files arrive (services/merge/plans.ts)
+  async getMergePlans(): Promise<MergePlan[]> {
+    return this.prisma.mergePlan.findMany({ orderBy: { createdAt: 'desc' } });
+  }
+
+  async getMergePlansByStatus(statuses: string[]): Promise<MergePlan[]> {
+    return this.prisma.mergePlan.findMany({ where: { status: { in: statuses } }, orderBy: { createdAt: 'asc' } });
+  }
+
+  async getMergePlanById(id: string): Promise<MergePlan | null> {
+    return this.prisma.mergePlan.findUnique({ where: { id } });
+  }
+
+  // The plans an upload is a side of
+  async getMergePlansOfUpload(uploadId: string): Promise<MergePlan[]> {
+    return this.prisma.mergePlan.findMany({ where: { OR: [{ uploadAId: uploadId }, { uploadBId: uploadId }] } });
+  }
+
+  async createMergePlan(data: Prisma.MergePlanUncheckedCreateInput): Promise<MergePlan> {
+    return this.prisma.mergePlan.create({ data });
+  }
+
+  async updateMergePlan(id: string, data: Prisma.MergePlanUncheckedUpdateInput): Promise<MergePlan> {
+    return this.prisma.mergePlan.update({ where: { id }, data });
+  }
+
+  async deleteMergePlan(id: string): Promise<boolean> {
+    return (await this.prisma.mergePlan.deleteMany({ where: { id } })).count > 0;
   }
 
   // Source torrents' .torrent files sent before their upload (services/sourceTorrents.ts)

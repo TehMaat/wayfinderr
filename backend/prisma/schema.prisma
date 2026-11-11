@@ -121,7 +121,7 @@ model Upload {
   tmdbId               Int?
 
   // Held for a merge (status HELD, see services/merge/hold.ts): never uploaded until released by hand
-  holdKind             String?  // NO_ITALIAN | TWIN | POSSIBLE_TWIN
+  holdKind             String?  // NO_ITALIAN | TWIN | POSSIBLE_TWIN | MANUAL (by hand, its rip, or "hold every new file") | PLANNED (a planned pair)
   holdMessage          String?  // why: the twin found, or what could not be searched
 
   createdAt            DateTime @default(now())
@@ -221,6 +221,10 @@ model Rip {
   // (ISO 639-2, chosen in the UI: an anime dubbed in English, a film whose disc lacks it)
   secondLanguage   String?
 
+  // Hold for merge, set by hand before the rip is done (see services/merge/hold.ts): its
+  // file is held as it arrives, without looking for a twin. Every part of a join has it
+  holdForMerge     Boolean   @default(false)
+
   jobId            String?   // current runner job
   progress         Int       @default(0) // 0-100
   outputFile       String?   // final .mkv path, in the watch folder (or where an archive was unpacked in the downloads)
@@ -293,4 +297,32 @@ model SourceTorrent {
   updatedAt  DateTime  @updatedAt
 
   @@index([name])
+}
+
+// A pair planned before its two files arrive (by hand on the Merge page, or by bookrr
+// through the API when it sends the two torrents, see services/merge/plans.ts): each
+// file is held as it arrives, and once both are there the pair is created and analyzed.
+// Each side is a download: its torrent's info hash and/or its name (the download's
+// folder or file), or an upload already there
+model MergePlan {
+  id               String    @id @default(cuid())
+  // WAITING (a file still to come) | PAIRED (pairId) | ERROR (both there, the pair could not be created: message)
+  status           String    @default("WAITING")
+  hashA            String?   // v1 info hash, lowercase hex
+  nameA            String?
+  labelA           String?   // what it is for, e.g. "video", "audio ITA"
+  uploadAId        String?   // its file, once arrived
+  hashB            String?
+  nameB            String?
+  labelB           String?
+  uploadBId        String?
+  tmdbId           Int?
+  originalLanguage String?   // passed to the pair (else from the rip or TMDB)
+  origin           String?   // who planned it: "bookrr", or null by hand
+  pairId           String?   // the pair, once created
+  message          String?   // why the pair could not be created
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([status])
 }

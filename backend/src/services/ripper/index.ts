@@ -1230,6 +1230,25 @@ class Ripper extends EventEmitter {
   }
 
   /**
+   * "Hold for merge" (issue #53): the rip's file is held for a merge as it arrives,
+   * without looking for a twin. Set before the rip is done, on every part of a join.
+   */
+  async setHoldForMerge(id: string, hold: boolean) {
+    return this.exclusive(async () => {
+      const rip = await this.visibleRip(id);
+      if (rip.status === 'DONE') {
+        throw new Error('The rip is done: hold its file from the uploads instead');
+      }
+      const parts = rip.joinId ? await db.getRipsByJoinId(rip.joinId) : [rip];
+      for (const part of parts) {
+        if (part.status !== 'DONE') await this.update(part.id, { holdForMerge: hold });
+      }
+      logger.info({ ripId: id, parts: parts.length, hold }, 'Rip hold for merge set');
+      return (await db.getRipById(id))!;
+    });
+  }
+
+  /**
    * Rips the given title as the given film, keeping the given audio language
    * beside the kept one (null: none besides the original language); each may be
    * kept as is.

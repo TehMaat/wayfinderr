@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import logger from '../config/logger.js';
 import { mergeStatus } from '../services/merge/index.js';
 import { MergeError, mergePairs, OutputExistsError } from '../services/merge/pairs.js';
+import { HoldError, manualHolds } from '../services/merge/manual.js';
+import { mergePlans } from '../services/merge/plans.js';
 
 const router = Router();
 
@@ -18,7 +20,7 @@ const fail = (res: Response, error: unknown, what: string) => {
     });
     return;
   }
-  if (error instanceof MergeError) {
+  if (error instanceof MergeError || error instanceof HoldError) {
     res.status(error.status).json({ error: error.message });
     return;
   }
@@ -35,10 +37,17 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// GET the settings: the choices (a fixed value, or "ask" each time) and the inputs after a merge
+const settings = async () => ({
+  choices: await mergePairs.getChoiceSettings(),
+  inputs: await mergePairs.getInputsAfter(),
+  holdAll: await manualHolds.getHoldAll(),
+});
+
+// GET the settings: the choices (a fixed value, or "ask" each time), the inputs after a merge,
+// and "Hold every new file"
 router.get('/settings', async (req: Request, res: Response) => {
   try {
-    res.json({ choices: await mergePairs.getChoiceSettings(), inputs: await mergePairs.getInputsAfter() });
+    res.json(await settings());
   } catch (error) {
     fail(res, error, 'read the merge settings');
   }
@@ -46,16 +55,15 @@ router.get('/settings', async (req: Request, res: Response) => {
 
 router.put('/settings', async (req: Request, res: Response) => {
   try {
-    const { choices, inputs } = req.body ?? {};
+    const { choices, inputs, holdAll } = req.body ?? {};
     if (choices !== undefined && (!choices || typeof choices !== 'object' || Array.isArray(choices))) {
       res.status(400).json({ error: 'choices must be an object' });
       return;
     }
     if (inputs !== undefined) await mergePairs.setInputsAfter(inputs);
-    res.json({
-      choices: choices !== undefined ? await mergePairs.setChoiceSettings(choices) : await mergePairs.getChoiceSettings(),
-      inputs: await mergePairs.getInputsAfter(),
-    });
+    if (holdAll !== undefined) await manualHolds.setHoldAll(holdAll);
+    if (choices !== undefined) await mergePairs.setChoiceSettings(choices);
+    res.json(await settings());
   } catch (error) {
     fail(res, error, 'save the merge settings');
   }
@@ -174,6 +182,63 @@ router.delete('/pairs/:id', async (req: Request, res: Response) => {
     res.status(204).end();
   } catch (error) {
     fail(res, error, 'remove the pair');
+  }
+});
+
+// Pairs planned before their files arrive (services/merge/plans.ts): by hand, or by bookrr
+// when it sends the two torrents
+
+// GET what a pair can be planned with: rips not finished, torrents of the clients, files not uploaded
+router.get('/plans/candidates', async (req: Request, res: Response) => {
+  try {
+    res.json(await mergePlans.candidates());
+  } catch (error) {
+    fail(res, error, 'list what a pair can be planned with');
+  }
+});
+
+router.get('/plans', async (req: Request, res: Response) => {
+  try {
+    res.json(await mergePlans.list());
+  } catch (error) {
+    fail(res, error, 'list the planned pairs');
+  }
+});
+
+// POST plan a pair: { files: [{ infoHash?, name?, ripId?, uploadId?, label? }, {...}], tmdbId?, originalLanguage?, origin? }
+router.post('/plans', async (req: Request, res: Response) => {
+  try {
+    const { created, plan } = await mergePlans.create(req.body ?? {});
+    res.status(created ? 201 : 200).json(plan);
+  } catch (error) {
+    fail(res, error, 'plan the pair');
+  }
+});
+
+router.get('/plans/:id', async (req: Request, res: Response) => {
+  try {
+    res.json(await mergePlans.get(req.params.id));
+  } catch (error) {
+    fail(res, error, 'read the planned pair');
+  }
+});
+
+// POST create the pair again, after an error, once both files are there
+router.post('/plans/:id/pair', async (req: Request, res: Response) => {
+  try {
+    res.json(await mergePlans.pair(req.params.id));
+  } catch (error) {
+    fail(res, error, 'create the planned pair');
+  }
+});
+
+// DELETE forget a planned pair: its files already held stay held
+router.delete('/plans/:id', async (req: Request, res: Response) => {
+  try {
+    await mergePlans.remove(req.params.id);
+    res.status(204).end();
+  } catch (error) {
+    fail(res, error, 'remove the planned pair');
   }
 });
 

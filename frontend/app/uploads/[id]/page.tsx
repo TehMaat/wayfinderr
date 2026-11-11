@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowLeft, AudioLines, Captions, Clapperboard, Download, ExternalLink, FilePlus, FileVideo, Film, Magnet, RefreshCw, RotateCcw, Search, Square, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, AudioLines, Captions, Clapperboard, Download, ExternalLink, FilePlus, FileVideo, Film, Magnet, Merge, RefreshCw, RotateCcw, Search, Square, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -16,9 +16,9 @@ import { EmptyState } from '@/components/empty-state';
 import { HeldNotice } from '@/components/held-notice';
 import { ReleaseCard } from '@/components/release-card';
 import { StatusBadge } from '@/components/status-badge';
-import { StopUploadDialog, canDelete, canRetry, canStop } from '@/components/upload-actions';
+import { StopUploadDialog, canDelete, canHold, canRetry, canStop, useMergeOn } from '@/components/upload-actions';
 import { uploadsApi } from '@/lib/api';
-import { addTorrentFile, checkTorrent, deleteUpload, removeTorrent, retryUpload } from '@/lib/actions';
+import { addTorrentFile, checkTorrent, deleteUpload, holdUpload, removeTorrent, retryUpload } from '@/lib/actions';
 import {
   aspectLabel,
   audioCodecLabel,
@@ -453,6 +453,7 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
   const [loading, setLoading] = useState(!upload);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
+  const mergeOn = useMergeOn();
 
   // Uploads older than the loaded list are fetched on demand
   useEffect(() => {
@@ -575,6 +576,14 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
               <RotateCcw />
               Retry
             </Button>
+          )}
+          {mergeOn && canHold(upload) && (
+            <Tooltip content="Not uploaded until you pair it, upload it as it is or delete it">
+              <Button size="sm" variant="outline" onClick={() => holdUpload(upload.id)}>
+                <Merge />
+                Hold for merge
+              </Button>
+            </Tooltip>
           )}
           {canStop(upload) && (
             <Button size="sm" variant="outline" onClick={() => setStopOpen(true)}>

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Eye, FileX2, HardDriveDownload, MoreHorizontal, RotateCcw, Square, Tags, Trash2, Upload as UploadIcon } from 'lucide-react';
+import { Eye, FileX2, HardDriveDownload, Merge, MoreHorizontal, RotateCcw, Square, Tags, Trash2, Upload as UploadIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -14,7 +14,7 @@ import {
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { ReleaseDialog } from '@/components/release-dialog';
 import { canRelease, localReleaseClient, releaseRunning } from '@/components/release-badge';
-import { deleteHeld, deleteUpload, retryUpload, stopUpload, uploadHeld } from '@/lib/actions';
+import { deleteHeld, deleteUpload, holdUpload, retryUpload, stopUpload, uploadHeld } from '@/lib/actions';
 import { useAppStore, type Upload } from '@/lib/store';
 
 export const canRetry = (u: Upload) => u.status === 'FAILED' || u.status === 'SKIPPED' || u.status === 'CANCELLED';
@@ -23,6 +23,11 @@ export const canDelete = (u: Upload) =>
   u.status !== 'QUEUED' && u.status !== 'UPLOADING' && u.status !== 'HELD' && !releaseRunning(u);
 export const isHeld = (u: Upload) => u.status === 'HELD';
 export const canStop = (u: Upload) => u.status === 'QUEUED' || u.status === 'UPLOADING';
+// Held for a merge by hand: not on a server yet nor being sent there (a queued one is taken out of the queue)
+const HOLDABLE = ['PENDING', 'QUEUED', 'FAILED', 'SKIPPED', 'CANCELLED'];
+export const canHold = (u: Upload) => HOLDABLE.includes(u.status);
+/** Merging is on: files can be held for a merge */
+export const useMergeOn = () => useAppStore((s) => Boolean(s.mergeStatus?.enabled && s.mergeStatus.languageSupported));
 
 export function StopUploadDialog({
   upload,
@@ -92,6 +97,7 @@ export function UploadActions({ upload, onDeleted }: { upload: Upload; onDeleted
   const [localOpen, setLocalOpen] = useState(false);
   const [deleteHeldOpen, setDeleteHeldOpen] = useState(false);
   const localClient = useAppStore((s) => localReleaseClient(upload, s.clients));
+  const mergeOn = useMergeOn();
 
   return (
     <>
@@ -118,6 +124,12 @@ export function UploadActions({ upload, onDeleted }: { upload: Upload; onDeleted
             <DropdownMenuItem onSelect={() => retryUpload(upload.id)}>
               <RotateCcw />
               Retry
+            </DropdownMenuItem>
+          )}
+          {mergeOn && canHold(upload) && (
+            <DropdownMenuItem onSelect={() => holdUpload(upload.id)}>
+              <Merge />
+              Hold for merge
             </DropdownMenuItem>
           )}
           {canStop(upload) && (

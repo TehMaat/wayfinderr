@@ -9,6 +9,8 @@ import { describeError } from '../services/qbittorrent.js';
 import { mediaInfoParser } from '../services/mediaInfo.js';
 import { releaseManager, ReleaseError } from '../services/release/index.js';
 import { mergePairs } from '../services/merge/pairs.js';
+import { HoldError, MANUAL_MESSAGE, manualHolds } from '../services/merge/manual.js';
+import { mergePlans } from '../services/merge/plans.js';
 import logger from '../config/logger.js';
 import { config } from '../config/index.js';
 
@@ -206,6 +208,21 @@ router.get('/:id/torrent/file', async (req: Request, res: Response) => {
   }
 });
 
+// POST hold for a merge by hand a file not on a server yet (PENDING, QUEUED, FAILED, SKIPPED,
+// CANCELLED): out of the upload queue, then HELD with holdKind MANUAL
+router.post('/:id/hold', async (req: Request, res: Response) => {
+  try {
+    res.json(await manualHolds.hold(req.params.id, { kind: 'MANUAL', message: MANUAL_MESSAGE }));
+  } catch (error) {
+    if (error instanceof HoldError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+    logger.error({ uploadId: req.params.id, error }, 'Failed to hold a file for a merge');
+    res.status(500).json({ error: 'Failed to hold the file' });
+  }
+});
+
 // POST upload a file held for a merge as it is (the server's media policy still applies)
 router.post('/:id/hold/upload', async (req: Request, res: Response) => {
   try {
@@ -254,6 +271,8 @@ router.post('/:id/hold/delete', async (req: Request, res: Response) => {
       await rm(upload.filepath, { force: true });
     }
     await db.deleteUpload(upload.id);
+    // A file of a planned pair: its side waits for a file again
+    await mergePlans.forgetUpload(upload.id);
     logger.info({ uploadId: upload.id, filepath: upload.filepath }, 'Held file deleted');
     res.json({ ok: true });
   } catch (error) {

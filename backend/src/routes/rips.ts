@@ -5,6 +5,7 @@ import { ripper } from '../services/ripper/index.js';
 import { normalizeExclusions, normalizeFolder, normalizeFolders } from '../services/ripper/exclusions.js';
 import { parseReleaseName } from '../services/ripper/releaseName.js';
 import { searchMovies } from '../services/ripper/tmdb.js';
+import { mergeActive } from '../services/merge/index.js';
 import logger from '../config/logger.js';
 
 const router = Router();
@@ -152,6 +153,24 @@ router.post('/:id/choose', async (req: Request, res: Response) => {
     res.json(await toPublic(await ripper.choose(req.params.id, { titleIndex, tmdbId, secondLanguage })));
   } catch (error) {
     fail(res, error, 'Failed to start the rip');
+  }
+});
+
+// PUT "Hold for merge" ({ hold }): the rip's file is held for a merge as it arrives (every part of a join)
+router.put('/:id/hold', async (req: Request, res: Response) => {
+  const hold = req.body?.hold;
+  if (typeof hold !== 'boolean') {
+    res.status(400).json({ error: 'hold must be true or false' });
+    return;
+  }
+  if (hold && !mergeActive()) {
+    res.status(409).json({ error: 'Merging is off (MERGE_ENABLED, RIP_LANGUAGE=it)' });
+    return;
+  }
+  try {
+    res.json(await toPublic(await ripper.setHoldForMerge(req.params.id, hold)));
+  } catch (error) {
+    fail(res, error, 'Failed to set hold for merge');
   }
 });
 

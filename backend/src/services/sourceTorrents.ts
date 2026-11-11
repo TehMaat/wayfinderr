@@ -64,7 +64,7 @@ export const watchTopLevel = (filepath: string, watchDir = config.WATCH_DIR): st
 };
 
 /** The download names an upload's file may come from: its rip's download, else its top entry in the watch folder */
-const downloadNamesOf = async (upload: Pick<Upload, 'filepath'>): Promise<string[]> => {
+export const downloadNamesOf = async (upload: Pick<Upload, 'filepath'>): Promise<string[]> => {
   const rip = await db.getRipByOutputFile(upload.filepath);
   if (rip) return [rip.downloadName];
   const top = watchTopLevel(upload.filepath);
@@ -73,7 +73,7 @@ const downloadNamesOf = async (upload: Pick<Upload, 'filepath'>): Promise<string
 };
 
 /** The uploads that come from a download: its rips' files, and the files under its name in the watch folder */
-const uploadsOfDownload = async (name: string): Promise<Upload[]> => {
+export const uploadsOfDownload = async (name: string): Promise<Upload[]> => {
   const out: Upload[] = [];
   for (const rip of await db.getRipsByDownloadName(name)) {
     const upload = rip.outputFile ? await db.getUploadByPath(rip.outputFile) : null;
