@@ -35,8 +35,9 @@ const nextConfig = {
     NEXT_PUBLIC_APP_COMMIT: appCommit,
   },
   experimental: {
-    // Testing a server (SSH + API) can take longer than the 30s default
-    proxyTimeout: 120_000,
+    // Testing a server (SSH + API) can take longer than the 30s default, and
+    // restarting its Ultra-API up to about 4 minutes (script + API check)
+    proxyTimeout: 300_000,
   },
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];

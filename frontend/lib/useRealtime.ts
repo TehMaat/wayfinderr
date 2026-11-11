@@ -106,6 +106,21 @@ export const useRealtime = () => {
             scheduleStats(true);
             break;
 
+          // Ultra-API restart: by hand the button has its own toast, automatic ones get one here
+          case 'server-api-restart': {
+            await store.loadServers();
+            if (!message.auto) break;
+            const name = useAppStore.getState().servers.find((s) => s.id === message.serverId)?.name ?? 'Server';
+            if (message.running) {
+              toast.info(`${name}: Ultra-API unreachable, restarting it`);
+            } else if (message.ok) {
+              toast.success(`${name}: Ultra-API restarted automatically`);
+            } else {
+              toast.error(`${name}: automatic Ultra-API restart failed`, { description: message.message as string });
+            }
+            break;
+          }
+
           // Moved on a client's machine instead of uploaded (the dialog has its own toast)
           case 'released-locally':
             await store.refreshUpload(uploadId);

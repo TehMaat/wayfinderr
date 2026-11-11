@@ -227,6 +227,21 @@ Tests SSH connectivity and API access.
 }
 ```
 
+### Restart the Ultra-API
+
+```
+POST /api/servers/:id/restart-api
+```
+
+Logs in over SSH and runs Ultra's Ultra-API script (`bash <(wget -qO- https://scripts.ultra.cc/util-v2/Ultra-API/main.sh)`) in a pseudo-terminal, picking the *Restart* entry of its menu, then checks the storage API again (every 5 s, up to 30 s). Can take a few minutes.
+
+**Response:** 200 OK
+```json
+{ "ok": true, "message": "Ultra-API restarted, the API is reachable again", "output": "…", "freeSpaceGB": "745.10" }
+```
+
+`502` with `error` (and the script `output`) when SSH fails, the script shows no *Restart* entry or the API is still unreachable afterwards; `409` while a restart of the same server is running. With `autoRestartApi: true` on the server (`PUT /api/servers/:id`), the backend does the same by itself when the API cannot be reached (not on 401/403), at most once every 15 minutes per server. Each restart sends a `server-api-restart` WebSocket event (`serverId`, `auto`, `running`, then `ok` and `message`).
+
 ## Space API
 
 ### Get All Server Spaces
