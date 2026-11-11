@@ -220,6 +220,19 @@ docker-compose exec wayfinderr-backend npx prisma migrate dev
    docker-compose logs wayfinderr-backend | grep -i "test\|ssh"
    ```
 
+### Issue: Server shows "API unreachable" but SSH works
+
+The Ultra-API service on the server may have stopped. On the **Servers** page, **Restart API**
+runs Ultra's Ultra-API script over SSH and picks *Restart*, the same as doing it by hand:
+
+```bash
+bash <(wget -qO- https://scripts.ultra.cc/util-v2/Ultra-API/main.sh)
+```
+
+(then `3` for *Restart*). Turn on **Restart automatically when unreachable** to have it done
+by itself, at most once every 15 minutes per server. If the restart works but the API stays
+unreachable, check the endpoint and the token.
+
 ### Issue: "Permission denied" on SSH
 
 **Solution:**
