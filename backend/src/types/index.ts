@@ -84,7 +84,7 @@ export interface SelectedServer {
 
 // Local disk types (the machine Wayfinderr runs on)
 export interface LocalFolder {
-  key: 'watch' | 'downloads' | 'data';
+  key: 'watch' | 'downloads' | 'data' | 'logs';
   label: string;
   path: string;
 }
@@ -123,6 +123,14 @@ export interface Config {
   DELETE_AFTER_UPLOAD: boolean;
   RIP: RipConfig;
   MERGE: MergeConfig;
+  LOGS: LogsConfig;
+}
+
+// The log history on disk (services/logs): one file a day per source, kept for a while
+export interface LogsConfig {
+  DIR: string; // in the data volume, next to the database
+  RETENTION_DAYS: number; // 0: forever (only the size limit)
+  MAX_SIZE_MB: number; // the whole folder; 0: no limit
 }
 
 // Merging the Italian audio of one rip into the better video of another, in the

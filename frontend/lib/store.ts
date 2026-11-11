@@ -188,7 +188,7 @@ export interface Server {
 }
 
 export interface LocalFolder {
-  key: 'watch' | 'downloads' | 'data';
+  key: 'watch' | 'downloads' | 'data' | 'logs';
   label: string;
   path: string;
 }
@@ -384,6 +384,7 @@ export interface MergeSummary {
   commonMaterial: { startMs: number; endMs: number } | null;
   italian: { startMs: number | null; endMs: number | null } | null;
   audio: { id: number; name: string | null; role: string; taken: boolean | null }[];
+  checkpoints?: { positionMs: number; outcome: string }[]; // where each checkpoint is, and how it went
   failedChecks: { name: string; code: string | null; blocking: boolean; detail: string | null }[];
   warnings: { code: string; message: string }[];
   choices: {

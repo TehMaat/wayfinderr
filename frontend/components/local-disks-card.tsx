@@ -9,6 +9,7 @@ import {
   MemoryStick,
   Network,
   RefreshCw,
+  ScrollText,
   TriangleAlert,
   type LucideIcon,
 } from 'lucide-react';
@@ -34,6 +35,7 @@ const FOLDER_ICONS: Record<LocalFolder['key'], LucideIcon> = {
   watch: FolderInput,
   downloads: FolderDown,
   data: Database,
+  logs: ScrollText,
 };
 
 function FolderLine({ folder, error }: { folder: LocalFolder; error?: string }) {

@@ -90,6 +90,8 @@ services:
       - WATCH_USE_POLLING=${WATCH_USE_POLLING:-false}
       - MAX_CONCURRENT_UPLOADS=${MAX_CONCURRENT_UPLOADS:-2}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS:-30}
+      - LOG_MAX_SIZE_MB=${LOG_MAX_SIZE_MB:-500}
     volumes:
       - ${MAKEMKV_OUTPUT_DIR:-./makemkv-output}:/makemkv-output:ro
       - wayfinderr-data:/app/data
@@ -230,6 +232,28 @@ docker cp wayfinderr-backend:/tmp/wayfinderr.db.backup ./backup.db
 ```
 
 ## Monitoring & Logging
+
+### Log History (the Logs page)
+
+The backend writes its log to stdout, as always (`docker compose logs wayfinderr-backend`), and also to
+one file a day in the data volume, `/app/data/logs/wayfinderr/<YYYY-MM-DD>.jsonl` (UTC days, JSON Lines:
+`time`, `source`, `level`, `msg` and the structured fields). With merging on, the Dyadrr runner's log
+(`dyadrr.runner.jsonl` in the jobs folder, which the runner keeps to about 1 MiB) is copied into
+`logs/dyadrr-runner/`, and the log of every analysis and merge is kept in `logs/dyadrr-jobs/<day>/`
+before the job's files are removed, with the pair it was for. The **Logs** page reads them all, and a
+pair's page shows its own.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `LOG_RETENTION_DAYS` | `30` | Days kept, today included. `0`: forever (only the size limit) |
+| `LOG_MAX_SIZE_MB` | `500` | Most space of the whole `logs/` folder. Past it the oldest days go first. `0`: no limit |
+| `LOG_DIR` | `<database folder>/logs` | Where the history is (rarely needed) |
+
+Retention runs at the start and once a day and deletes whole days, never today's; each run that deletes
+something says so in the log (`log retention: removed …`). A full or read-only disk never stops the
+backend: the lines are lost from the file only (they are still on stdout). Passwords, keys and the
+headers of failed HTTP requests are redacted from both; the setup code stays on stdout only. Requests
+and WebSocket connections are logged at `debug`.
 
 ### Docker Logs
 

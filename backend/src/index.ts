@@ -26,6 +26,8 @@ import clientRoutes from './routes/clients.js';
 import releaseRoutes from './routes/release.js';
 import mergeRoutes from './routes/merge.js';
 import sourceTorrentRoutes from './routes/sourceTorrents.js';
+import logRoutes from './routes/logs.js';
+import { logs } from './services/logs/index.js';
 import { sourceTorrents } from './services/sourceTorrents.js';
 import { releaseManager } from './services/release/index.js';
 import { mergeActive } from './services/merge/index.js';
@@ -46,9 +48,9 @@ const wss = new WebSocketServer({ noServer: true });
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
 
-// Logging middleware
+// Every request, at debug: the pages poll, and the Logs page would fill the history with its own requests
 app.use((req, res, next) => {
-  logger.info({ method: req.method, path: req.path }, 'Request received');
+  logger.debug({ method: req.method, path: req.path }, 'Request received');
   next();
 });
 
@@ -68,6 +70,7 @@ app.use('/api/system', systemRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/merge', mergeRoutes);
 app.use('/api/source-torrents', sourceTorrentRoutes);
+app.use('/api/logs', logRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -125,7 +128,7 @@ authEvents.on('revoked', () => {
 });
 
 wss.on('connection', (ws, req: IncomingMessage) => {
-  logger.info({ clients: wss.clients.size }, 'WebSocket client connected');
+  logger.debug({ clients: wss.clients.size }, 'WebSocket client connected');
 
   // Every 30s: ping, since reverse proxies and tunnels drop idle connections
   // (a client that missed the previous pong is gone), and check the session
@@ -148,7 +151,7 @@ wss.on('connection', (ws, req: IncomingMessage) => {
 
   ws.on('close', () => {
     clearInterval(heartbeat);
-    logger.info({ clients: wss.clients.size }, 'WebSocket client disconnected');
+    logger.debug({ clients: wss.clients.size }, 'WebSocket client disconnected');
   });
 
   ws.on('error', (error) => {
@@ -410,6 +413,7 @@ const shutdown = async (signal: string) => {
     // Tracker commands go on in tmux on the servers, followed again at the next start
     releaseManager.shutdown();
     spaceGuard.stop();
+    logs.stop();
     // Close the browsers' WebSockets, or the HTTP server would wait for them
     wss.clients.forEach((client) => client.close(1001, 'Server shutting down'));
 
@@ -439,6 +443,9 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 // Start server
 const startServer = async () => {
   try {
+    // The log history: the Dyadrr runner's log copied in, old days deleted
+    logs.start();
+
     // Without an account everything is closed until it is created with this code
     if (!(await getAccount())) ensureSetupCode();
 

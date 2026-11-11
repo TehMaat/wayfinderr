@@ -34,9 +34,10 @@ import {
   type VideoTrack,
 } from '@/lib/media';
 import { destinationName, missingInfo, uploadName } from '@/lib/release';
+import { PAIR_STATUS } from '@/lib/merge';
 import { tmdbUrl } from '@/lib/rips';
 import { useAppStore, type MergePair, type TorrentStatus, type Upload } from '@/lib/store';
-import { cn, errorMessage, formatBitrate, formatBytes, formatDate, formatDuration, formatSpeed } from '@/lib/utils';
+import { basename, cn, errorMessage, formatBitrate, formatBytes, formatDate, formatDuration, formatSpeed } from '@/lib/utils';
 
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -396,6 +397,52 @@ function MergeSourcesCard({ pair }: { pair: MergePair }) {
   );
 }
 
+/** The merge pairs the file is in (or came out of): their report and their Dyadrr logs */
+function MergePairsCard({ upload }: { upload: Upload }) {
+  const pairs = useAppStore((s) =>
+    s.mergePairs.filter((p) => p.uploadAId === upload.id || p.uploadBId === upload.id || p.outputUploadId === upload.id)
+  );
+  if (pairs.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Merge</CardTitle>
+      </CardHeader>
+      <CardContent className="divide-y divide-border/60">
+        {pairs.map((pair) => {
+          const other = pair.uploadAId === upload.id ? pair.fileB : pair.uploadBId === upload.id ? pair.fileA : null;
+          const status = PAIR_STATUS[pair.status] ?? PAIR_STATUS.ERROR;
+          return (
+            <div key={pair.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+              <span className="min-w-0 truncate">
+                {other ? (
+                  <>
+                    Paired with <span className="font-medium">{basename(other)}</span>
+                  </>
+                ) : (
+                  <>
+                    Merged from <span className="font-medium">{basename(pair.fileA)}</span> and{' '}
+                    <span className="font-medium">{basename(pair.fileB)}</span>
+                  </>
+                )}
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                <Badge variant={status.tone}>{status.label}</Badge>
+                <Link href={`/merge/pairs/${pair.id}/report`} className="text-xs text-primary underline-offset-2 hover:underline">
+                  Report
+                </Link>
+                <Link href={`/merge/pairs/${pair.id}/logs`} className="text-xs text-primary underline-offset-2 hover:underline">
+                  Logs
+                </Link>
+              </span>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function UploadDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const upload = useAppStore((s) => s.uploads.find((u) => u.id === params.id));
@@ -626,6 +673,8 @@ export default function UploadDetailPage({ params }: { params: { id: string } })
       </div>
 
       {mergedFrom ? <MergeSourcesCard pair={mergedFrom} /> : <TorrentCard upload={upload} />}
+
+      <MergePairsCard upload={upload} />
 
       <ReleaseCard upload={upload} />
 

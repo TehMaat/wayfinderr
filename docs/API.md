@@ -984,7 +984,7 @@ POST /api/merge/pairs              { "uploadIds": ["a", "b"], "originalLanguage"
 POST /api/merge/pairs/:id/analyze  { "originalLanguage": "ja" }
 POST /api/merge/pairs/:id/cancel
 DELETE /api/merge/pairs/:id
-GET /api/merge/pairs/:id/report
+GET /api/merge/pairs/:id/report[?download=1]
 ```
 
 Two files of the same film, analyzed by Dyadrr (`dyadrr analyze` in the `dyadrr` container, through a file job). `POST /api/merge/pairs` pairs two candidates (in any order: Dyadrr picks the better video, the *reference*, and the Italian file, the *donor*) and queues the analysis; `originalLanguage` (ISO 639-1 or 639-2, an IETF tag) is optional: without it, it comes from a rip of either file, else TMDB, else none (the sync is then measured on English). The fixed choices of the settings are passed along. 409 with merging off, a file not pairable (uploading, gone from the disk, outside the watch folder and the downloads, already in a pair being analyzed); 400 for two equal ids or a bad language.
@@ -1017,14 +1017,14 @@ A pair:
 }
 ```
 
-`status`: `ANALYZING` (the job is queued, or running: `phase` is Dyadrr's progress phase and `progress` 0-100 within it, when known), then `ELIGIBLE`, `REFUSED`, `ERROR` or `CANCELLED`, Dyadrr's decision; `reasonCode` and `reasonMessage` say why (Dyadrr's codes, or `NO_REPORT` / `JOB_LOST` when its job ended without a report or its files are gone). `summary` is what the page shows of the report (`roles` are indexes: 0 is file A, 1 file B; also `measureLanguage`, `dispersionMs`, `film`, `commonMaterial`, `audio`, `failedChecks`, `reasons`); `/report` returns the whole report as Dyadrr wrote it (404 before it ends). `analyze` runs a pair that is not `ANALYZING` again (409 otherwise); `cancel` stops it: a job still queued (the runner runs one at a time) is withdrawn at once and the pair ends `CANCELLED` right away; a running one gets SIGTERM and ends `CANCELLED` with its report; `DELETE` removes the pair (204; 409 while Dyadrr runs it), never the files. While a pair is `ANALYZING`, its files cannot be uploaded, retried or deleted (409).
+`status`: `ANALYZING` (the job is queued, or running: `phase` is Dyadrr's progress phase and `progress` 0-100 within it, when known), then `ELIGIBLE`, `REFUSED`, `ERROR` or `CANCELLED`, Dyadrr's decision; `reasonCode` and `reasonMessage` say why (Dyadrr's codes, or `NO_REPORT` / `JOB_LOST` when its job ended without a report or its files are gone). `summary` is what the page shows of the report (`roles` are indexes: 0 is file A, 1 file B; also `measureLanguage`, `dispersionMs`, `film`, `commonMaterial`, `audio`, `failedChecks`, `reasons`, and `checkpoints`, each one's `positionMs` and `outcome`); `/report` returns the whole report as Dyadrr wrote it (404 before it ends), as a file to save with `?download=1`. The pair's page (`/merge/pairs/:id/report`) shows it in sections. `analyze` runs a pair that is not `ANALYZING` again (409 otherwise); `cancel` stops it: a job still queued (the runner runs one at a time) is withdrawn at once and the pair ends `CANCELLED` right away; a running one gets SIGTERM and ends `CANCELLED` with its report; `DELETE` removes the pair (204; 409 while Dyadrr runs it), never the files. While a pair is `ANALYZING`, its files cannot be uploaded, retried or deleted (409).
 
 ### Merge a Pair
 
 ```
 GET /api/merge/pairs/:id/merge-preview?name=
 POST /api/merge/pairs/:id/merge   { "choices": { "edgeMismatch": "drop" }, "outputName": "Up (2009)", "replaceExisting": false }
-GET /api/merge/pairs/:id/merge-report
+GET /api/merge/pairs/:id/merge-report[?download=1]
 ```
 
 `merge-preview` gives the merged file's default name (`outputName`, without `.mkv`: the rip's `Title (Year)`, else the film's TMDB title, else the better video's file name without a trailing ` (2)`), whether a file with that name is in the watch folder (`existsLocally`) or was uploaded to a server (`existsOnServer`), and the `inputsAfter` setting; `?name=` checks another name.
@@ -1036,6 +1036,22 @@ GET /api/merge/pairs/:id/merge-report
 - `ELIGIBLE` again, with `mergeReasonCode` and `mergeReasonMessage`: stopped (`CANCELLED`) or failed (`NO_SPACE`, `INPUT_CHANGED`, `MERGE_FAILED`, `VERIFY_FAILED`, `INTERRUPTED`...). Not a refusal: merge again.
 
 `merge-report` returns the merge's whole report (404 before one ends). While a pair is `MERGING` its files cannot be uploaded, retried or deleted, and `cancel` stops the merge.
+
+## Logs API
+
+```
+GET /api/logs?source=wayfinderr,dyadrr-runner,dyadrr-job&level=info&q=&from=&to=&pair=&job=&limit=200&before=
+GET /api/logs/info
+GET /api/logs/download?<same filters>
+```
+
+The log history (see [Deployment](DEPLOYMENT.md#log-history-the-logs-page)): the backend's own log (`wayfinderr`), the Dyadrr runner's (`dyadrr-runner`) and the Dyadrr jobs' (`dyadrr-job`, each `--progress json` event as a line: phases at `info`, progress at `debug`, the end and the outcome Wayfinderr read, with `job`, `pairId`, `command` and the raw `event`).
+
+`GET /api/logs` returns `{ entries, next }`, newest first. Each entry: `id` (stable, orders entries of the same ms), `time` (ISO, UTC), `source`, `level` (`trace` … `fatal`), `msg`, then its structured fields. Filters, all optional: `source` (comma-separated, default all), `level` (the lowest shown, default `trace`), `q` (text in the message or any field, any case), `from` and `to` (a day `YYYY-MM-DD`, UTC, or an ISO time), `pair` (a merge pair's lines: Wayfinderr's about it and its jobs'), `job` (a Dyadrr job id), `limit` (default 200, at most 1000). `next` is null at the end; pass it as `before` for the older page. 400 for an unknown source or level, or a bad date.
+
+`/info`: `retentionDays`, `maxSizeMb`, `usedBytes`, `oldestDay`, `days` (the days kept, newest first) and `sources` (`bytes`, `oldestDay`, `days` of each).
+
+`/download`: the entries matching the filters (at most 100 000), oldest first, as a JSON Lines file; with `from` and `to` the same day, that whole day.
 
 ## WebSocket
 

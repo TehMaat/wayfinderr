@@ -1,5 +1,7 @@
 import axios from 'axios';
 import { useAuthStore } from './auth';
+import type { DyadrrReport } from './dyadrr';
+import type { LogPage, LogQuery, LogsInfo } from './logs';
 import type { MergeCandidate, MergeChoiceSettings, MergeInputsAfter, MergePair, MergeStatus, ReleaseFlags, ReleasePreview, ReleaseProposal, Rip, RipperStatus, SourceTorrent, TmdbMovie, Upload } from './store';
 
 // Same-origin requests: the frontend server proxies /api to the backend.
@@ -201,8 +203,11 @@ export const mergeApi = {
     apiClient.post<MergePair>(`/api/merge/pairs/${id}/analyze`, originalLanguage === undefined ? {} : { originalLanguage }),
   cancelPair: (id: string) => apiClient.post<MergePair>(`/api/merge/pairs/${id}/cancel`),
   removePair: (id: string) => apiClient.delete(`/api/merge/pairs/${id}`),
-  reportUrl: (id: string) => `/api/merge/pairs/${id}/report`,
-  mergeReportUrl: (id: string) => `/api/merge/pairs/${id}/merge-report`,
+  // Dyadrr's full reports: the analysis, and the merge's
+  getReport: (id: string) => apiClient.get<DyadrrReport>(`/api/merge/pairs/${id}/report`),
+  getMergeReport: (id: string) => apiClient.get<DyadrrReport>(`/api/merge/pairs/${id}/merge-report`),
+  reportUrl: (id: string, merge = false, download = false) =>
+    `/api/merge/pairs/${id}/${merge ? 'merge-report' : 'report'}${download ? '?download=1' : ''}`,
   // The merged file's default name (TMDB lookups), and whether a file with that name is there
   mergePreview: (id: string, name?: string) =>
     apiClient.get<{ outputName: string; existsLocally: boolean; existsOnServer: boolean; inputsAfter: MergeInputsAfter }>(
@@ -225,3 +230,19 @@ export const systemApi = {
 };
 
 export default apiClient;
+
+// Log history: Wayfinderr, the Dyadrr runner and the Dyadrr jobs, by day (LOG_RETENTION_DAYS, LOG_MAX_SIZE_MB)
+const logParams = (query: LogQuery) => {
+  const params: Record<string, string> = {};
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === '') continue;
+    params[key] = Array.isArray(value) ? value.join(',') : String(value);
+  }
+  return params;
+};
+
+export const logsApi = {
+  list: (query: LogQuery) => apiClient.get<LogPage>('/api/logs', { params: logParams(query), timeout: 60000 }),
+  info: () => apiClient.get<LogsInfo>('/api/logs/info'),
+  downloadUrl: (query: LogQuery) => `/api/logs/download?${new URLSearchParams(logParams(query)).toString()}`,
+};
