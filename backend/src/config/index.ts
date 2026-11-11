@@ -8,13 +8,29 @@ try {
   // No .env file: rely on the process environment
 }
 
+// Prisma resolves a relative SQLite path against the folder of schema.prisma
+const PRISMA_DIR = path.resolve(__dirname, '../../prisma');
+
+/** The folder of the SQLite database: the data volume (/app/data in Docker). */
+export const dataDir = (databaseUrl: string): string => {
+  const file = databaseUrl.startsWith('file:') ? databaseUrl.slice('file:'.length).split('?')[0] : './data/wayfinderr.db';
+  return path.dirname(path.resolve(PRISMA_DIR, file));
+};
+
+/** A whole number from the environment, or the default when unset or invalid (never negative). */
+const wholeNumber = (value: string | undefined, fallback: number): number => {
+  const parsed = Number(value);
+  return value !== undefined && value.trim() !== '' && Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : fallback;
+};
+
 export const loadConfig = (): Config => {
+  const databaseUrl = process.env.DATABASE_URL || 'file:./data/wayfinderr.db';
   const watchDir = process.env.WATCH_DIR || '/makemkv-output';
   const sourceDir = process.env.RIP_SOURCE_DIR || '/downloads';
   return {
     NODE_ENV: (process.env.NODE_ENV as 'development' | 'production') || 'development',
     PORT: parseInt(process.env.PORT || '3001', 10),
-    DATABASE_URL: process.env.DATABASE_URL || 'file:./data/wayfinderr.db',
+    DATABASE_URL: databaseUrl,
     WATCH_DIR: watchDir,
     WATCH_USE_POLLING: process.env.WATCH_USE_POLLING === 'true',
     LOG_LEVEL: process.env.LOG_LEVEL || 'info',
@@ -48,6 +64,11 @@ export const loadConfig = (): Config => {
         { name: 'watch', dir: watchDir },
         { name: 'downloads', dir: sourceDir },
       ],
+    },
+    LOGS: {
+      DIR: path.resolve(process.env.LOG_DIR || path.join(dataDir(databaseUrl), 'logs')),
+      RETENTION_DAYS: wholeNumber(process.env.LOG_RETENTION_DAYS, 30),
+      MAX_SIZE_MB: wholeNumber(process.env.LOG_MAX_SIZE_MB, 500),
     },
   };
 };

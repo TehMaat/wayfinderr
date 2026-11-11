@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ArrowUpFromLine, Disc3, LayoutDashboard, Magnet, Merge, Plus, Server as ServerIcon, UploadCloud } from 'lucide-react';
+import { ArrowUpFromLine, Disc3, LayoutDashboard, Magnet, Merge, Plus, ScrollText, Server as ServerIcon, UploadCloud } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { AccentPicker } from '@/components/accent-picker';
@@ -18,6 +18,7 @@ const NAV = [
   { href: '/merge', label: 'Merge', icon: Merge },
   { href: '/servers', label: 'Servers', icon: ServerIcon },
   { href: '/clients', label: 'Clients', icon: Magnet },
+  { href: '/logs', label: 'Logs', icon: ScrollText },
 ];
 
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION;

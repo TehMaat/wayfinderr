@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { config } from '../config/index.js';
+import { config, dataDir } from '../config/index.js';
 import { LocalDisk, LocalDiskKind, LocalDiskReport, LocalFolder } from '../types/index.js';
 
 interface Mount {
@@ -8,9 +8,6 @@ interface Mount {
   fsType: string;
   source: string;
 }
-
-// Prisma resolves a relative SQLite path against the folder of schema.prisma
-const PRISMA_DIR = path.resolve(__dirname, '../../prisma');
 
 const NETWORK_FS = /^(nfs4?|cifs|smb3?|smbfs|afs|ceph|glusterfs|sshfs|davfs|fuse\.(sshfs|rclone|s3fs|davfs|glusterfs))$/;
 // Host folders seen from a VM or from Docker Desktop
@@ -27,8 +24,13 @@ const localFolders = (): LocalFolder[] => {
     folders.push({ key: 'downloads', label: 'Downloads', path: path.resolve(config.RIP.SOURCE_DIR) });
   }
   if (config.DATABASE_URL.startsWith('file:')) {
-    const file = config.DATABASE_URL.slice('file:'.length).split('?')[0];
-    folders.push({ key: 'data', label: 'Database', path: path.dirname(path.resolve(PRISMA_DIR, file)) });
+    folders.push({ key: 'data', label: 'Database', path: dataDir(config.DATABASE_URL) });
+  }
+  // The log history: in the data volume by default, its own folder with LOG_DIR. Either way
+  // its disk is watched: low on space, the torrents pause before the logs fill it
+  const logs = path.resolve(config.LOGS.DIR);
+  if (!folders.some((f) => f.key === 'data' && (logs + path.sep).startsWith(f.path + path.sep))) {
+    folders.push({ key: 'logs', label: 'Logs', path: logs });
   }
   return folders;
 };

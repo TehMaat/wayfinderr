@@ -5,11 +5,12 @@ import Link from 'next/link';
 import {
   AlertTriangle,
   CheckCircle2,
-  ExternalLink,
+  FileText,
   FileVideo,
   Loader2,
   Merge,
   RotateCcw,
+  ScrollText,
   Square,
   Trash2,
 } from 'lucide-react';
@@ -21,6 +22,8 @@ import { Progress } from '@/components/ui/progress';
 import { Tooltip } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { MergeConfirmDialog } from '@/components/merge-confirm-dialog';
+import { CheckpointStrip } from '@/components/report/checkpoint-chart';
+import { CHECKPOINT_OUTCOMES, withClock } from '@/lib/dyadrr';
 import { mergeApi } from '@/lib/api';
 import {
   choiceValueLabel,
@@ -50,11 +53,11 @@ function Fact({ label, children, hint }: { label: string; children: React.ReactN
   );
 }
 
-/** Which file is which: the better video (reference) and the Italian one (donor) */
+/** Which file is which: the better video (reference) and the Italian one (donor); opens the pair's page */
 function Files({ pair, summary }: { pair: MergePair; summary: MergeSummary | null }) {
   const role = (index: 0 | 1) => (summary?.roles ? (summary.roles.reference === index ? 'Video' : 'Italian') : null);
   return (
-    <div className="space-y-1">
+    <Link href={`/merge/pairs/${pair.id}/report`} className="group min-w-0 space-y-1">
       {[pair.fileA, pair.fileB].map((file, i) => {
         const r = role(i as 0 | 1);
         return (
@@ -64,13 +67,43 @@ function Files({ pair, summary }: { pair: MergePair; summary: MergeSummary | nul
                 {r}
               </Badge>
             )}
-            <span className="truncate" title={file}>
+            <span className="truncate group-hover:underline" title={file}>
               {fileName(file)}
             </span>
           </div>
         );
       })}
-    </div>
+    </Link>
+  );
+}
+
+/**
+ * The checkpoints along the film, and the ones that went wrong: a lone unmatched
+ * point among consistent ones shows at a glance. Opens the chart in the report.
+ */
+function Checkpoints({ pair, summary }: { pair: MergePair; summary: MergeSummary }) {
+  const points = summary.checkpoints ?? [];
+  if (points.length === 0) return null;
+  const counts = CHECKPOINT_OUTCOMES.map((o) => ({ ...o, n: points.filter((p) => p.outcome === o.value).length })).filter(
+    (o) => o.n > 0
+  );
+  const odd = points.filter((p) => p.outcome === 'unmatched' || p.outcome === 'contradictory');
+  return (
+    <Link href={`/merge/pairs/${pair.id}/report#checkpoints`} className="block space-y-1 rounded-md hover:bg-accent/40">
+      <CheckpointStrip checkpoints={points} endMs={summary.film?.endMs ?? null} />
+      <p className="flex flex-wrap gap-x-3 text-[11px] text-muted-foreground">
+        <span>{points.length} checkpoints</span>
+        {counts.map((o) => (
+          <span key={o.value} className="flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full" style={{ background: o.color }} />
+            {o.n} {o.label.toLowerCase()}
+          </span>
+        ))}
+        {odd.length > 0 && odd.length <= 3 && (
+          <span>at {odd.map((p) => formatMs(p.positionMs)).join(', ')}</span>
+        )}
+      </p>
+    </Link>
   );
 }
 
@@ -218,23 +251,30 @@ export function MergePairCard({ pair, runnerAlive }: { pair: MergePair; runnerAl
             </Tooltip>
           )}
           {pair.mergeSummary && (
-            <Tooltip content="Dyadrr's merge report (JSON)">
+            <Tooltip content="Dyadrr's merge report">
               <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                <a href={mergeApi.mergeReportUrl(pair.id)} target="_blank" rel="noreferrer" aria-label="Merge report">
+                <Link href={`/merge/pairs/${pair.id}/merge-report`} aria-label="Merge report">
                   <FileVideo />
-                </a>
+                </Link>
               </Button>
             </Tooltip>
           )}
           {summary && (
-            <Tooltip content="Dyadrr's analysis report (JSON)">
+            <Tooltip content="Dyadrr's analysis report">
               <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                <a href={mergeApi.reportUrl(pair.id)} target="_blank" rel="noreferrer" aria-label="Report">
-                  <ExternalLink />
-                </a>
+                <Link href={`/merge/pairs/${pair.id}/report`} aria-label="Report">
+                  <FileText />
+                </Link>
               </Button>
             </Tooltip>
           )}
+          <Tooltip content="The pair's logs">
+            <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
+              <Link href={`/merge/pairs/${pair.id}/logs`} aria-label="Logs">
+                <ScrollText />
+              </Link>
+            </Button>
+          </Tooltip>
           <Tooltip content="Remove the pair (the files stay)">
             <Button
               variant="ghost"
@@ -314,11 +354,12 @@ export function MergePairCard({ pair, runnerAlive }: { pair: MergePair; runnerAl
         <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span className="break-words">
-            {pair.reasonCode && <span className="font-mono">{pair.reasonCode}</span>} {pair.reasonMessage}
+            {pair.reasonCode && <span className="font-mono">{pair.reasonCode}</span>} {withClock(pair.reasonMessage)}
           </span>
         </div>
       )}
 
+      {summary && pair.status !== 'ANALYZING' && <Checkpoints pair={pair} summary={summary} />}
       {summary && (pair.status === 'ELIGIBLE' || pair.status === 'MERGING') && <Result summary={summary} />}
       {summary && pair.status === 'REFUSED' && summary.warnings.length > 0 && (
         <Result summary={{ ...summary, choices: [] }} />

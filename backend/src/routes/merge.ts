@@ -95,7 +95,17 @@ router.get('/pairs/:id', async (req: Request, res: Response) => {
   }
 });
 
-// GET the full analyze report, as Dyadrr wrote it
+// A report as a file to save (?download=1), or as JSON to read
+const sendReport = (req: Request, res: Response, report: unknown, name: string) => {
+  if (req.query.download === '1') {
+    res.setHeader('Content-Disposition', `attachment; filename="dyadrr-${name}-${req.params.id}.json"`);
+    res.type('application/json').send(JSON.stringify(report, null, 2) + '\n');
+    return;
+  }
+  res.json(report);
+};
+
+// GET the full analyze report, as Dyadrr wrote it (?download=1: as a file)
 router.get('/pairs/:id/report', async (req: Request, res: Response) => {
   try {
     const report = await mergePairs.report(req.params.id);
@@ -103,7 +113,7 @@ router.get('/pairs/:id/report', async (req: Request, res: Response) => {
       res.status(404).json({ error: 'No report yet' });
       return;
     }
-    res.json(report);
+    sendReport(req, res, report, 'analyze');
   } catch (error) {
     fail(res, error, 'read the analysis report');
   }
@@ -136,7 +146,7 @@ router.post('/pairs/:id/merge', async (req: Request, res: Response) => {
   }
 });
 
-// GET the merge's full report, as Dyadrr wrote it
+// GET the merge's full report, as Dyadrr wrote it (?download=1: as a file)
 router.get('/pairs/:id/merge-report', async (req: Request, res: Response) => {
   try {
     const report = await mergePairs.mergeReport(req.params.id);
@@ -144,7 +154,7 @@ router.get('/pairs/:id/merge-report', async (req: Request, res: Response) => {
       res.status(404).json({ error: 'No merge report yet' });
       return;
     }
-    res.json(report);
+    sendReport(req, res, report, 'merge');
   } catch (error) {
     fail(res, error, 'read the merge report');
   }

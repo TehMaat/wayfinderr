@@ -9,6 +9,7 @@ import { db } from '../database.js';
 import { mkvNames } from '../torrentCleanup.js';
 import { filmByName } from '../filmLookup.js';
 import { outputName, ripper, safeFileName } from '../ripper/index.js';
+import { logs } from '../logs/index.js';
 import { dyadrr, mergeActive } from './index.js';
 import { currentProgress, DyadrrChoices, DyadrrEvent, DyadrrReport, jobOutcome } from './jobs.js';
 
@@ -119,6 +120,11 @@ export const reportSummary = (report: DyadrrReport | null) => {
     italian: plan?.italian ?? null,
     // The donor's Italian audio tracks: role, and whether they are taken (null: --italian pending)
     audio: (plan?.audio ?? []).map((t: Record<string, unknown>) => ({ id: t.id, name: t.name ?? null, role: t.role, taken: t.taken ?? null })),
+    // Every checkpoint, where and how it went: the card draws them along the film
+    checkpoints: (measurement?.checkpoints ?? []).map((c: Record<string, unknown>) => ({
+      positionMs: c.positionMs,
+      outcome: c.outcome,
+    })),
     failedChecks: (r.checks ?? [])
       .filter((c: Record<string, unknown>) => c.result === 'fail')
       .map((c: Record<string, unknown>) => ({ name: c.name, code: c.code ?? null, blocking: c.blocking, detail: c.detail ?? null })),
@@ -656,6 +662,16 @@ class MergePairs extends EventEmitter {
       reason?.message ?? (report ? null : `Dyadrr ended with ${state.exitCode} and no report${messages.length ? `: ${messages.at(-1)}` : ''}`);
     if (merging) await this.finishMerge(pair, report, decision, reasonCode, reasonMessage);
     else await this.finish(pair, report, decision, reasonCode, reasonMessage);
+    // The job's log stays in the history (the Logs page, the pair's page) once its files go
+    await logs.keepDyadrrJob({
+      job: jobId,
+      pairId: pair.id,
+      command: merging ? 'merge' : 'analyze',
+      files: [pair.fileA, pair.fileB],
+      exitCode: state.exitCode,
+      decision,
+      code: reasonCode,
+    });
     await dyadrr.remove(jobId);
   }
 

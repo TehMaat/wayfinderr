@@ -42,7 +42,10 @@ test('the report summary keeps what the page shows', () => {
       language: 'eng',
       offset: { anchorMs: 667, medianMs: 667.2, offsetMs: 667, dispersionMs: 0.4 },
       commonMaterial: { startMs: 0, endMs: 5625000, coverage: 0.98 },
-      checkpoints: new Array(30).fill({}),
+      checkpoints: [
+        { requestedMs: 60000, positionMs: 60120, energyDbfs: -22.4, outcome: 'consistent', offsetMs: 667, deviationMs: 0, ncc: 0.91, ratio: 3.2, local: null, wide: null, alternates: [] },
+        { requestedMs: 4700000, positionMs: 4704000, energyDbfs: -18.1, outcome: 'unmatched', offsetMs: null, deviationMs: null, ncc: null, ratio: null, local: null, wide: null, alternates: [] },
+      ],
     },
     checks: [
       { name: 'checkpoints', result: 'pass', blocking: true },
@@ -81,8 +84,11 @@ test('the report summary keeps what the page shows', () => {
   const pending = summary.choices.find((c: { name: string }) => c.name === 'edgeMismatch');
   assert.equal(pending.status, 'pending');
   assert.deepEqual(pending.effects[1], { value: 'keep', italianStartMs: 0, italianEndMs: 5625000, warnings: ['INTRO_MISMATCH'] });
-  // The checkpoints are not in the summary
-  assert.equal('checkpoints' in summary, false);
+  // The checkpoints: only where and how, for the strip on the card (the page reads the full report)
+  assert.deepEqual(summary.checkpoints, [
+    { positionMs: 60120, outcome: 'consistent' },
+    { positionMs: 4704000, outcome: 'unmatched' },
+  ]);
 });
 
 test('a refused report, and one written by the runner with the outcome only', () => {
@@ -96,6 +102,7 @@ test('a refused report, and one written by the runner with the outcome only', ()
   assert.deepEqual(refused.reasons, [{ code: 'CHECKPOINT_CONTRADICTION', message: 'The offset changes along the film' }]);
   assert.equal(refused.offsetMs, null);
   assert.deepEqual(refused.choices, []);
+  assert.deepEqual(refused.checkpoints, []);
   assert.equal(reportSummary(null), null);
 });
 

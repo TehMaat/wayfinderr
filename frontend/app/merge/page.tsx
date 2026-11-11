@@ -15,7 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip } from '@/components/ui/tooltip';
 import { mergeApi } from '@/lib/api';
 import { languageName } from '@/lib/rips';
-import { useAppStore, type MergeStatus, type Upload } from '@/lib/store';
+import { useAppStore, type MergePair, type MergePairStatus, type MergeStatus, type Upload } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 // The dyadrr container starts and stops outside Wayfinderr: refresh while the page is open
@@ -73,6 +73,80 @@ function HeldFiles({ uploads, onPair }: { uploads: Upload[]; onPair?: (uploadId:
         <HeldNotice key={upload.id} upload={upload} showName onPair={onPair ? () => onPair(upload.id) : undefined} />
       ))}
     </Card>
+  );
+}
+
+// The pairs by what they wait for: Dyadrr, a merge, nothing (refused, failed, stopped), or done
+const GROUPS: { key: string; title: string; hint: string; statuses: MergePairStatus[] }[] = [
+  { key: 'active', title: 'In progress', hint: 'Dyadrr is analyzing or merging them, or they wait their turn', statuses: ['ANALYZING', 'MERGING'] },
+  { key: 'ready', title: 'Ready to merge', hint: 'The analysis passed: merge them, after the choices left to make', statuses: ['ELIGIBLE'] },
+  { key: 'stuck', title: 'Refused, errors and stopped', hint: 'Open the report to see why; analyze again once sorted out', statuses: ['REFUSED', 'ERROR', 'CANCELLED'] },
+  { key: 'merged', title: 'Merged', hint: 'The merged file goes to the upload queue', statuses: ['MERGED'] },
+];
+// Merged pairs shown before "Show all"
+const MERGED_SHOWN = 3;
+
+function GroupTitle({ title, count, hint, action }: { title: string; count: number; hint: string; action?: React.ReactNode }) {
+  return (
+    <div className="flex items-end justify-between gap-2 pt-1">
+      <div>
+        <h2 className="text-sm font-medium">
+          {title} <span className="text-muted-foreground tabular">({count})</span>
+        </h2>
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+/** The pairs in groups, with the held files between the ones to act on and the rest */
+function Pairs({
+  pairs,
+  held,
+  runnerAlive,
+  onPair,
+}: {
+  pairs: MergePair[];
+  held: Upload[];
+  runnerAlive: boolean;
+  onPair?: (uploadId: string) => void;
+}) {
+  const [allMerged, setAllMerged] = useState(false);
+  const group = (key: string) => pairs.filter((p) => GROUPS.find((g) => g.key === key)!.statuses.includes(p.status));
+  const section = (key: string) => {
+    const { title, hint } = GROUPS.find((g) => g.key === key)!;
+    const list = group(key);
+    if (list.length === 0) return null;
+    const shown = key === 'merged' && !allMerged ? list.slice(0, MERGED_SHOWN) : list;
+    return (
+      <section key={key} className="flex flex-col gap-3">
+        <GroupTitle
+          title={title}
+          count={list.length}
+          hint={hint}
+          action={
+            key === 'merged' && list.length > MERGED_SHOWN ? (
+              <Button variant="ghost" size="sm" className="h-7" onClick={() => setAllMerged(!allMerged)}>
+                {allMerged ? 'Show fewer' : `Show all ${list.length}`}
+              </Button>
+            ) : undefined
+          }
+        />
+        {shown.map((pair) => (
+          <MergePairCard key={pair.id} pair={pair} runnerAlive={runnerAlive} />
+        ))}
+      </section>
+    );
+  };
+  return (
+    <>
+      {section('active')}
+      {section('ready')}
+      {held.length > 0 && <HeldFiles uploads={held} onPair={onPair} />}
+      {section('stuck')}
+      {section('merged')}
+    </>
   );
 }
 
@@ -165,12 +239,13 @@ export default function MergePage() {
       ) : status.enabled ? (
         <>
           <SetupStrip status={status} />
-          {pairs.map((pair) => (
-            <MergePairCard key={pair.id} pair={pair} runnerAlive={status.runnerAlive} />
-          ))}
-          {held.length > 0 ? (
-            <HeldFiles uploads={held} onPair={status.languageSupported ? openPair : undefined} />
-          ) : pairs.length > 0 ? null : (
+          <Pairs
+            pairs={pairs}
+            held={held}
+            runnerAlive={status.runnerAlive}
+            onPair={status.languageSupported ? openPair : undefined}
+          />
+          {held.length > 0 || pairs.length > 0 ? null : (
             <Card>
               <EmptyState
                 icon={Merge}
@@ -198,11 +273,8 @@ export default function MergePage() {
         </Card>
       )}
 
-      {/* Held while merging was on: still here to upload or delete */}
-      {status && !status.enabled && held.length > 0 && <HeldFiles uploads={held} />}
-      {status &&
-        !status.enabled &&
-        pairs.map((pair) => <MergePairCard key={pair.id} pair={pair} runnerAlive={status.runnerAlive} />)}
+      {/* Held and paired while merging was on: still here to upload, delete or look at */}
+      {status && !status.enabled && <Pairs pairs={pairs} held={held} runnerAlive={status.runnerAlive} />}
 
       <MergePairDialog open={pairOpen} onOpenChange={setPairOpen} firstId={pairFirst} />
       <MergeChoicesDialog open={choicesOpen} onOpenChange={setChoicesOpen} />
