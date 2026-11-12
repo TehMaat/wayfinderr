@@ -52,6 +52,18 @@ export async function uploadHeld(id: string) {
   }
 }
 
+/** A file not on a server yet is held for a merge, by hand */
+export async function holdUpload(id: string) {
+  try {
+    await uploadsApi.hold(id);
+    await useAppStore.getState().refreshUpload(id);
+    useAppStore.getState().loadStats().catch(() => undefined);
+    toast.success('Held for a merge', { description: 'Pair it on the Merge page, or upload it as it is' });
+  } catch (err) {
+    toast.error('Could not hold the file', { description: errorMessage(err) });
+  }
+}
+
 /** A file held for a merge is deleted, file and record */
 export async function deleteHeld(id: string): Promise<boolean> {
   try {
@@ -80,6 +92,17 @@ export async function deleteUploads(ids: string[]) {
     toast.success(removed === 1 ? '1 upload removed from history' : `${removed} uploads removed from history`);
   } else {
     toast.error(`${failed.length} of ${ids.length} uploads not removed`, { description: [...new Set(failed)].join(' · ') });
+  }
+}
+
+/** Hold for merge on a rip: its file is held as it arrives */
+export async function setRipHold(id: string, hold: boolean) {
+  try {
+    await ripsApi.setHold(id, hold);
+    await useAppStore.getState().refreshRip(id);
+    toast.success(hold ? 'Its file will be held for a merge' : 'Its file will be handled as usual');
+  } catch (err) {
+    toast.error('Could not change Hold for merge', { description: errorMessage(err) });
   }
 }
 

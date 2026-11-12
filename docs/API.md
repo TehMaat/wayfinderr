@@ -487,6 +487,14 @@ Deletes the file from the watch folder (one unpacked from an archive next to the
 
 `DELETE /api/uploads/:id` (remove from the history) answers 409 for a held file: its file would stay in the watch folder, never picked up again.
 
+`holdKind` is also `MANUAL` (held by hand: with the request below, because its rip was marked *Hold for merge*, or while *Hold every new file* is on; `holdMessage` says which) or `PLANNED` (a file of a planned pair, see *Planned Pairs* in the Merge API).
+
+```
+POST /api/uploads/:id/hold
+```
+
+Holds by hand a file not on a server yet (`PENDING`, `QUEUED`, `FAILED`, `SKIPPED`, `CANCELLED`): a queued upload is taken out of the queue first, as `/cancel` does, then it becomes `HELD` with `holdKind: "MANUAL"` and `holdMessage: "Held by hand"`, and sends `upload-held`. From there the held file's usual actions apply. **Response:** 200 OK (the upload), 404, 409 with merging off, while `UPLOADING` (stop it first), once `COMPLETED` (also when the transfer finished before it could be stopped), when already held, or when the file is no longer on the disk.
+
 ### Match Upload to its Torrent
 
 ```
@@ -845,6 +853,14 @@ Content-Type: application/json
 
 Any field may be left out to keep the current one. Allowed when the rip is `NEEDS_ATTENTION`, `FAILED` or `SKIPPED`; the rip is queued with that title and film, without asking again. `secondLanguage` is an audio language of the title (ISO 639-2) kept beside the kept language, for a title with no audio in the film's original language (`null`: none). On its own, a rip whose title has no audio in the original language but has some in another language waits in `NEEDS_ATTENTION` for this choice. The film and the second language chosen on a part of a join are set on the other parts too, and those waiting in `NEEDS_ATTENTION` are queued again: their title is picked again with the film (or they ask for what is still unsure). Errors: 400 (not integers, `secondLanguage` not a three-letter code), 404, 409 (`No such title on the disc`, `No eng audio on the title`, rip in another state).
 
+### Hold for Merge
+
+```
+PUT /api/rips/:id/hold   { "hold": true }
+```
+
+With merging on: the rip's file is held for a merge as it arrives (`holdKind: "MANUAL"`), without looking for a twin. Set at any time before the rip is `DONE` (also `WAITING`, while the torrent downloads), on every part of a join; it applies to the joined film and to the `.mkv` of an archive. `holdForMerge` rip field. **Response:** 200 OK (the rip), 400 when `hold` is not a boolean, 404, 409 when the rip is done (hold its upload instead) or, for `true`, with merging off.
+
 ### Retry, Skip
 
 ```
@@ -965,7 +981,9 @@ Dyadrr's four choices (its `docs/CLI.md`, *Scelte*), each a fixed value passed t
 
 `inputs`: what happens to the two files after a verified merge, `keep` (the default) or `delete` (the ones in the watch folder only).
 
-**Body (PUT):** `{ "choices": { "tail": "trim", "edgeMismatch": "ask" }, "inputs": "delete" }`, any of them. **Response:** 200 OK `{ "choices": { "tail": "trim", "italian": "ask", "referenceItalianSubs": "ask", "edgeMismatch": "ask" }, "inputs": "delete" }`; 400 for an unknown choice or value.
+`holdAll`: *Hold every new file*, `false` by default. While `true`, every file that arrives is held for a merge (`holdKind: "MANUAL"`), whatever its audio.
+
+**Body (PUT):** `{ "choices": { "tail": "trim", "edgeMismatch": "ask" }, "inputs": "delete", "holdAll": true }`, any of them. **Response:** 200 OK `{ "choices": { "tail": "trim", "italian": "ask", "referenceItalianSubs": "ask", "edgeMismatch": "ask" }, "inputs": "delete", "holdAll": true }`; 400 for an unknown choice or value.
 
 ### Files to Pair
 
@@ -1018,6 +1036,92 @@ A pair:
 ```
 
 `status`: `ANALYZING` (the job is queued, or running: `phase` is Dyadrr's progress phase and `progress` 0-100 within it, when known), then `ELIGIBLE`, `REFUSED`, `ERROR` or `CANCELLED`, Dyadrr's decision; `reasonCode` and `reasonMessage` say why (Dyadrr's codes, or `NO_REPORT` / `JOB_LOST` when its job ended without a report or its files are gone). `summary` is what the page shows of the report (`roles` are indexes: 0 is file A, 1 file B; also `measureLanguage`, `dispersionMs`, `film`, `commonMaterial`, `audio`, `failedChecks`, `reasons`, and `checkpoints`, each one's `positionMs` and `outcome`); `/report` returns the whole report as Dyadrr wrote it (404 before it ends), as a file to save with `?download=1`. The pair's page (`/merge/pairs/:id/report`) shows it in sections. `analyze` runs a pair that is not `ANALYZING` again (409 otherwise); `cancel` stops it: a job still queued (the runner runs one at a time) is withdrawn at once and the pair ends `CANCELLED` right away; a running one gets SIGTERM and ends `CANCELLED` with its report; `DELETE` removes the pair (204; 409 while Dyadrr runs it), never the files. While a pair is `ANALYZING`, its files cannot be uploaded, retried or deleted (409).
+
+### Planned Pairs
+
+A pair planned before its two files arrive: by hand (*Plan a pair…* on the Merge page), or by [bookrr](https://github.com/TehMaat/bookrr) when it sends the two torrents of a merge to the client. Each file is held as it arrives (`holdKind: "PLANNED"`), without looking for a twin; once both are there the pair is created and analyzed as with `POST /api/merge/pairs`. The merge itself still waits for a confirmation.
+
+```
+POST /api/merge/plans
+Content-Type: application/json
+X-Api-Key: <the API key>
+```
+
+```json
+{
+  "files": [
+    { "infoHash": "edfb378dedd9bc772ded2f449f4b9219a41b5a32", "name": "Dune.2021.2160p.UHD.BluRay", "label": "video" },
+    { "infoHash": "0123456789abcdef0123456789abcdef01234567", "label": "audio ITA" }
+  ],
+  "tmdbId": 438631,
+  "originalLanguage": "en",
+  "origin": "bookrr"
+}
+```
+
+`files`: the two downloads, in any order. Each needs at least one of:
+
+| Field | What |
+|---|---|
+| `infoHash` | The torrent's v1 info hash (40 hex characters) |
+| `name` | The download's name: the torrent's folder, or its file for a single-file torrent (no folders) |
+| `ripId` | A rip of the Rips page: its download (and its file, once ripped) |
+| `uploadId` | A file already there, not on a server yet (`PENDING`, `QUEUED`, `FAILED`, `SKIPPED`, `CANCELLED`) or held: it is held for the pair at once |
+
+and optionally `label` (what it is for, e.g. `video`, `audio ITA`, up to 100 characters). `tmdbId`, `originalLanguage` (passed to the pair; without it, the film's original language on TMDB when `tmdbId` is given, else as for a pair) and `origin` (who plans it, up to 40 characters) are optional.
+
+A new file is a side of a plan when:
+
+- its upload has the side's info hash: its source .torrent was sent beforehand (`POST /api/source-torrents`), so the hash is copied into the upload as it arrives;
+- or the download it comes from has the side's `name`, or the name the torrent with the side's `infoHash` has in a client (its folder, or its file) or as a .torrent sent beforehand. The download a file comes from is its rip's download (`downloadName`), else the folder (or the file, with or without `.mkv`) it sits in at the top of the watch folder. Names are compared exactly.
+
+So bookrr can send just the two info hashes as it adds the torrents: the names are read from the clients when the files arrive. Files already there when the plan is made (by hash or by name) are held for it at once, and paired right away when both are.
+
+**Response:** `201` the plan, `200` the plan already there when the same two downloads are planned again (bookrr sending twice); `400` for a bad body (not two files, a side without hash, name, rip or upload, a bad hash or language, the same download twice); `404` an unknown rip or upload; `409` with merging off, a download already in another open plan, or a file given that cannot wait (uploading, on a server, in a pair being analyzed).
+
+```
+GET /api/merge/plans
+GET /api/merge/plans/:id
+POST /api/merge/plans/:id/pair
+DELETE /api/merge/plans/:id
+GET /api/merge/plans/candidates
+```
+
+A plan:
+
+```json
+{
+  "id": "plan123",
+  "status": "WAITING",
+  "files": [
+    {
+      "infoHash": "edfb378dedd9bc772ded2f449f4b9219a41b5a32",
+      "name": "Dune.2021.2160p.UHD.BluRay",
+      "label": "video",
+      "uploadId": null,
+      "upload": null,
+      "rip": { "id": "rip1", "status": "RIPPING", "progress": 40 }
+    },
+    {
+      "infoHash": null,
+      "name": "Dune.2021.ITA",
+      "label": "audio ITA",
+      "uploadId": "upload2",
+      "upload": { "id": "upload2", "filename": "Dune (2021).mkv", "status": "HELD" },
+      "rip": null
+    }
+  ],
+  "tmdbId": 438631,
+  "originalLanguage": "en",
+  "origin": "bookrr",
+  "pairId": null,
+  "message": null,
+  "createdAt": "2026-11-11T10:55:13.695Z",
+  "updatedAt": "2026-11-11T10:56:46.215Z"
+}
+```
+
+`status`: `WAITING` (a file still to come), `PAIRED` (both arrived, the pair is `pairId`: follow it with `GET /api/merge/pairs/:id`), `ERROR` (both arrived but the pair could not be created: `message` says why, e.g. a file no longer on the disk). `upload` is each side's file once arrived, `rip` the latest rip of its download, when there is one. `pair` creates the pair of an `ERROR` plan again (409 while a file is missing, or once paired); `DELETE` forgets a plan (204): its files already held stay held, to pair, upload or delete by hand; a held file of a plan deleted with `/hold/delete` frees its side, which waits for a file again. `candidates` lists what a pair can be planned with: `rips` (not finished, one per download: `id`, `downloadName`, `status`, `title`, `year`), `torrents` (of the enabled clients: `infoHash`, `name`, `downloadName`, `client`, `progress` 0-100), `uploads` (held or not on a server yet, still on the disk) and `problems` (clients that could not be reached).
 
 ### Merge a Pair
 
@@ -1142,6 +1246,11 @@ A new file held for a merge instead of uploaded (`MERGE_ENABLED`): `kind` is its
   "kind": "TWIN"
 }
 ```
+
+Also sent when a file is held by hand (`POST /api/uploads/:id/hold`) or for a planned pair: `kind` is then `MANUAL` or `PLANNED`.
+
+#### merge-plan-updated, merge-plan-removed
+A planned pair changed (`{ "type": "merge-plan-updated", "planId": "plan123", "status": "PAIRED" }`: a file arrived, the pair was created or could not be), or was removed.
 
 #### upload-merged
 An upload became `MERGED`: an input of a verified merge.

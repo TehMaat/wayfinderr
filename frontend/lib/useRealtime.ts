@@ -231,6 +231,13 @@ export const useRealtime = () => {
             scheduleStats();
             break;
 
+          // Planned pairs: the list is short, loaded again
+          case 'merge-plan-updated':
+          case 'merge-plan-removed':
+            await store.loadMergePlans();
+            if (message.status === 'ERROR') toast.error('Planned pair not created', { description: 'See why on the Merge page' });
+            break;
+
           case 'merge-pair-removed':
             store.removeMergePair(message.pairId as string);
             break;

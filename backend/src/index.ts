@@ -3,6 +3,7 @@ import { createServer, IncomingMessage } from 'http';
 import { Duplex } from 'stream';
 import { WebSocketServer } from 'ws';
 import { statSync } from 'fs';
+import { Upload } from '@prisma/client';
 import { config } from './config/index.js';
 import logger from './config/logger.js';
 import { db } from './services/database.js';
@@ -33,6 +34,8 @@ import { releaseManager } from './services/release/index.js';
 import { mergeActive } from './services/merge/index.js';
 import { checkHold, HoldDecision } from './services/merge/hold.js';
 import { mergePairs } from './services/merge/pairs.js';
+import { HOLD_ALL_MESSAGE, manualHolds, RIP_MESSAGE } from './services/merge/manual.js';
+import { mergePlans } from './services/merge/plans.js';
 
 // Prisma returns BigInt for sizes: serialize them as strings in JSON responses
 (BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function () {
@@ -273,6 +276,11 @@ mergePairs.on('pair-updated', ({ pairId, status }) => broadcast({ type: 'merge-p
 mergePairs.on('pair-removed', ({ pairId }) => broadcast({ type: 'merge-pair-removed', pairId }));
 mergePairs.on('pair-progress', (event) => broadcast({ type: 'merge-pair-progress', ...event }));
 mergePairs.on('upload-merged', ({ uploadId }) => broadcast({ type: 'upload-merged', uploadId }));
+// Held by hand (an upload, or a file of a planned pair already there)
+manualHolds.on('upload-held', ({ uploadId, kind }) => broadcast({ type: 'upload-held', uploadId, kind }));
+// Planned pairs: the Merge page refetches them
+mergePlans.on('plan-updated', ({ planId, status }) => broadcast({ type: 'merge-plan-updated', planId, status }));
+mergePlans.on('plan-removed', ({ planId }) => broadcast({ type: 'merge-plan-removed', planId }));
 
 // Ripper events: the page refetches the rip, progress updates it in place
 // (status: UNPACKING or RIPPING, the step the progress is of)
@@ -280,22 +288,51 @@ ripper.on('rip-updated', ({ ripId, status }) => broadcast({ type: 'rip-updated',
 ripper.on('rip-progress', ({ ripId, progress, status }) => broadcast({ type: 'rip-progress', ripId, progress, status }));
 
 /**
- * With merging on, holds the upload instead of queueing it when it has no Italian
- * audio or a twin of the same film is around (services/merge/hold.ts). True when held.
+ * What was decided by hand for a new file (issue #53), before any twin search: a side
+ * of a planned pair, a file whose rip was marked "Hold for merge", or any file while
+ * "Hold every new file" is on.
+ */
+const handHold = async (upload: Upload): Promise<{ decision: HoldDecision; planId?: string } | null> => {
+  const planned = await mergePlans.claim(upload);
+  if (planned) return planned;
+  const rips = await db.getRipsByOutputFile(upload.filepath);
+  if (rips.some((rip) => rip.holdForMerge)) return { decision: { kind: 'MANUAL', message: RIP_MESSAGE } };
+  if (await manualHolds.getHoldAll()) return { decision: { kind: 'MANUAL', message: HOLD_ALL_MESSAGE } };
+  return null;
+};
+
+/**
+ * With merging on, holds the upload instead of queueing it: when it was decided by hand
+ * (handHold), else when it has no Italian audio or a twin of the same film is around
+ * (services/merge/hold.ts). True when held.
  */
 const holdForMerge = async (uploadId: string): Promise<boolean> => {
   if (!mergeActive()) return false;
   const upload = await db.getUploadById(uploadId);
   if (!upload) return false;
-  const hold: HoldDecision | null = await checkHold(upload).catch((error: Error) => {
-    // Never uploaded for a search that failed: held, with the reason
-    logger.error({ uploadId, error }, 'Merge twin search failed');
-    return { kind: 'POSSIBLE_TWIN' as const, message: `Could not look for a twin: ${error.message}` };
+  // Held by hand while its media info was read
+  if (upload.status === 'HELD') return true;
+  const byHand = await handHold(upload).catch((error: Error) => {
+    logger.error({ uploadId, error }, 'Hold by hand check failed');
+    return null;
   });
+  const hold: HoldDecision | null =
+    byHand?.decision ??
+    (await checkHold(upload).catch((error: Error) => {
+      // Never uploaded for a search that failed: held, with the reason
+      logger.error({ uploadId, error }, 'Merge twin search failed');
+      return { kind: 'POSSIBLE_TWIN' as const, message: `Could not look for a twin: ${error.message}` };
+    }));
   if (!hold) return false;
   await db.updateUpload(uploadId, { status: 'HELD', holdKind: hold.kind, holdMessage: hold.message });
   logger.info({ uploadId, hold }, 'Held for a merge');
   broadcast({ type: 'upload-held', uploadId, kind: hold.kind });
+  // Its planned pair: created once the other file is there too
+  if (byHand?.planId) {
+    await mergePlans
+      .pairIfArrived(byHand.planId)
+      .catch((error) => logger.error({ uploadId, planId: byHand.planId, error }, 'Planned pair failed'));
+  }
   return true;
 };
 

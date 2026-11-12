@@ -13,6 +13,8 @@ export const HOLD_LABELS: Record<HoldKind, string> = {
   NO_ITALIAN: 'No Italian audio',
   TWIN: 'Twin found',
   POSSIBLE_TWIN: 'Possible twin',
+  MANUAL: 'Held by hand',
+  PLANNED: 'Planned pair',
 };
 
 /**
@@ -54,7 +56,10 @@ export function HeldNotice({
           <p className="font-medium">Held for a merge</p>
         )}
         <p className="break-words text-muted-foreground">
-          {upload.holdKind && <span className="text-foreground">{HOLD_LABELS[upload.holdKind]} · </span>}
+          {/* The label, unless the message already starts with it ("Held by hand: its rip…") */}
+          {upload.holdKind && !upload.holdMessage?.startsWith(HOLD_LABELS[upload.holdKind]) && (
+            <span className="text-foreground">{HOLD_LABELS[upload.holdKind]} · </span>
+          )}
           {upload.holdMessage ?? 'Waiting for its twin.'}
         </p>
       </div>

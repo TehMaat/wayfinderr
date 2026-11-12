@@ -74,6 +74,13 @@ function SourceCell({ rip }: { rip: Rip }) {
           </Badge>
         </Tooltip>
       )}
+      {rip.holdForMerge && rip.status !== 'DONE' && (
+        <Tooltip content="Hold for merge: its file is held as it arrives, not uploaded">
+          <Badge variant="info" className="shrink-0">
+            Hold
+          </Badge>
+        </Tooltip>
+      )}
       <Tooltip content={<span className="break-all font-mono">{path}</span>} side="bottom">
         <span className="truncate text-xs text-muted-foreground">{sourceLabel(rip)}</span>
       </Tooltip>

@@ -19,11 +19,16 @@ import { mapLimit, mkvNames, scoreAgainst, SUGGEST_SCORE, topLevelName } from '.
  *   release of the same film (Altrimenti ci arrabbiamo! and Zwei.wie.Pech.und.Schwefel.1974);
  * - with no twin it is uploaded as before.
  *
+ * Before that search, what was decided by hand (issue #53): a file of a planned pair
+ * (plans.ts) is held for that pair, a file whose rip was marked "Hold for merge" is held,
+ * and so is every new file while "Hold every new file" is on (manual.ts).
+ *
  * Held uploads have the HELD status: never uploaded, deleted or cleaned up until the
  * user uploads them as they are or deletes them.
  */
 
-export type HoldKind = 'NO_ITALIAN' | 'TWIN' | 'POSSIBLE_TWIN';
+// MANUAL: held by hand (the upload, its rip, or "hold every new file"); PLANNED: a side of a planned pair (plans.ts)
+export type HoldKind = 'NO_ITALIAN' | 'TWIN' | 'POSSIBLE_TWIN' | 'MANUAL' | 'PLANNED';
 
 export interface HoldDecision {
   kind: HoldKind;
@@ -52,7 +57,7 @@ export interface TwinMatch {
 }
 
 // Rips of a download still to finish
-const RIP_UNFINISHED = ['WAITING', 'QUEUED', 'UNPACKING', 'SCANNING', 'RIPPING', 'JOINING', 'NEEDS_ATTENTION'];
+export const RIP_UNFINISHED = ['WAITING', 'QUEUED', 'UNPACKING', 'SCANNING', 'RIPPING', 'JOINING', 'NEEDS_ATTENTION'];
 const TMDB_CONCURRENCY = 4;
 
 export const identity = (names: MatchName[], film: FilmTitles | null): Identity => {

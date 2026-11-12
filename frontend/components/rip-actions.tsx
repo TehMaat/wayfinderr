@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Ban, Combine, ExternalLink, ListChecks, MoreHorizontal, Play, Repeat, RotateCcw, Trash2, UploadCloud, Wrench } from 'lucide-react';
+import { Ban, Check, Combine, ExternalLink, ListChecks, Merge, MoreHorizontal, Play, Repeat, RotateCcw, Trash2, UploadCloud, Wrench } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { RipJoinDialog } from '@/components/rip-join-dialog';
-import { remuxRip, removeRip, retryRip, ripAgain, skipRip } from '@/lib/actions';
+import { remuxRip, removeRip, retryRip, ripAgain, setRipHold, skipRip } from '@/lib/actions';
 import { canJoin, isArchivedMkv, ripName, tmdbUrl } from '@/lib/rips';
 import { useAppStore, type Rip, type RipperStatus } from '@/lib/store';
 
@@ -24,6 +24,8 @@ export const canChoose = (r: Rip) =>
 export const canRetry = (r: Rip) =>
   r.status === 'FAILED' || r.status === 'SKIPPED' || (r.status === 'NEEDS_ATTENTION' && !r.titles);
 export const canSkip = (r: Rip) => r.status !== 'DONE' && r.status !== 'SKIPPED';
+// Hold for merge: set before the rip is done (its file is held as it arrives); unset any time before
+export const canHoldRip = (r: Rip) => r.status !== 'DONE';
 // Rip without MakeMKV: not started or failed, with the tools its disc needs (same as missingTools in the backend's remux.ts)
 export const canRemux = (r: Rip, tools: RipperStatus['remux']) => {
   if (!tools || isArchivedMkv(r) || !['FAILED', 'NEEDS_ATTENTION', 'SKIPPED', 'QUEUED'].includes(r.status)) return false;
@@ -61,8 +63,12 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
   // Skipped: "Rip anyway" picks by hand when the disc was scanned, otherwise starts over
   const ripAnyway = () => (rip.titles ? choose() : retryRip(rip.id));
 
+  // With merging on, or to turn it off again
+  const mergeOn = useAppStore((s) => Boolean(s.mergeStatus?.enabled && s.mergeStatus.languageSupported));
+  const holdable = canHoldRip(rip) && (mergeOn || rip.holdForMerge);
+
   const hasItems =
-    attention || canRetry(rip) || canSkip(rip) || remux || joinable || rip.canRipAgain || rip.upload || rip.tmdbId;
+    attention || canRetry(rip) || canSkip(rip) || remux || joinable || rip.canRipAgain || rip.upload || rip.tmdbId || holdable;
 
   return (
     <div className="flex items-center justify-end gap-1">
@@ -141,6 +147,12 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
               <DropdownMenuItem onSelect={() => setJoinOpen(true)}>
                 <Combine />
                 {rip.joinId ? 'Join discs again…' : 'Join discs…'}
+              </DropdownMenuItem>
+            )}
+            {holdable && (
+              <DropdownMenuItem onSelect={() => setRipHold(rip.id, !rip.holdForMerge)}>
+                {rip.holdForMerge ? <Check /> : <Merge />}
+                {rip.holdForMerge ? 'Hold for merge (on)' : 'Hold for merge'}
               </DropdownMenuItem>
             )}
             {rip.upload && (

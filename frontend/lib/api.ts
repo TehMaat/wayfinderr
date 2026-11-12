@@ -2,7 +2,7 @@ import axios from 'axios';
 import { useAuthStore } from './auth';
 import type { DyadrrReport } from './dyadrr';
 import type { LogPage, LogQuery, LogsInfo } from './logs';
-import type { MergeCandidate, MergeChoiceSettings, MergeInputsAfter, MergePair, MergeStatus, ReleaseFlags, ReleasePreview, ReleaseProposal, Rip, RipperStatus, SourceTorrent, TmdbMovie, Upload } from './store';
+import type { MergeCandidate, MergeChoiceSettings, MergeInputsAfter, MergePair, MergePlan, MergePlanCandidates, MergeStatus, ReleaseFlags, ReleasePreview, ReleaseProposal, Rip, RipperStatus, SourceTorrent, TmdbMovie, Upload } from './store';
 
 // Same-origin requests: the frontend server proxies /api to the backend.
 // The session is an HttpOnly cookie the browser sends on its own.
@@ -86,6 +86,8 @@ export const uploadsApi = {
   // The backend waits for the running transfer to stop (up to 10 s)
   cancelUpload: (id: string) => apiClient.post(`/api/uploads/${id}/cancel`, null, { timeout: 30000 }),
   deleteUpload: (id: string) => apiClient.delete(`/api/uploads/${id}`),
+  // Held for a merge by hand (not on a server yet; a queued one is stopped first, up to 10 s)
+  hold: (id: string) => apiClient.post<Upload>(`/api/uploads/${id}/hold`, null, { timeout: 30000 }),
   // A file held for a merge: uploaded as it is, or deleted with its file
   uploadHeld: (id: string) => apiClient.post<Upload>(`/api/uploads/${id}/hold/upload`),
   deleteHeld: (id: string) => apiClient.post(`/api/uploads/${id}/hold/delete`),
@@ -168,6 +170,8 @@ export const ripsApi = {
   remuxRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/remux`),
   ripAgain: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/rip-again`),
   skipRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/skip`),
+  // Hold for merge: its file is held as it arrives
+  setHold: (id: string, hold: boolean) => apiClient.put<Rip>(`/api/rips/${id}/hold`, { hold }),
   removeRip: (id: string) => apiClient.delete(`/api/rips/${id}`),
   joinRips: (ripIds: string[], tmdbId?: number) => apiClient.post<Rip[]>('/api/rips/join', { ripIds, tmdbId }),
   clearSkippedRips: () => apiClient.post<{ removed: number }>('/api/rips/clear-skipped'),
@@ -187,12 +191,29 @@ export const ripsApi = {
     apiClient.get<TmdbMovie[]>('/api/rips/tmdb/search', { params: { query, year: year || undefined } }),
 };
 
+// The merge settings: Dyadrr's choices, the inputs after a merge, "Hold every new file"
+export interface MergeSettings {
+  choices: MergeChoiceSettings;
+  inputs: MergeInputsAfter;
+  holdAll: boolean;
+}
+
 // Merge API (Dyadrr: the Italian audio of one rip into the better video of another)
 export const mergeApi = {
   getStatus: () => apiClient.get<{ status: MergeStatus }>('/api/merge'),
-  getSettings: () => apiClient.get<{ choices: MergeChoiceSettings; inputs: MergeInputsAfter }>('/api/merge/settings'),
-  saveSettings: (settings: { choices?: Partial<MergeChoiceSettings>; inputs?: MergeInputsAfter }) =>
-    apiClient.put<{ choices: MergeChoiceSettings; inputs: MergeInputsAfter }>('/api/merge/settings', settings),
+  getSettings: () => apiClient.get<MergeSettings>('/api/merge/settings'),
+  saveSettings: (settings: { choices?: Partial<MergeChoiceSettings>; inputs?: MergeInputsAfter; holdAll?: boolean }) =>
+    apiClient.put<MergeSettings>('/api/merge/settings', settings),
+  // Pairs planned before their files arrive (also bookrr's, through the API)
+  listPlans: () => apiClient.get<MergePlan[]>('/api/merge/plans'),
+  // Asks every download client for its torrents
+  planCandidates: () => apiClient.get<MergePlanCandidates>('/api/merge/plans/candidates', { timeout: 45000 }),
+  createPlan: (body: {
+    files: { infoHash?: string; name?: string; ripId?: string; uploadId?: string; label?: string }[];
+    originalLanguage?: string;
+  }) => apiClient.post<MergePlan>('/api/merge/plans', body, { timeout: 90000 }),
+  pairPlan: (id: string) => apiClient.post<MergePlan>(`/api/merge/plans/${id}/pair`, null, { timeout: 60000 }),
+  removePlan: (id: string) => apiClient.delete(`/api/merge/plans/${id}`),
   listCandidates: () => apiClient.get<MergeCandidate[]>('/api/merge/candidates'),
   listPairs: () => apiClient.get<MergePair[]>('/api/merge/pairs'),
   getPair: (id: string) => apiClient.get<MergePair>(`/api/merge/pairs/${id}`),

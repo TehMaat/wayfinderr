@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Cpu, Languages, Link2, Merge, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { CalendarPlus, Cpu, Languages, Link2, Merge, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Chip } from '@/components/chip';
@@ -10,13 +11,15 @@ import { HeldNotice } from '@/components/held-notice';
 import { MergeChoicesDialog } from '@/components/merge-choices-dialog';
 import { MergePairCard } from '@/components/merge-pair-card';
 import { MergePairDialog } from '@/components/merge-pair-dialog';
+import { MergePlanCard, MergePlanDialog } from '@/components/merge-plan';
+import { Switch } from '@/components/ui/switch';
 import { PageHeader } from '@/components/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip } from '@/components/ui/tooltip';
 import { mergeApi } from '@/lib/api';
 import { languageName } from '@/lib/rips';
-import { useAppStore, type MergePair, type MergePairStatus, type MergeStatus, type Upload } from '@/lib/store';
-import { cn } from '@/lib/utils';
+import { useAppStore, type MergePair, type MergePairStatus, type MergePlan, type MergeStatus, type Upload } from '@/lib/store';
+import { cn, errorMessage } from '@/lib/utils';
 
 // The dyadrr container starts and stops outside Wayfinderr: refresh while the page is open
 const STATUS_REFRESH_MS = 10_000;
@@ -57,6 +60,58 @@ function SetupStrip({ status }: { status: MergeStatus }) {
   );
 }
 
+/** "Hold every new file": while on, every file that arrives is held, for a time when many films to merge come in */
+function HoldAllSwitch() {
+  const [holdAll, setHoldAll] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    mergeApi
+      .getSettings()
+      .then(({ data }) => setHoldAll(data.holdAll))
+      .catch(() => setHoldAll(null));
+  }, []);
+
+  const change = async (value: boolean) => {
+    setBusy(true);
+    try {
+      const { data } = await mergeApi.saveSettings({ holdAll: value });
+      setHoldAll(data.holdAll);
+      toast.success(data.holdAll ? 'Every new file is held' : 'New files are handled as usual');
+    } catch (err) {
+      toast.error('Could not change the setting', { description: errorMessage(err) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (holdAll === null) return null;
+  return (
+    <Tooltip content="While on, every file that arrives waits here instead of being uploaded: for a time when many films to merge come in">
+      <label className="flex cursor-pointer items-center gap-2 text-sm">
+        <Switch checked={holdAll} onCheckedChange={change} disabled={busy} aria-label="Hold every new file" />
+        <span className={cn(holdAll ? 'text-foreground' : 'text-muted-foreground')}>Hold every new file</span>
+      </label>
+    </Tooltip>
+  );
+}
+
+/** Pairs planned before their files arrive (by hand or by bookrr), still waiting or not paired */
+function PlannedPairs({ plans }: { plans: MergePlan[] }) {
+  return (
+    <section className="flex flex-col gap-3">
+      <GroupTitle
+        title="Planned"
+        count={plans.length}
+        hint="Each file is held as it arrives; once both are there the pair is created and analyzed"
+      />
+      {plans.map((plan) => (
+        <MergePlanCard key={plan.id} plan={plan} />
+      ))}
+    </section>
+  );
+}
+
 /** The files held for a merge, newest first, with why and what to do with each */
 function HeldFiles({ uploads, onPair }: { uploads: Upload[]; onPair?: (uploadId: string) => void }) {
   return (
@@ -64,9 +119,9 @@ function HeldFiles({ uploads, onPair }: { uploads: Upload[]; onPair?: (uploadId:
       <div className="space-y-1">
         <h2 className="text-sm font-medium">Held for a merge ({uploads.length})</h2>
         <p className="text-xs text-muted-foreground">
-          Not uploaded until you say so: files without Italian audio, and files whose twin of the same film (another
-          file, a rip or a torrent, by its titles in every language) is around, for sure or maybe. Leave them here to
-          wait for the twin, upload them as they are, or delete them.
+          Not uploaded until you say so: files without Italian audio, files whose twin of the same film (another file, a
+          rip or a torrent, by its titles in every language) is around, for sure or maybe, and files held by hand or for
+          a planned pair. Leave them here to wait for the twin, upload them as they are, or delete them.
         </p>
       </div>
       {uploads.map((upload) => (
@@ -103,11 +158,13 @@ function GroupTitle({ title, count, hint, action }: { title: string; count: numb
 /** The pairs in groups, with the held files between the ones to act on and the rest */
 function Pairs({
   pairs,
+  plans = [],
   held,
   runnerAlive,
   onPair,
 }: {
   pairs: MergePair[];
+  plans?: MergePlan[];
   held: Upload[];
   runnerAlive: boolean;
   onPair?: (uploadId: string) => void;
@@ -143,6 +200,7 @@ function Pairs({
     <>
       {section('active')}
       {section('ready')}
+      {plans.length > 0 && <PlannedPairs plans={plans} />}
       {held.length > 0 && <HeldFiles uploads={held} onPair={onPair} />}
       {section('stuck')}
       {section('merged')}
@@ -157,7 +215,11 @@ export default function MergePage() {
   const allUploads = useAppStore((s) => s.uploads);
   const held = allUploads.filter((u) => u.status === 'HELD');
   const pairs = useAppStore((s) => s.mergePairs);
+  // Paired plans are in the pairs: only the ones still waiting or not paired
+  const allPlans = useAppStore((s) => s.mergePlans);
+  const plans = allPlans.filter((p) => p.status !== 'PAIRED');
   const [pairOpen, setPairOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
   const [pairFirst, setPairFirst] = useState<string | null>(null);
   const [choicesOpen, setChoicesOpen] = useState(false);
 
@@ -170,6 +232,7 @@ export default function MergePage() {
     try {
       const { data } = await mergeApi.getStatus();
       setStatus(data.status);
+      useAppStore.setState({ mergeStatus: data.status });
       setFailed(false);
     } catch {
       setFailed(true);
@@ -191,6 +254,7 @@ export default function MergePage() {
         .loadUploads()
         .catch(() => undefined),
       useAppStore.getState().loadMergePairs(),
+      useAppStore.getState().loadMergePlans(),
     ]);
     setRefreshing(false);
   };
@@ -208,6 +272,12 @@ export default function MergePage() {
                   <Button variant="outline" size="sm" onClick={() => setChoicesOpen(true)}>
                     <SlidersHorizontal />
                     Choices
+                  </Button>
+                </Tooltip>
+                <Tooltip content="Two downloads that will become a pair: each file is held as it arrives">
+                  <Button variant="outline" size="sm" onClick={() => setPlanOpen(true)} disabled={!status.languageSupported}>
+                    <CalendarPlus />
+                    Plan a pair…
                   </Button>
                 </Tooltip>
                 <Button size="sm" onClick={() => openPair(null)} disabled={!status.languageSupported}>
@@ -238,14 +308,18 @@ export default function MergePage() {
         </Card>
       ) : status.enabled ? (
         <>
-          <SetupStrip status={status} />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <SetupStrip status={status} />
+            {status.languageSupported && <HoldAllSwitch />}
+          </div>
           <Pairs
             pairs={pairs}
+            plans={plans}
             held={held}
             runnerAlive={status.runnerAlive}
             onPair={status.languageSupported ? openPair : undefined}
           />
-          {held.length > 0 || pairs.length > 0 ? null : (
+          {held.length > 0 || pairs.length > 0 || plans.length > 0 ? null : (
             <Card>
               <EmptyState
                 icon={Merge}
@@ -274,10 +348,11 @@ export default function MergePage() {
       )}
 
       {/* Held and paired while merging was on: still here to upload, delete or look at */}
-      {status && !status.enabled && <Pairs pairs={pairs} held={held} runnerAlive={status.runnerAlive} />}
+      {status && !status.enabled && <Pairs pairs={pairs} plans={plans} held={held} runnerAlive={status.runnerAlive} />}
 
       <MergePairDialog open={pairOpen} onOpenChange={setPairOpen} firstId={pairFirst} />
       <MergeChoicesDialog open={choicesOpen} onOpenChange={setChoicesOpen} />
+      <MergePlanDialog open={planOpen} onOpenChange={setPlanOpen} />
     </div>
   );
 }

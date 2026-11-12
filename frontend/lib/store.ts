@@ -5,8 +5,9 @@ import { clientsApi, mergeApi, ripsApi, serversApi, spaceApi, systemApi, uploads
 // MERGED: an input of a merge, done through the merged file
 export type UploadStatus = 'PENDING' | 'QUEUED' | 'UPLOADING' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'CANCELLED' | 'HELD' | 'MERGED';
 
-// Why a file is held: no Italian audio, a twin of the same film around, or maybe one
-export type HoldKind = 'NO_ITALIAN' | 'TWIN' | 'POSSIBLE_TWIN';
+// Why a file is held: no Italian audio, a twin of the same film around, or maybe one;
+// by hand (the upload, its rip, or "hold every new file"), or a side of a planned pair
+export type HoldKind = 'NO_ITALIAN' | 'TWIN' | 'POSSIBLE_TWIN' | 'MANUAL' | 'PLANNED';
 
 export type TorrentStatus = 'NO_MATCH' | 'REVIEW' | 'WAITING' | 'REMOVED' | 'ERROR';
 
@@ -293,6 +294,8 @@ export interface Rip {
   year: number | null;
   // ISO 639-2: audio kept beside the kept language when the disc has none in the original one (chosen by hand)
   secondLanguage: string | null;
+  // Hold for merge: its file is held as it arrives (set before the rip is done)
+  holdForMerge: boolean;
   jobId: string | null;
   progress: number;
   outputFile: string | null; // path in the watch folder (or in the downloads' unpack folder), same as the upload's
@@ -353,6 +356,40 @@ export interface SourceTorrent {
   attachedAt: string | null;
   createdAt: string;
   uploadIds: string[]; // the uploads it was copied into
+}
+
+// A pair planned before its files arrive (by hand, or by bookrr): each side is a download,
+// by its torrent's info hash and/or its name, held as it arrives; paired once both are there
+export type MergePlanStatus = 'WAITING' | 'PAIRED' | 'ERROR';
+
+export interface MergePlanSide {
+  infoHash: string | null;
+  name: string | null;
+  label: string | null;
+  uploadId: string | null;
+  upload: { id: string; filename: string; status: UploadStatus } | null;
+  rip: { id: string; status: RipStatus; progress: number } | null;
+}
+
+export interface MergePlan {
+  id: string;
+  status: MergePlanStatus;
+  files: [MergePlanSide, MergePlanSide];
+  tmdbId: number | null;
+  originalLanguage: string | null;
+  origin: string | null; // "bookrr", null by hand
+  pairId: string | null;
+  message: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// What a pair can be planned with (GET /api/merge/plans/candidates)
+export interface MergePlanCandidates {
+  rips: { id: string; downloadName: string; status: RipStatus; title: string | null; year: number | null }[];
+  torrents: { infoHash: string; name: string; downloadName: string; client: string; progress: number }[];
+  uploads: { id: string; filename: string; status: UploadStatus; holdKind: HoldKind | null }[];
+  problems: string[];
 }
 
 export type MergePairStatus = 'ANALYZING' | 'ELIGIBLE' | 'REFUSED' | 'ERROR' | 'CANCELLED' | 'MERGING' | 'MERGED';
@@ -471,6 +508,9 @@ interface AppState {
   ripStatus: RipperStatus | null;
   mergePairs: MergePair[];
   mergePairsLoaded: boolean;
+  mergePlans: MergePlan[];
+  // Merging on (MERGE_ENABLED, RIP_LANGUAGE=it): the hold actions are offered
+  mergeStatus: MergeStatus | null;
 
   loadUploads: () => Promise<void>;
   loadServers: () => Promise<void>;
@@ -492,6 +532,8 @@ interface AppState {
   loadMergePairs: () => Promise<void>;
   refreshMergePair: (id: string) => Promise<void>;
   removeMergePair: (id: string) => void;
+  loadMergePlans: () => Promise<void>;
+  loadMergeStatus: () => Promise<void>;
   applyMergeProgress: (id: string, phase: string | null, progress: number | null) => void;
 }
 
@@ -517,6 +559,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   ripStatus: null,
   mergePairs: [],
   mergePairsLoaded: false,
+  mergePlans: [],
+  mergeStatus: null,
 
   loadUploads: async () => {
     const { data } = await uploadsApi.listUploads({ limit: UPLOADS_LIMIT });
@@ -591,6 +635,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       get().loadStats(),
       get().loadRips(),
       get().loadMergePairs(),
+      get().loadMergePlans(),
+      get().loadMergeStatus(),
       get().loadDisks(),
       get().loadClients(),
     ]);
@@ -686,6 +732,24 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   removeMergePair: (id) => set((state) => ({ mergePairs: state.mergePairs.filter((p) => p.id !== id) })),
+
+  loadMergePlans: async () => {
+    try {
+      const { data } = await mergeApi.listPlans();
+      set({ mergePlans: data });
+    } catch {
+      // Kept as they were: the next event or refresh loads them
+    }
+  },
+
+  loadMergeStatus: async () => {
+    try {
+      const { data } = await mergeApi.getStatus();
+      set({ mergeStatus: data.status });
+    } catch {
+      // Unknown: the hold actions stay hidden
+    }
+  },
 
   // A late progress event must not bring back an analysis that has ended
   applyMergeProgress: (id, phase, progress) =>
