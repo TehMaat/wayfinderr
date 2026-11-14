@@ -16,7 +16,8 @@ const formatSpace = (server: Server, space: ServerSpaceInfo | null) => ({
   reachable: space !== null,
   // api, or quota/disk when read over SSH because the API is unreachable (null: no space)
   spaceSource: space?.source ?? null,
-  apiReachable: space?.source === 'api',
+  // Ultra.cc only (null: a type without a storage API)
+  apiReachable: server.type === 'ULTRA' ? space?.source === 'api' : null,
   freeSpaceBytes: space?.freeSpaceBytes.toString() ?? '0',
   usedSpaceBytes: space?.usedSpaceBytes.toString() ?? '0',
   totalSpaceBytes: space?.totalSpaceBytes.toString() ?? '0',

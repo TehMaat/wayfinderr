@@ -28,6 +28,7 @@ import { StorageBar } from '@/components/storage-bar';
 import { StopUploadDialog, canStop } from '@/components/upload-actions';
 import { UploadTable } from '@/components/upload-table';
 import { Tooltip } from '@/components/ui/tooltip';
+import { serverTypeInfo } from '@/lib/server-types';
 import { selectTotalSpeed, useAppStore, type Upload } from '@/lib/store';
 import { cn, formatBytes, formatDuration, formatSpeed, timeAgo } from '@/lib/utils';
 
@@ -235,7 +236,7 @@ export default function Dashboard() {
                 <EmptyState
                   icon={HardDrive}
                   title="No servers"
-                  description="Add your Ultra.cc servers to start uploading."
+                  description="Add a server (Ultra.cc, another seedbox or any SSH server) to start uploading."
                   action={
                     <Button size="sm" asChild>
                       <Link href="/servers?add=1">
@@ -253,6 +254,7 @@ export default function Dashboard() {
                       <span className="flex items-center gap-2 font-medium">
                         <ServerIcon className="h-3.5 w-3.5 text-muted-foreground" />
                         {server.name}
+                        <span className="text-[11px] font-normal text-muted-foreground">{serverTypeInfo(server.type).label}</span>
                       </span>
                       <span
                         className={cn(

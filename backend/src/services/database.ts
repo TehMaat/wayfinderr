@@ -22,19 +22,7 @@ export class DatabaseService {
     return this.prisma.server.findUnique({ where: { id } });
   }
 
-  async createServer(data: {
-    name: string;
-    apiEndpoint: string;
-    apiToken: string;
-    sshHost: string;
-    sshPort?: number;
-    sshUsername: string;
-    sshPassword?: string;
-    sshPath?: string;
-    maxRetries?: number;
-    backoffStrategy?: string;
-    mediaCheckPolicy?: string;
-  }): Promise<Server> {
+  async createServer(data: Prisma.ServerCreateInput): Promise<Server> {
     return this.prisma.server.create({ data });
   }
 

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { ServerType } from './server-types';
 import { clientsApi, mergeApi, ripsApi, serversApi, spaceApi, systemApi, uploadsApi } from './api';
 
 // HELD: kept for a merge (MERGE_ENABLED), uploaded only when released by hand
@@ -163,7 +164,9 @@ export type SpaceSource = 'api' | 'quota' | 'disk';
 export interface Server {
   id: string;
   name: string;
-  apiEndpoint: string;
+  // ULTRA | SEEDBOX | SSH (lib/server-types.ts); the Ultra-API endpoint is Ultra.cc only
+  type: ServerType;
+  apiEndpoint: string | null;
   hasApiToken: boolean;
   sshHost: string;
   sshPort: number;
@@ -185,9 +188,9 @@ export interface Server {
   apiRestarting: boolean;
   lastSpaceCheckAt: string | null;
   // From /api/space (missing until loaded). reachable: the space could be read
-  // (API, else SSH); apiReachable: from the API
+  // (API, else SSH); apiReachable: from the API (null: a type without one)
   reachable?: boolean;
-  apiReachable?: boolean;
+  apiReachable?: boolean | null;
   spaceSource?: SpaceSource | null;
   freeSpaceBytes?: string;
   usedSpaceBytes?: string;

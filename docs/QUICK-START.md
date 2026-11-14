@@ -16,7 +16,7 @@ Wayfinderr is an automated MKV file transfer system that:
 ## Prerequisites
 
 - Docker & Docker Compose
-- Two Ultra.cc servers with SSH access
+- One or more upload servers with SSH access: Ultra.cc slots, other seedboxes or plain servers
 - MakeMKV Docker container (included in compose)
 - ~500MB disk space for database
 
@@ -72,8 +72,8 @@ Treat the setup code as a secret and create the account before exposing the app.
 ### 2. Add First Server
 
 1. Go to http://localhost:3000/servers
-2. Click "Add New Server"
-3. Fill in your first Ultra.cc server:
+2. Click "Add server" and pick the type (Ultra.cc, Other seedbox, Plain server)
+3. Fill in your first server (an Ultra.cc slot here; the other types only need the SSH login):
    - **Name**: `Server 1`
    - **API Endpoint**: `https://username.hostname.usbx.me/ultra-api/get_diskquota`
    - **API Token**: Your Ultra.cc API token
@@ -311,7 +311,7 @@ docker-compose restart wayfinderr-backend
 ### Add a new server
 
 1. Go to http://localhost:3000/servers
-2. Click "Add New Server"
+2. Click "Add server"
 3. Fill in details and save
 4. Click "Test" to verify
 

@@ -133,12 +133,15 @@ GET /api/servers
 
 The API token and the SSH password are never returned: `hasApiToken` and `hasSshPassword` say whether one is saved.
 
+`type` is the kind of server: `ULTRA` (Ultra.cc: its free space from the Ultra-API at `apiEndpoint`, over SSH while it is unreachable; the Ultra-API can be restarted), `SEEDBOX` (another seedbox) or `SSH` (a plain server). `SEEDBOX` and `SSH` have no API (`apiEndpoint` is `null`): their free space is always read over SSH, from the account quota, else from the disk of `sshPath`.
+
 **Response:**
 ```json
 [
   {
     "id": "cuid123",
     "name": "Server 1",
+    "type": "ULTRA",
     "apiEndpoint": "https://user.host.usbx.me/ultra-api/get_diskquota",
     "hasApiToken": true,
     "hasSshPassword": false,
@@ -165,6 +168,7 @@ Content-Type: application/json
 
 {
   "name": "Server 1",
+  "type": "ULTRA",
   "apiEndpoint": "https://user.host.usbx.me/ultra-api/get_diskquota",
   "apiToken": "your-token",
   "sshHost": "host.usbx.me",
@@ -174,6 +178,8 @@ Content-Type: application/json
   "backoffStrategy": "exponential"
 }
 ```
+
+`name`, `sshHost` and `sshUsername` are required; for `ULTRA` also `apiEndpoint` (a http(s) URL) and `apiToken`. Without `type` the server is `ULTRA`. For `SEEDBOX` and `SSH` the API fields are ignored. `400` with `error` says what is missing (`Missing: Ultra-API token`) or that the type is unknown.
 
 **Response:** 201 Created
 ```json
@@ -197,6 +203,8 @@ Content-Type: application/json
 ```
 
 Fields left out or blank keep their saved value (so a blank `apiToken` or `sshPassword` keeps the current one), except `releaseTag` and `trackerCommand`, which a blank clears.
+
+`type` can change: the server is checked again as the new type (a server becoming `ULTRA` needs `apiEndpoint` and `apiToken`), and one that stops being `ULTRA` loses `apiEndpoint`, `apiToken`, `autoRestartApi` and the last restart. `POST /api/servers/:id/restart-api` answers `400` for a server that is not `ULTRA`.
 
 **Release fields** (see [Release API](#release-api)): `releaseDir` the folder renamed files go to, as `<releaseDir>/<name>/<name>.mkv` (relative to the SSH home, or absolute; default `downloads/qbittorrent`); `releaseTag` the `-TAG` at the end of the name (blank = none); `trackerCommand` run on the server after the rename, with `{path}`, `{folder}` and `{name}` replaced by the shell-quoted file path, its folder and its name (the path is appended when none is there; blank = rename only); `releaseAuto` true to ask for the name right after each upload (`releaseStatus` `CONFIRM`).
 

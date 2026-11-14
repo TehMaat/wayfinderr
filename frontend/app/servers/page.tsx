@@ -36,6 +36,7 @@ import { Switch } from '@/components/ui/switch';
 import { deleteServer, refreshServerSpace, restartServerApi, setAutoRestartApi, testServer } from '@/lib/actions';
 import { useAppStore, type Server } from '@/lib/store';
 import { SERVER_STATES, serverState, sshSpaceLabel } from '@/lib/server-status';
+import { serverTypeInfo } from '@/lib/server-types';
 import { cn, timeAgo } from '@/lib/utils';
 
 function Detail({ icon: Icon, children }: { icon: typeof ServerIcon; children: React.ReactNode }) {
@@ -114,6 +115,7 @@ function ServerCard({ server, onEdit }: { server: Server; onEdit: () => void }) 
 
   const status = SERVER_STATES[serverState(server)];
   const viaSsh = sshSpaceLabel(server.spaceSource);
+  const isUltra = server.type === 'ULTRA';
 
   return (
     <Card className="flex flex-col">
@@ -125,6 +127,8 @@ function ServerCard({ server, onEdit }: { server: Server; onEdit: () => void }) 
           <div className="min-w-0">
             <p className="truncate font-semibold">{server.name}</p>
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span>{serverTypeInfo(server.type).label}</span>
+              <span aria-hidden="true">·</span>
               <span className={cn('h-1.5 w-1.5 rounded-full', status.dot)} />
               {status.label}
               {uploading && (
@@ -182,12 +186,12 @@ function ServerCard({ server, onEdit }: { server: Server; onEdit: () => void }) 
         </Detail>
         <Detail icon={Activity}>
           {stats?.byServer[server.id] ?? 0} uploads · space checked {timeAgo(server.lastSpaceCheckAt)}
-          {viaSsh && ` ${viaSsh}: Ultra-API unreachable`}
+          {viaSsh && (isUltra ? ` ${viaSsh}: Ultra-API unreachable` : ` ${viaSsh}`)}
           {refreshing && '…'}
         </Detail>
       </div>
 
-      <UltraApiRestart server={server} />
+      {isUltra && <UltraApiRestart server={server} />}
 
       <div className="mt-auto flex gap-2 border-t p-3">
         <Button
@@ -264,7 +268,7 @@ export default function ServersPage() {
           <EmptyState
             icon={HardDrive}
             title="No servers configured"
-            description="Add your Ultra.cc servers: Wayfinderr checks their free space and uploads over SFTP."
+            description="Add an Ultra.cc slot, another seedbox or any server with SSH: Wayfinderr checks its free space and uploads over SFTP."
             action={
               <Button onClick={openAdd}>
                 <Plus />

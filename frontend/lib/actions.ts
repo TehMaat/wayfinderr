@@ -193,12 +193,18 @@ export async function clearSkippedRips() {
 }
 
 export async function testServer(id: string) {
-  const name = useAppStore.getState().servers.find((s) => s.id === id)?.name ?? 'Server';
-  const pending = toast.loading(`Testing ${name}…`, { description: 'Ultra.cc API and SSH/SFTP login' });
+  const server = useAppStore.getState().servers.find((s) => s.id === id);
+  const name = server?.name ?? 'Server';
+  const isUltra = server?.type !== 'SEEDBOX' && server?.type !== 'SSH';
+  const pending = toast.loading(`Testing ${name}…`, {
+    description: isUltra ? 'Ultra.cc API and SSH/SFTP login' : 'Free space and SSH/SFTP login',
+  });
   try {
     const { data } = await serversApi.testServer(id);
     const viaSsh = sshSpaceLabel(data.spaceSource);
-    if (viaSsh) {
+    if (!isUltra) {
+      toast.success(`${name} is working`, { id: pending, description: `${data.freeSpaceGB} GB free, read ${viaSsh ?? 'over SSH'}` });
+    } else if (viaSsh) {
       toast.warning(`${name} works, but its Ultra-API is unreachable`, {
         id: pending,
         description: `${data.freeSpaceGB} GB free, read ${viaSsh}: uploads go on. Restart the API from its card.`,

@@ -13,8 +13,11 @@ datasource db {
 model Server {
   id                   String   @id @default(cuid())
   name                 String
-  apiEndpoint          String
-  apiToken             String
+  // ULTRA (Ultra.cc, space from its Ultra-API) | SEEDBOX (another seedbox) | SSH (a plain server):
+  // see services/serverTypes.ts. SEEDBOX and SSH read the space over SSH (quota, else the disk)
+  type                 String   @default("ULTRA")
+  apiEndpoint          String?  // Ultra.cc only
+  apiToken             String?  // Ultra.cc only
   sshHost              String
   sshPort              Int      @default(22)
   sshUsername          String

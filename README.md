@@ -14,7 +14,7 @@ Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitl
 
 ## Features
 
-- 🎯 **Smart Server Selection** - Picks the server with the most free space that can hold the file (Ultra.cc API)
+- 🎯 **Smart Server Selection** - Picks the server with the most free space that can hold the file: Ultra.cc slots (Ultra-API, over SSH while it is down), other seedboxes and plain SSH servers (account quota, else the disk, over SSH)
 - 🔍 **Media Verification** - Detects Italian audio/subtitle tracks with ffprobe
 - 📤 **Reliable Transfers** - SFTP upload to a temporary `.part` file, size check, then rename; automatic retry with backoff
 - 📊 **Real-Time Monitoring** - WebSocket-driven live dashboard
@@ -97,14 +97,17 @@ docker compose exec wayfinderr-backend node dist/cli.js reset-auth   # or: docke
 
 ### Configure the servers
 
-1. Open http://localhost:3000 → **Servers** → **Add New Server**
-2. Fill in:
-   - **API Endpoint / Token**: from the Ultra.cc [Storage/Traffic API script](https://docs.ultra.cc/unofficial-ssh-utilities/storagetraffic-api-endpoint), e.g. `https://user.host.usbx.me/ultra-api/get_diskquota`
-   - **SSH Host / Port / Username / Password**: your Ultra.cc SSH login (leave the password blank to use the key in `SSH_PRIVATE_KEY_PATH`)
+1. Open http://localhost:3000 → **Servers** → **Add server**
+2. Pick the **server type**:
+   - **Ultra.cc**: its free space comes from the Ultra-API (over SSH while the API does not answer)
+   - **Other seedbox** (Whatbox, Feral…) or **Plain server** (VPS, NAS, a machine on the LAN): no API, the free space is read over SSH (the account quota, else the disk of the remote folder)
+3. Fill in:
+   - **Ultra.cc only: Username and Host** (`alice` and `zeus` for `zeus.usbx.me`): they fill in the SSH login and the **Ultra-API endpoint**, `https://user.host.usbx.me/ultra-api/get_diskquota`; add the **Ultra-API token** from the Ultra.cc [Storage/Traffic API script](https://docs.ultra.cc/unofficial-ssh-utilities/storagetraffic-api-endpoint)
+   - **SSH Host / Port / Username / Password**: the SSH login (leave the password blank to use the key in `SSH_PRIVATE_KEY_PATH`)
    - **Remote Folder**: where the files go, e.g. `/home/<user>/media/movies` (created if missing)
    - **Media Policy**: skip files without Italian audio/subs, or always upload
-3. Click **Test**: it checks the API and the SSH/SFTP login
-4. Repeat for the second server
+4. Click **Test**: it reads the free space (the API, or over SSH) and checks the SSH/SFTP login
+5. Repeat for every server
 
 From now on every new `.mkv` in the watch folder, subfolders included, is uploaded automatically. A file is picked up once its size has been stable for 30 seconds. The folder is also rescanned every 30 seconds, so files the watcher misses (it can happen on Docker Desktop and network shares) are still picked up, within a minute or two. With `DELETE_AFTER_UPLOAD=true` the local file is deleted once it is on the server.
 
