@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { ArrowUpFromLine, Disc3, LayoutDashboard, Magnet, Merge, Plus, ScrollText, Server as ServerIcon, UploadCloud } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
+import { SERVER_STATES, serverState } from '@/lib/server-status';
 import { cn } from '@/lib/utils';
 import { AccentPicker } from '@/components/accent-picker';
 import { AccountMenu } from '@/components/account-menu';
@@ -122,14 +123,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 <ArrowUpFromLine className={cn('h-3.5 w-3.5 animate-pulse', !selected && 'text-primary')} />
               )}
               <span
-                className={cn(
-                  'h-2 w-2 shrink-0 rounded-full',
-                  server.reachable === undefined
-                    ? 'bg-muted-foreground/40'
-                    : server.reachable
-                      ? 'bg-success shadow-[0_0_6px_hsl(var(--success))]'
-                      : 'bg-destructive'
-                )}
+                className={cn('h-2 w-2 shrink-0 rounded-full', SERVER_STATES[serverState(server)].dot)}
+                title={SERVER_STATES[serverState(server)].label}
               />
             </button>
           );

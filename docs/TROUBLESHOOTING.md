@@ -220,7 +220,11 @@ docker-compose exec wayfinderr-backend npx prisma migrate dev
    docker-compose logs wayfinderr-backend | grep -i "test\|ssh"
    ```
 
-### Issue: Server shows "API unreachable" but SSH works
+### Issue: Server shows "Online via SSH" (or "Unreachable")
+
+**Online via SSH**: the storage API did not answer, so the free space was read over SSH
+(the user's quota, else the disk of the upload folder) and the server still takes uploads.
+**Unreachable**: neither the API nor SSH answered; the server takes no uploads.
 
 The Ultra-API service on the server may have stopped. On the **Servers** page, **Restart API**
 runs Ultra's Ultra-API script over SSH and picks *Restart*, the same as doing it by hand:

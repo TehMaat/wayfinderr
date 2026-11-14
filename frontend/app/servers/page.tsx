@@ -35,6 +35,7 @@ import { StorageBar } from '@/components/storage-bar';
 import { Switch } from '@/components/ui/switch';
 import { deleteServer, refreshServerSpace, restartServerApi, setAutoRestartApi, testServer } from '@/lib/actions';
 import { useAppStore, type Server } from '@/lib/store';
+import { SERVER_STATES, serverState, sshSpaceLabel } from '@/lib/server-status';
 import { cn, timeAgo } from '@/lib/utils';
 
 function Detail({ icon: Icon, children }: { icon: typeof ServerIcon; children: React.ReactNode }) {
@@ -51,7 +52,8 @@ function UltraApiRestart({ server }: { server: Server }) {
   const [restarting, setRestarting] = useState(false);
   const [saving, setSaving] = useState(false);
   const running = restarting || server.apiRestarting;
-  const unreachable = server.reachable === false;
+  // The API, not the server: with the space read over SSH it still takes uploads
+  const unreachable = server.apiReachable === false;
 
   return (
     <div className="space-y-2 border-t px-4 py-3">
@@ -110,12 +112,8 @@ function ServerCard({ server, onEdit }: { server: Server; onEdit: () => void }) 
   const [refreshing, setRefreshing] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const status =
-    server.reachable === undefined
-      ? { label: 'Checking', className: 'bg-muted-foreground/40' }
-      : server.reachable
-        ? { label: 'Online', className: 'bg-success shadow-[0_0_6px_hsl(var(--success))]' }
-        : { label: 'API unreachable', className: 'bg-destructive' };
+  const status = SERVER_STATES[serverState(server)];
+  const viaSsh = sshSpaceLabel(server.spaceSource);
 
   return (
     <Card className="flex flex-col">
@@ -127,7 +125,7 @@ function ServerCard({ server, onEdit }: { server: Server; onEdit: () => void }) 
           <div className="min-w-0">
             <p className="truncate font-semibold">{server.name}</p>
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className={cn('h-1.5 w-1.5 rounded-full', status.className)} />
+              <span className={cn('h-1.5 w-1.5 rounded-full', status.dot)} />
               {status.label}
               {uploading && (
                 <Badge className="ml-1">
@@ -184,6 +182,7 @@ function ServerCard({ server, onEdit }: { server: Server; onEdit: () => void }) 
         </Detail>
         <Detail icon={Activity}>
           {stats?.byServer[server.id] ?? 0} uploads · space checked {timeAgo(server.lastSpaceCheckAt)}
+          {viaSsh && ` ${viaSsh}: Ultra-API unreachable`}
           {refreshing && '…'}
         </Detail>
       </div>

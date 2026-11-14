@@ -260,7 +260,9 @@ export default function Dashboard() {
                           server.reachable === false ? 'text-destructive' : 'text-muted-foreground'
                         )}
                       >
-                        {server.reachable === false ? 'unreachable' : timeAgo(server.lastSpaceCheckAt)}
+                        {server.reachable === false
+                          ? 'unreachable'
+                          : `${server.apiReachable === false ? 'via SSH · ' : ''}${timeAgo(server.lastSpaceCheckAt)}`}
                       </span>
                     </div>
                     <StorageBar server={server} />
