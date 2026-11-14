@@ -4,7 +4,8 @@ import { DiscTitle, hasLanguage } from './makemkv.js';
  * Picks the film among the titles of a disc (all at least RIP_MIN_LENGTH long),
  * or says why a person has to choose. Discs with more than one film, several
  * cuts of the film, or many look-alike playlists (copy protection) are never
- * guessed.
+ * guessed, unless only some of them have audio in the kept language: then the
+ * choice is made among those (a dubbed cut beats a longer one with subtitles only).
  */
 
 export type TitleChoice = { title: DiscTitle } | { title: null; reason: string };
@@ -28,6 +29,12 @@ export const pickMainTitle = (titles: DiscTitle[], italianCodes: string[], witho
 
   const byLength = [...titles].sort((a, b) => b.durationSec - a.durationSec);
   const longest = byLength[0];
+
+  // Several films, cuts or playlists, only some of them dubbed in the kept language: one of those
+  const long = byLength.filter((t) => t.durationSec >= longest.durationSec * OTHER_FEATURE_RATIO);
+  const dubbed = long.filter((t) => hasLanguage(t, 'audio', italianCodes));
+  if (dubbed.length > 0 && dubbed.length < long.length) return pickMainTitle(dubbed, italianCodes, withoutKept);
+
   const sameLength = byLength.filter((t) => longest.durationSec - t.durationSec <= SAME_LENGTH_SECONDS);
   const others = byLength.filter(
     (t) => !sameLength.includes(t) && t.durationSec >= longest.durationSec * OTHER_FEATURE_RATIO
