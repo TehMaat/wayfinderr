@@ -121,7 +121,7 @@ router.put('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// POST test server: Ultra.cc API + SSH/SFTP login + destination folder
+// POST test server: Ultra.cc API (else the space over SSH) + SSH/SFTP login + destination folder
 router.post('/:id/test', async (req: Request, res: Response) => {
   const server = await db.getServerById(req.params.id).catch(() => null);
   if (!server) {
@@ -131,7 +131,7 @@ router.post('/:id/test', async (req: Request, res: Response) => {
 
   const space = await serverManager.getServerSpace(server, true);
   if (!space) {
-    res.status(502).json({ error: 'Ultra.cc API unreachable or token invalid' });
+    res.status(502).json({ error: 'Ultra.cc API unreachable or token invalid, and the space could not be read over SSH' });
     return;
   }
 
@@ -145,6 +145,8 @@ router.post('/:id/test', async (req: Request, res: Response) => {
   res.json({
     ok: true,
     freeSpaceGB: (Number(space.freeSpaceBytes) / 1024 / 1024 / 1024).toFixed(2),
+    // api, or quota/disk: the API is unreachable, the space was read over SSH
+    spaceSource: space.source,
   });
 });
 

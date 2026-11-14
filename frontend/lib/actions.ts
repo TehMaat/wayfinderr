@@ -1,6 +1,7 @@
 import { toast } from 'sonner';
 import { clientsApi, releaseApi, ripsApi, serversApi, uploadsApi } from './api';
 import { useAppStore } from './store';
+import { sshSpaceLabel } from './server-status';
 import { errorMessage } from './utils';
 
 export async function retryUpload(id: string) {
@@ -196,7 +197,15 @@ export async function testServer(id: string) {
   const pending = toast.loading(`Testing ${name}…`, { description: 'Ultra.cc API and SSH/SFTP login' });
   try {
     const { data } = await serversApi.testServer(id);
-    toast.success(`${name} is working`, { id: pending, description: `${data.freeSpaceGB} GB free` });
+    const viaSsh = sshSpaceLabel(data.spaceSource);
+    if (viaSsh) {
+      toast.warning(`${name} works, but its Ultra-API is unreachable`, {
+        id: pending,
+        description: `${data.freeSpaceGB} GB free, read ${viaSsh}: uploads go on. Restart the API from its card.`,
+      });
+    } else {
+      toast.success(`${name} is working`, { id: pending, description: `${data.freeSpaceGB} GB free` });
+    }
   } catch (err) {
     toast.error(`${name} test failed`, { id: pending, description: errorMessage(err) });
   } finally {

@@ -17,6 +17,7 @@ import { deleteUploads, importTorrentFiles } from '@/lib/actions';
 import { matchesSearch } from '@/lib/release';
 import { useSelection } from '@/lib/selection';
 import { UPLOAD_STATUSES, useAppStore, type Filters } from '@/lib/store';
+import { SERVER_STATES, serverState } from '@/lib/server-status';
 import { cn } from '@/lib/utils';
 
 function FilterItem({
@@ -180,10 +181,7 @@ export default function UploadsPage() {
               onClick={() => set({ serverId: server.id })}
               icon={
                 <span
-                  className={cn(
-                    'mx-[3px] !h-2 !w-2 rounded-full',
-                    server.reachable ? 'bg-success' : server.reachable === false ? 'bg-destructive' : 'bg-muted-foreground/40'
-                  )}
+                  className={cn('mx-[3px] !h-2 !w-2 rounded-full', SERVER_STATES[serverState(server)].dot)}
                 />
               }
               label={server.name}

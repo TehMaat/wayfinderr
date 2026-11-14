@@ -157,6 +157,9 @@ export interface TorrentClient {
   createdAt: string;
 }
 
+/** Where a server's space was read: its storage API, or over SSH while the API is unreachable */
+export type SpaceSource = 'api' | 'quota' | 'disk';
+
 export interface Server {
   id: string;
   name: string;
@@ -181,8 +184,11 @@ export interface Server {
   apiRestartError: string | null;
   apiRestarting: boolean;
   lastSpaceCheckAt: string | null;
-  // From /api/space (missing until loaded)
+  // From /api/space (missing until loaded). reachable: the space could be read
+  // (API, else SSH); apiReachable: from the API
   reachable?: boolean;
+  apiReachable?: boolean;
+  spaceSource?: SpaceSource | null;
   freeSpaceBytes?: string;
   usedSpaceBytes?: string;
   totalSpaceBytes?: string;
@@ -580,7 +586,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       servers: (data as Server[]).map((s) => {
         const old = previous.get(s.id);
         return old
-          ? { ...s, reachable: old.reachable, freeSpaceBytes: old.freeSpaceBytes, usedSpaceBytes: old.usedSpaceBytes, totalSpaceBytes: old.totalSpaceBytes }
+          ? {
+              ...s,
+              reachable: old.reachable,
+              apiReachable: old.apiReachable,
+              spaceSource: old.spaceSource,
+              freeSpaceBytes: old.freeSpaceBytes,
+              usedSpaceBytes: old.usedSpaceBytes,
+              totalSpaceBytes: old.totalSpaceBytes,
+            }
           : s;
       }),
       serversLoaded: true,
@@ -598,6 +612,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           ? {
               ...s,
               reachable: info.reachable,
+              apiReachable: info.apiReachable,
+              spaceSource: info.spaceSource,
               freeSpaceBytes: info.freeSpaceBytes,
               usedSpaceBytes: info.usedSpaceBytes,
               totalSpaceBytes: info.totalSpaceBytes,

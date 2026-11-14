@@ -12,8 +12,11 @@ const toGB = (bytes: bigint) => (Number(bytes) / 1024 / 1024 / 1024).toFixed(2);
 const formatSpace = (server: Server, space: ServerSpaceInfo | null) => ({
   id: server.id,
   name: server.name,
-  // false when the Ultra.cc API could not be reached
+  // false when neither the Ultra.cc API nor SSH answered
   reachable: space !== null,
+  // api, or quota/disk when read over SSH because the API is unreachable (null: no space)
+  spaceSource: space?.source ?? null,
+  apiReachable: space?.source === 'api',
   freeSpaceBytes: space?.freeSpaceBytes.toString() ?? '0',
   usedSpaceBytes: space?.usedSpaceBytes.toString() ?? '0',
   totalSpaceBytes: space?.totalSpaceBytes.toString() ?? '0',

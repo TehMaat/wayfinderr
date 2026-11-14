@@ -70,11 +70,15 @@ export interface UploadProgress {
 }
 
 // Server types
+/** Where a server's space was read: its storage API, or over SSH when the API is unreachable (quota or disk) */
+export type SpaceSource = 'api' | 'quota' | 'disk';
+
 export interface ServerSpaceInfo {
   serverId: string;
   freeSpaceBytes: bigint;
   usedSpaceBytes: bigint;
   totalSpaceBytes: bigint;
+  source: SpaceSource;
 }
 
 export interface SelectedServer {

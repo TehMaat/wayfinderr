@@ -216,16 +216,14 @@ DELETE /api/servers/:id
 POST /api/servers/:id/test
 ```
 
-Tests SSH connectivity and API access.
+Reads the space (the storage API, else over SSH), then tests the SSH/SFTP login and the upload folder.
 
 **Response:** 200 OK
 ```json
-{
-  "status": "connected",
-  "sshOk": true,
-  "apiOk": true
-}
+{ "ok": true, "freeSpaceGB": "745.10", "spaceSource": "api" }
 ```
+
+`spaceSource` is `quota` or `disk` when the storage API is unreachable and the space was read over SSH (see below). `502` with `error` when neither the API nor SSH gives the space, or the SSH/SFTP login fails.
 
 ### Restart the Ultra-API
 
@@ -250,7 +248,9 @@ Logs in over SSH and runs Ultra's Ultra-API script (`bash <(wget -qO- https://sc
 GET /api/space
 ```
 
-Returns current free space for all servers (cached).
+Returns current free space for all servers (cached for 60 s).
+
+The space comes from the server's storage API (Ultra.cc). When the API cannot be reached, it is read over SSH instead, so the server keeps taking uploads: the user's disk quota (`quota -w`, soft limit, else hard), else the free space of the disk holding the upload folder (SFTP `statvfs@openssh.com`). On a shared seedbox disk without a quota, the disk's free space is the whole disk's, not the account's.
 
 **Response:**
 ```json
@@ -258,12 +258,21 @@ Returns current free space for all servers (cached).
   {
     "id": "cuid123",
     "name": "Server 1",
+    "reachable": true,
+    "spaceSource": "api",
+    "apiReachable": true,
     "freeSpaceBytes": "1234567890",
+    "usedSpaceBytes": "987654321",
+    "totalSpaceBytes": "2222222211",
     "freeSpaceGB": "1234.56",
     "lastSpaceCheckAt": "2026-10-04T15:30:00Z"
   }
 ]
 ```
+
+- `reachable`: the space could be read (API or SSH); `false` keeps the server out of the uploads
+- `spaceSource`: `api`, `quota` or `disk` (read over SSH), `null` when not read
+- `apiReachable`: `false` when the API did not answer (also while the space comes from SSH)
 
 ### Get Single Server Space
 
