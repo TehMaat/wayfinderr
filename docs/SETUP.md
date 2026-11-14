@@ -11,8 +11,7 @@ Detailed guide for setting up Wayfinderr from scratch.
 - Linux, macOS, or Windows with WSL2
 
 ### External Requirements
-- Two Ultra.cc servers with SSH access
-- Ultra.cc API tokens for both servers
+- One or more upload servers with SSH access: Ultra.cc slots (with their Ultra-API token), other seedboxes or plain servers
 - SSH private key or password for authentication
 
 ## Installation Steps
@@ -97,8 +96,8 @@ Anyone with the code can create the account: treat that log line as a secret and
 ### Add First Server
 
 1. Open http://localhost:3000/servers
-2. Click "Add New Server"
-3. Fill in your first Ultra.cc server:
+2. Click "Add server" and pick the type (Ultra.cc, Other seedbox, Plain server)
+3. Fill in your first server (an Ultra.cc slot here; the other types only need the SSH login):
 
 ```
 Name: Server 1

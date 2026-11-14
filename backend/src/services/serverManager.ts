@@ -5,6 +5,7 @@ import logger from '../config/logger.js';
 import { db } from './database.js';
 import { remoteDirOf, uploadManager } from './uploadManager.js';
 import { readSpaceOverSsh, SshSpace } from './sshSpace.js';
+import { hasUltraApi } from './serverTypes.js';
 import { autoRestartDue, isTokenError, runRestartScript, tail, UltraApiError } from './ultraApi.js';
 import { ServerSpaceInfo, SelectedServer, SpaceSource } from '../types/index.js';
 import { Server } from '@prisma/client';
@@ -39,7 +40,7 @@ export interface ApiRestartResult {
 export class ApiRestartBusyError extends Error {}
 
 // The script can also print the API token: never pass it on
-const hideToken = (text: string, token: string) => (token ? text.split(token).join('***') : text);
+const hideToken = (text: string, token: string | null) => (token ? text.split(token).join('***') : text);
 
 // After the script: how often and how many times the API is checked again
 const VERIFY_DELAY_MS = 5_000;
@@ -70,9 +71,10 @@ export class ServerManager extends EventEmitter {
   private restartStartedAt = new Map<string, Date>();
 
   /**
-   * A server's space: from the cache (60 s), else its storage API. When the API cannot
-   * be reached, over SSH instead (quota, else the disk: see sshSpace.ts), so the server
-   * still takes uploads; sshFallback false reads the API only (the check after a restart).
+   * A server's space: from the cache (60 s), else, for Ultra.cc, its storage API. When the
+   * API cannot be reached, over SSH instead (quota, else the disk: see sshSpace.ts), so the
+   * server still takes uploads; sshFallback false reads the API only (the check after a
+   * restart). A seedbox or a plain server has no API: always over SSH.
    */
   async getServerSpace(server: Server, force = false, sshFallback = true): Promise<ServerSpaceInfo | null> {
     // Check cache first
@@ -97,6 +99,8 @@ export class ServerManager extends EventEmitter {
       };
     }
 
+    if (!hasUltraApi(server)) return this.spaceOverSsh(server);
+
     try {
       return await this.spaceFromApi(server);
     } catch (error) {
@@ -117,6 +121,7 @@ export class ServerManager extends EventEmitter {
   }
 
   private async spaceFromApi(server: Server): Promise<ServerSpaceInfo> {
+    if (!server.apiEndpoint || !server.apiToken) throw new Error('No Ultra-API endpoint or token');
     logger.info({ serverId: server.id }, 'Fetching space from Ultra.cc API');
 
     const response = await axios.get<UltraAPIResponse>(server.apiEndpoint, {
@@ -137,7 +142,7 @@ export class ServerManager extends EventEmitter {
     return space;
   }
 
-  /** The space read over SSH, when the storage API is unreachable (null: SSH failed too) */
+  /** The space read over SSH: Ultra.cc while its API is unreachable, other types always (null: SSH failed) */
   private async spaceOverSsh(server: Server): Promise<ServerSpaceInfo | null> {
     try {
       const ssh = await uploadManager.connect(server);
@@ -149,10 +154,9 @@ export class ServerManager extends EventEmitter {
       }
       const { method, ...bytes } = read;
       const space = await this.remember(server, { ...bytes, source: method });
-      logger.warn(
-        { serverId: server.id, method, freeSpaceBytes: space.freeSpaceBytes.toString() },
-        'Storage API unreachable: space read over SSH'
-      );
+      const fields = { serverId: server.id, method, freeSpaceBytes: space.freeSpaceBytes.toString() };
+      if (hasUltraApi(server)) logger.warn(fields, 'Storage API unreachable: space read over SSH');
+      else logger.info(fields, 'Space read over SSH');
       return space;
     } catch (error) {
       logger.error({ serverId: server.id, error: (error as Error).message }, 'Failed to read the space over SSH');
@@ -187,6 +191,7 @@ export class ServerManager extends EventEmitter {
    * for up to VERIFY_DELAY_MS x VERIFY_ATTEMPTS. One restart per server at a time.
    */
   async restartApi(server: Server, auto = false): Promise<ApiRestartResult> {
+    if (!hasUltraApi(server)) throw new Error('Only Ultra.cc servers have an Ultra-API');
     if (this.restarting.has(server.id)) {
       throw new ApiRestartBusyError('The Ultra-API of this server is already restarting');
     }

@@ -14,10 +14,15 @@ import {
 } from '@/components/ui/dialog';
 import { Input, Label, Select } from '@/components/ui/input';
 import { serversApi } from '@/lib/api';
+import { parseUltra, SERVER_TYPES, serverTypeInfo, ULTRA_RELEASE_DIR, ultraFields, type ServerType } from '@/lib/server-types';
 import { useAppStore, type Server } from '@/lib/store';
-import { errorMessage } from '@/lib/utils';
+import { cn, errorMessage } from '@/lib/utils';
 
 const emptyForm = (server?: Server) => ({
+  type: (server?.type ?? 'ULTRA') as ServerType,
+  // Ultra.cc: the username and the host the SSH login and the Ultra-API endpoint come from
+  ultraUser: server ? parseUltra(server).user : '',
+  ultraHost: server ? parseUltra(server).host : '',
   name: server?.name ?? '',
   apiEndpoint: server?.apiEndpoint ?? '',
   apiToken: '',
@@ -28,7 +33,7 @@ const emptyForm = (server?: Server) => ({
   sshPath: server?.sshPath ?? '',
   mediaCheckPolicy: server?.mediaCheckPolicy ?? 'SKIP_NO_ITA',
   maxRetries: String(server?.maxRetries ?? 3),
-  releaseDir: server?.releaseDir ?? 'downloads/qbittorrent',
+  releaseDir: server?.releaseDir ?? ULTRA_RELEASE_DIR,
   releaseTag: server?.releaseTag ?? '',
   trackerCommand: server?.trackerCommand ?? '',
   releaseAuto: String(server?.releaseAuto ?? false),
@@ -68,12 +73,41 @@ export function ServerDialog({
   const update = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 
+  // Ultra.cc: typing the username or the host fills in the SSH login and the endpoint (still editable)
+  const updateUltra = (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((prev) => {
+      const next = { ...prev, [e.target.name]: e.target.value };
+      return { ...next, ...ultraFields(next.ultraUser, next.ultraHost) };
+    });
+
+  // The Ultra.cc release folder is only a default for Ultra.cc
+  const selectType = (type: ServerType) =>
+    setForm((prev) => ({
+      ...prev,
+      type,
+      releaseDir:
+        type === 'ULTRA' && !prev.releaseDir
+          ? ULTRA_RELEASE_DIR
+          : type !== 'ULTRA' && prev.releaseDir === ULTRA_RELEASE_DIR && !isEdit
+            ? ''
+            : prev.releaseDir,
+    }));
+
+  const info = serverTypeInfo(form.type);
+  const isUltra = form.type === 'ULTRA';
+  // Leaving Ultra.cc drops the Ultra-API settings on save
+  const losingApi = isEdit && server?.type === 'ULTRA' && !isUltra;
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setError(null);
+    const { ultraUser: _user, ultraHost: _host, ...fields } = form;
     const payload = {
-      ...form,
+      ...fields,
+      // Ultra.cc only: blank for the other types
+      apiEndpoint: isUltra ? fields.apiEndpoint : '',
+      apiToken: isUltra ? fields.apiToken : '',
       sshPort: parseInt(form.sshPort, 10) || 22,
       maxRetries: parseInt(form.maxRetries, 10) || 3,
       releaseAuto: form.releaseAuto === 'true',
@@ -99,7 +133,7 @@ export function ServerDialog({
       <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>{isEdit ? `Edit ${server?.name}` : 'Add server'}</DialogTitle>
-          <DialogDescription>Ultra.cc storage API and SSH login used for the uploads.</DialogDescription>
+          <DialogDescription>Where the uploads go. Pick the kind of server: the form shows what it needs.</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit} className="space-y-5">
@@ -109,40 +143,80 @@ export function ServerDialog({
             </div>
           )}
 
+          <div className="space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Server type</p>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {SERVER_TYPES.map((t) => {
+                const selected = t.type === form.type;
+                return (
+                  <button
+                    key={t.type}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => selectType(t.type)}
+                    className={cn(
+                      'flex flex-col gap-1.5 rounded-md border p-3 text-left transition-colors',
+                      selected ? 'border-primary bg-primary/10' : 'hover:bg-accent/50'
+                    )}
+                  >
+                    <span className="text-sm font-semibold">{t.label}</span>
+                    <span className="text-xs text-muted-foreground">{t.description}</span>
+                    <span className="mt-auto self-start rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                      {t.space}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {losingApi && (
+              <p className="text-[11px] text-warning">Saving removes the Ultra-API endpoint, token and restart settings.</p>
+            )}
+          </div>
+
           <Field label="Name">
             <Input name="name" value={form.name} onChange={update} placeholder="Server 1" required autoFocus />
           </Field>
 
-          <div className="space-y-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Storage API</p>
-            <Field label="Endpoint" hint="From the Ultra.cc Storage/Traffic API script">
-              <Input
-                name="apiEndpoint"
-                type="url"
-                value={form.apiEndpoint}
-                onChange={update}
-                placeholder="https://user.host.usbx.me/ultra-api/get_diskquota"
-                required
-              />
-            </Field>
-            <Field label="Token">
-              <Input
-                name="apiToken"
-                type="password"
-                value={form.apiToken}
-                onChange={update}
-                autoComplete="new-password"
-                placeholder={isEdit && server?.hasApiToken ? 'Unchanged' : undefined}
-                required={!isEdit}
-              />
-            </Field>
-          </div>
+          {isUltra && (
+            <div className="space-y-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Ultra.cc</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Username">
+                  <Input name="ultraUser" value={form.ultraUser} onChange={updateUltra} placeholder="username" />
+                </Field>
+                <Field label="Host" hint="The part before .usbx.me">
+                  <Input name="ultraHost" value={form.ultraHost} onChange={updateUltra} placeholder="host" />
+                </Field>
+              </div>
+              <Field label="Ultra-API endpoint" hint="Filled in from username and host; from the Ultra.cc Storage/Traffic API script">
+                <Input
+                  name="apiEndpoint"
+                  type="url"
+                  value={form.apiEndpoint}
+                  onChange={update}
+                  placeholder="https://user.host.usbx.me/ultra-api/get_diskquota"
+                  required
+                />
+              </Field>
+              <Field label="Ultra-API token">
+                <Input
+                  name="apiToken"
+                  type="password"
+                  value={form.apiToken}
+                  onChange={update}
+                  autoComplete="new-password"
+                  placeholder={isEdit && server?.hasApiToken ? 'Unchanged' : undefined}
+                  required={!(isEdit && server?.hasApiToken)}
+                />
+              </Field>
+            </div>
+          )}
 
           <div className="space-y-3">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">SSH / SFTP</p>
             <div className="grid grid-cols-[1fr_6rem] gap-3">
-              <Field label="Host">
-                <Input name="sshHost" value={form.sshHost} onChange={update} placeholder="host.usbx.me" required />
+              <Field label="Host" hint={isUltra ? 'Filled in from the Ultra.cc host' : undefined}>
+                <Input name="sshHost" value={form.sshHost} onChange={update} placeholder={info.hostPlaceholder} required />
               </Field>
               <Field label="Port">
                 <Input name="sshPort" type="number" value={form.sshPort} onChange={update} required />
@@ -168,10 +242,16 @@ export function ServerDialog({
                 name="sshPath"
                 value={form.sshPath}
                 onChange={update}
-                placeholder="/home/username/media/movies"
+                placeholder={info.folderPlaceholder}
                 required
               />
             </Field>
+            <p className="text-[11px] text-muted-foreground">
+              Free space:{' '}
+              {isUltra
+                ? 'from the Ultra-API; over SSH (the account quota) while it does not answer.'
+                : 'over SSH, from the account quota, else from the disk of the remote folder.'}
+            </p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-[1fr_6rem]">
@@ -190,7 +270,7 @@ export function ServerDialog({
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tracker release</p>
             <div className="grid gap-3 sm:grid-cols-[1fr_9rem]">
               <Field label="Release folder" hint="Renamed files go to <folder>/<name>/; relative to the SSH home">
-                <Input name="releaseDir" value={form.releaseDir} onChange={update} placeholder="downloads/qbittorrent" required />
+                <Input name="releaseDir" value={form.releaseDir} onChange={update} placeholder={info.releasePlaceholder} required />
               </Field>
               <Field label="Release tag" hint="Name ends with -TAG">
                 <Input name="releaseTag" value={form.releaseTag} onChange={update} placeholder="TAG" />

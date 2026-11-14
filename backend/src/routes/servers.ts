@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Server } from '@prisma/client';
 import { db } from '../services/database.js';
 import { ApiRestartBusyError, serverManager } from '../services/serverManager.js';
+import { hasUltraApi, isServerType, serverFieldsError, unusedFields } from '../services/serverTypes.js';
 import { uploadManager } from '../services/uploadManager.js';
 import logger from '../config/logger.js';
 
@@ -17,6 +18,7 @@ const toPublic = ({ sshPassword, apiToken, ...server }: Server) => ({
 
 const STRING_FIELDS = [
   'name',
+  'type',
   'apiEndpoint',
   'apiToken',
   'sshHost',
@@ -33,8 +35,10 @@ const NULLABLE_FIELDS = ['releaseTag', 'trackerCommand'] as const;
 
 // Keeps only known fields, converts numbers, drops empty strings
 // (an empty password on edit means "keep the current one")
+type ServerBody = Record<string, string | number | boolean | null>;
+
 const parseServerBody = (body: Record<string, unknown>) => {
-  const data: Record<string, string | number | boolean | null> = {};
+  const data: ServerBody = {};
   for (const field of STRING_FIELDS) {
     const value = body[field];
     if (typeof value === 'string' && value.trim() !== '') {
@@ -86,21 +90,22 @@ router.get('/:id', async (req: Request, res: Response) => {
 // POST create server
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const data = parseServerBody(req.body);
-    const { name, apiEndpoint, apiToken, sshHost, sshUsername } = data;
-
-    if (!name || !apiEndpoint || !apiToken || !sshHost || !sshUsername) {
-      res.status(400).json({ error: 'Missing required fields' });
+    // No type: Ultra.cc, as before server types
+    const data: ServerBody = { type: 'ULTRA', ...parseServerBody(req.body) };
+    const { type } = data;
+    const invalid = serverFieldsError(data);
+    if (invalid || !isServerType(type)) {
+      res.status(400).json({ error: invalid });
       return;
     }
 
     const server = await db.createServer({
       ...data,
-      name: String(name),
-      apiEndpoint: String(apiEndpoint),
-      apiToken: String(apiToken),
-      sshHost: String(sshHost),
-      sshUsername: String(sshUsername),
+      ...unusedFields(type),
+      type,
+      name: String(data.name),
+      sshHost: String(data.sshHost),
+      sshUsername: String(data.sshUsername),
     });
 
     res.status(201).json(toPublic(server));
@@ -113,7 +118,21 @@ router.post('/', async (req: Request, res: Response) => {
 // PUT update server
 router.put('/:id', async (req: Request, res: Response) => {
   try {
-    const server = await db.updateServer(req.params.id, parseServerBody(req.body));
+    const current = await db.getServerById(req.params.id);
+    if (!current) {
+      res.status(404).json({ error: 'Server not found' });
+      return;
+    }
+    const data = parseServerBody(req.body);
+    const merged = { ...current, ...data };
+    const { type } = merged;
+    const invalid = serverFieldsError(merged);
+    if (invalid || !isServerType(type)) {
+      res.status(400).json({ error: invalid });
+      return;
+    }
+    // Another type: what it does not use is emptied (Ultra-API endpoint, token, restart)
+    const server = await db.updateServer(req.params.id, { ...data, ...unusedFields(type) });
     res.json(toPublic(server));
   } catch (error) {
     logger.error(error, 'Failed to update server');
@@ -121,7 +140,8 @@ router.put('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// POST test server: Ultra.cc API (else the space over SSH) + SSH/SFTP login + destination folder
+// POST test server: the space (Ultra.cc: its API, else over SSH; other types: over SSH)
+// + SSH/SFTP login + destination folder
 router.post('/:id/test', async (req: Request, res: Response) => {
   const server = await db.getServerById(req.params.id).catch(() => null);
   if (!server) {
@@ -131,7 +151,11 @@ router.post('/:id/test', async (req: Request, res: Response) => {
 
   const space = await serverManager.getServerSpace(server, true);
   if (!space) {
-    res.status(502).json({ error: 'Ultra.cc API unreachable or token invalid, and the space could not be read over SSH' });
+    res.status(502).json({
+      error: hasUltraApi(server)
+        ? 'Ultra.cc API unreachable or token invalid, and the space could not be read over SSH'
+        : 'The space could not be read over SSH',
+    });
     return;
   }
 
@@ -155,6 +179,10 @@ router.post('/:id/restart-api', async (req: Request, res: Response) => {
   const server = await db.getServerById(req.params.id).catch(() => null);
   if (!server) {
     res.status(404).json({ error: 'Server not found' });
+    return;
+  }
+  if (!hasUltraApi(server)) {
+    res.status(400).json({ error: 'Only Ultra.cc servers have an Ultra-API' });
     return;
   }
 
