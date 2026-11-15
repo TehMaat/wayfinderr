@@ -104,7 +104,7 @@ export function RipJoinDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl grid-cols-[minmax(0,1fr)]">
+      <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>Join discs into one film</DialogTitle>
           <DialogDescription className="break-words">
