@@ -342,8 +342,7 @@ export function RipChooseDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        {/* minmax(0, 1fr): long unbreakable names must not widen the dialog on phones */}
-        <DialogContent className="max-w-2xl grid-cols-[minmax(0,1fr)]">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Choose what to rip</DialogTitle>
             <DialogDescription className="break-all">
