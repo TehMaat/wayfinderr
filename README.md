@@ -360,7 +360,7 @@ Served through the frontend (`http://localhost:3000/api/...`). Every route excep
 
 ### Rips
 - `GET /api/rips` - Rips and the ripping status (enabled, runner online, TMDB configured)
-- `POST /api/rips/:id/choose` - Rip with the given `titleIndex` and/or `tmdbId`
+- `POST /api/rips/:id/choose` - Rip with the given `titleIndex` and/or `tmdbId` (`queue: false`: only save them, to rip later)
 - `POST /api/rips/:id/retry` - Scan and choose again (with MakeMKV)
 - `POST /api/rips/:id/remux` - Rip without MakeMKV (mkvmerge, 7-Zip, ffmpeg)
 - `POST /api/rips/:id/rip-again` - Rip a done film again from its disc (same film and title)
