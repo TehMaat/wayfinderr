@@ -33,6 +33,8 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 ### Pull Requests
 
 - Fill in the required template
+- Update the documentation and the screenshots the change touches (see [Documentation and screenshots](#documentation-and-screenshots))
+- Raise the version (see [Versioning](#versioning))
 - Follow the JavaScript/TypeScript styleguides
 - End all files with a newline
 - Avoid platform-dependent code
@@ -49,7 +51,7 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 
 1. Fork and clone the repository
 ```bash
-git clone https://github.com/yourusername/wayfinderr.git
+git clone https://github.com/<your-user>/wayfinderr.git
 cd wayfinderr
 ```
 
@@ -86,18 +88,21 @@ npm run dev
 ### Building & Testing
 
 ```bash
-# Build Docker images
-docker-compose build
+# Backend: types and tests
+cd backend
+npm run typecheck
+npm test
 
-# Run tests
-npm run test
+# Frontend: types and build
+cd frontend
+npx tsc --noEmit
+npm run build
 
-# Lint code
-npm run lint
-
-# Format code
-npm run format
+# Docker images, built from source
+docker compose -f docker-compose.yml -f docker-compose.build.yml build
 ```
+
+More in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Styleguides
 
@@ -185,6 +190,28 @@ Types:
 - `test`: Test additions/changes
 - `chore`: Build process, dependencies, etc.
 
+## Documentation and screenshots
+
+**Every change updates the documentation and the screenshots it touches, in the same pull request.**
+A pull request that changes what the user sees, sets or calls is not done until:
+
+- the docs say what the code now does: [README.md](README.md), and in `docs/` the
+  [Configuration](docs/CONFIGURATION.md) (with `.env.example` and `docker-compose.yml`) for a
+  setting, the [API](docs/API.md) for an endpoint or event, the [User guide](docs/USAGE.md) for a
+  feature or a change in behavior, the [Architecture](docs/ARCHITECTURE.md) and its diagrams for a
+  new service or module, [Troubleshooting](docs/TROUBLESHOOTING.md) for a problem worth knowing;
+- the screenshots are taken again when the UI changed:
+  ```bash
+  node scripts/screenshots/run.mjs
+  ```
+  and a new page or dialog gets its shot in `scripts/screenshots/shots.mjs` and its place in the docs
+  (look at every PNG before committing it);
+- the diagrams in `docs/assets/diagrams` (SVG, never ASCII art) still match the flow;
+- [docs/CHANGELOG.md](docs/CHANGELOG.md) has the change.
+
+Every name in the docs, the screenshots and the demo data is made up: no real films, torrents,
+release groups or trackers. How the screenshots are made: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#screenshots).
+
 ## Versioning
 
 Wayfinderr uses [semantic versioning](https://semver.org). The version lives in
@@ -209,12 +236,15 @@ the Docker workflow publishes the images as `0.8.1` and `0.8`.
 
 ## Pull Request Process
 
-1. Update documentation if needed
-2. Update the `CHANGELOG.md` with notes on your changes
-3. Add tests if applicable
-4. Ensure all tests pass
-5. Request review from maintainers
-6. Address feedback and comments
+1. Update the documentation and take the screenshots again (see [Documentation and screenshots](#documentation-and-screenshots))
+2. Update `docs/CHANGELOG.md` with notes on your changes
+3. Raise the version in both packages
+4. Add tests if applicable
+5. Ensure all checks pass
+6. Request review from maintainers
+7. Address feedback and comments
+
+Merged branches are deleted by the **Branch cleanup** workflow (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#branches)).
 
 ## Additional Notes
 

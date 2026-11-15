@@ -1,0 +1,139 @@
+name: Branch cleanup
+
+# Deletes the branches that are no longer needed (issue #42):
+#   - when a pull request is merged, its branch, right away;
+#   - every Monday, and by hand (Actions → Branch cleanup → Run workflow), every branch that:
+#       * was merged: its last commit is the head of a merged pull request;
+#       * was closed: its pull request was closed without merging more than CLOSED_DAYS ago;
+#       * is stale: no pull request at all and no commit for STALE_DAYS (0: never).
+# Never deleted: the default branch, protected branches, branches with an open pull
+# request (as head or base), and the names matching KEEP (glob patterns, space-separated).
+# Every deleted branch is listed in the run summary with its last commit, to restore it:
+#   git push origin <sha>:refs/heads/<branch>
+
+on:
+  pull_request:
+    types: [closed]
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Only list what would be deleted'
+        type: boolean
+        default: true
+      stale_days:
+        description: 'Delete branches without a pull request and without commits for this many days (0: never)'
+        type: number
+        default: 90
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: branch-cleanup
+  cancel-in-progress: false
+
+env:
+  KEEP: 'main release/* keep/* gh-pages'
+  CLOSED_DAYS: 14
+  STALE_DAYS: 90
+
+jobs:
+  merged-pr:
+    name: delete the merged branch
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = context.payload.pull_request.head.ref;
+            const { owner, repo } = context.repo;
+            const keep = process.env.KEEP.split(/\s+/).filter(Boolean)
+              .map((p) => new RegExp('^' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$'));
+            const { data: repository } = await github.rest.repos.get({ owner, repo });
+            if (branch === repository.default_branch || keep.some((re) => re.test(branch))) {
+              core.info(`${branch}: kept (default branch or KEEP)`);
+              return;
+            }
+            const { data: info } = await github.rest.repos.getBranch({ owner, repo, branch }).catch(() => ({ data: null }));
+            if (!info) { core.info(`${branch}: already deleted`); return; }
+            if (info.protected) { core.info(`${branch}: protected, kept`); return; }
+            if (info.commit.sha !== context.payload.pull_request.head.sha) {
+              core.info(`${branch}: has commits after the merge, kept`);
+              return;
+            }
+            const open = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'open', per_page: 100 });
+            if (open.some((pr) => pr.head.ref === branch || pr.base.ref === branch)) {
+              core.info(`${branch}: used by an open pull request, kept`);
+              return;
+            }
+            await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch}` });
+            core.info(`${branch}: deleted (last commit ${info.commit.sha})`);
+            await core.summary.addRaw(`Deleted \`${branch}\` (last commit \`${info.commit.sha}\`)`).write();
+
+  sweep:
+    name: delete merged, closed and stale branches
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          # Scheduled runs delete; a run by hand only lists unless dry_run is unticked
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+          STALE_DAYS_INPUT: ${{ inputs.stale_days }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const dryRun = process.env.DRY_RUN === 'true';
+            const day = 24 * 60 * 60 * 1000;
+            const closedDays = Number(process.env.CLOSED_DAYS);
+            const staleDays = Number(process.env.STALE_DAYS_INPUT || process.env.STALE_DAYS);
+            const keep = process.env.KEEP.split(/\s+/).filter(Boolean)
+              .map((p) => new RegExp('^' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$'));
+
+            const { data: repository } = await github.rest.repos.get({ owner, repo });
+            const branches = await github.paginate(github.rest.repos.listBranches, { owner, repo, per_page: 100 });
+            const pulls = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'all', per_page: 100 });
+            const open = pulls.filter((pr) => pr.state === 'open');
+
+            const rows = [];
+            for (const branch of branches) {
+              const name = branch.name;
+              const sha = branch.commit.sha;
+              let reason = null;
+              if (name === repository.default_branch || branch.protected || keep.some((re) => re.test(name))) continue;
+              if (open.some((pr) => pr.head.ref === name || pr.base.ref === name)) continue;
+
+              const own = pulls.filter((pr) => pr.head.ref === name && pr.head.repo?.full_name === `${owner}/${repo}`);
+              const merged = own.find((pr) => pr.merged_at && pr.head.sha === sha);
+              const closed = own.find((pr) => !pr.merged_at && pr.head.sha === sha
+                && Date.now() - new Date(pr.closed_at).getTime() > closedDays * day);
+              if (merged) {
+                reason = `merged in #${merged.number}`;
+              } else if (closed) {
+                reason = `#${closed.number} closed without merging on ${closed.closed_at.slice(0, 10)}`;
+              } else if (own.length === 0 && staleDays > 0) {
+                const { data: commit } = await github.rest.repos.getCommit({ owner, repo, ref: sha });
+                const date = commit.commit.committer?.date || commit.commit.author?.date;
+                if (date && Date.now() - new Date(date).getTime() > staleDays * day) {
+                  reason = `no pull request, last commit on ${date.slice(0, 10)}`;
+                }
+              }
+              if (!reason) continue;
+
+              if (!dryRun) await github.rest.git.deleteRef({ owner, repo, ref: `heads/${name}` });
+              core.info(`${dryRun ? 'would delete' : 'deleted'} ${name} (${reason}, last commit ${sha})`);
+              rows.push([name, reason, sha]);
+            }
+
+            await core.summary
+              .addHeading(dryRun ? 'Branches that would be deleted (dry run)' : 'Deleted branches', 3)
+              .addTable([
+                [{ data: 'Branch', header: true }, { data: 'Why', header: true }, { data: 'Last commit', header: true }],
+                ...rows.map(([name, reason, sha]) => [name, reason, sha]),
+              ])
+              .addRaw(rows.length ? 'Restore one with `git push origin <sha>:refs/heads/<branch>`.' : 'Nothing to delete.')
+              .write();

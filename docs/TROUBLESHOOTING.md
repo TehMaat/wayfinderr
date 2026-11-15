@@ -1,484 +1,239 @@
-# Troubleshooting Guide
+# Troubleshooting
 
-Common issues and solutions.
+Common problems and what to do. The commands are for Docker Compose; in a local run read the
+backend terminal instead of `docker compose logs`. The **Logs** page shows the same log, with
+filters, without a terminal.
 
-## Services Won't Start
+- [Install and start](#install-and-start)
+- [Login](#login)
+- [Servers](#servers)
+- [Uploads](#uploads)
+- [Rips](#rips)
+- [Torrent cleanup and release](#torrent-cleanup-and-release)
+- [Database](#database)
+- [Asking for help](#asking-for-help)
 
-### Issue: "Docker daemon is not running"
+## Install and start
 
-**Solution:**
-```bash
-# Start Docker
-docker-compose up -d
+### Port 3000 or 5800 already in use
 
-# If on macOS
-open -a Docker
-```
+Something else listens there (the backend's 3001 too, in a local run). Find it (`lsof -i :3000`,
+on Windows `netstat -ano | findstr :3000`) or publish another port in `docker-compose.yml`:
 
-### Issue: Port 3000/5800 already in use (3001 too for a local run)
-
-**Solution:**
-
-Find and kill existing process:
-```bash
-lsof -i :3000
-kill -9 <PID>
-```
-
-Or change ports in `docker-compose.yml`:
 ```yaml
 services:
   wayfinderr-frontend:
     ports:
-      - "3100:3000"  # Changed to 3100
+      - "3100:3000"
 ```
 
-### Issue: "docker-compose command not found"
+### The page is blank, or "The backend is not reachable right now"
 
-**Solution:**
+The browser only talks to the frontend, which proxies `/api`, `/health` and `/ws` to the backend at
+`BACKEND_URL`, compiled into the image (default `http://wayfinderr-backend:3001`).
 
-Install Docker Compose:
 ```bash
-# macOS (Homebrew)
-brew install docker-compose
-
-# Ubuntu
-sudo apt-get install docker-compose
-
-# Or use newer Docker (includes compose)
-docker compose up -d
-```
-
-## Frontend Issues
-
-### Issue: Frontend won't load (blank page)
-
-**Solution:**
-
-1. Check the frontend reaches the backend (no login needed):
-```bash
+docker compose ps
+docker compose logs --tail 50 wayfinderr-backend
 curl http://localhost:3000/health
+docker compose exec wayfinderr-frontend wget -qO- http://wayfinderr-backend:3001/health
 ```
 
-2. Check browser console for errors (F12)
+Both containers must share a Docker network, and the backend must be reachable as
+`wayfinderr-backend`. For another address rebuild the frontend with `--build-arg BACKEND_URL=...`;
+in a local run set `BACKEND_URL` in `frontend/.env` and restart `npm run dev` (rebuild for
+`npm start`). Then a hard refresh (Ctrl+Shift+R).
 
-3. Clear cache:
+### The backend stops at start
+
 ```bash
-# Hard refresh
-Ctrl+Shift+R  # Windows/Linux
-Cmd+Shift+R   # macOS
+docker compose logs --tail 50 wayfinderr-backend
 ```
 
-4. Check frontend logs:
-```bash
-docker-compose logs wayfinderr-frontend
-```
+Usually the data volume is not writable, the watch folder is not mounted, or a migration failed (the
+log says which). In a local run, `npm run db:deploy` creates or updates the database.
 
-### Issue: "The backend is not reachable right now"
+## Login
 
-The browser only talks to the frontend, which proxies `/api`, `/health` and `/ws` to the backend at `BACKEND_URL`, compiled into the image (default `http://wayfinderr-backend:3001`). The backend port is not published.
-
-**Solution:**
-
-1. Verify backend is running:
-```bash
-docker-compose ps | grep wayfinderr-backend
-```
-
-2. Check backend logs:
-```bash
-docker-compose logs wayfinderr-backend
-```
-
-3. Try the proxy and the backend from the frontend container:
-```bash
-curl http://localhost:3000/health
-docker-compose exec wayfinderr-frontend wget -qO- http://wayfinderr-backend:3001/health
-```
-
-4. If the name does not resolve, both containers must share a Docker network and the backend must be reachable as `wayfinderr-backend` (service or container name, or `extra_hosts` on the frontend). For another address, rebuild the frontend with `--build-arg BACKEND_URL=...`; in a local run set `BACKEND_URL` in `frontend/.env` and restart `npm run dev` (rebuild for `npm start`).
-
-## Login Issues
-
-### Issue: Where is the setup code?
-
-**Solution:**
+### Where is the setup code?
 
 It is printed in the backend log while no account exists:
-```bash
-docker-compose logs wayfinderr-backend | grep "setup code"
-# or, if the container is named wayfinderr-backend:
-docker logs wayfinderr-backend 2>&1 | grep "setup code"
-```
-
-- It is logged as a warning: it does not show with `LOG_LEVEL=error`.
-- Each backend start without an account prints a new random code; use the latest one. To fix it, set `WAYFINDERR_SETUP_CODE` for the backend.
-- Treat it as a secret: whoever has it can create the account.
-
-### Issue: Forgotten password
-
-**Solution:**
 
 ```bash
-docker-compose exec wayfinderr-backend node dist/cli.js reset-auth
+docker compose logs wayfinderr-backend | grep "setup code"
 ```
 
-This deletes the account and signs out every session (servers and history are kept). Reopen the page: the setup screen is back, and the log has a new setup code. In a local run: `cd backend && npm run build && npm run reset-auth`.
+It is logged as a warning (hidden with `LOG_LEVEL=error`). Every start without an account prints a
+new random code: use the latest one, or fix it with `WAYFINDERR_SETUP_CODE`. Whoever has it can
+create the account.
 
-### Issue: "Too many attempts: try again in N min"
-
-**Solution:**
-
-5 failed logins (or setup codes, or current passwords) in 15 minutes from the same client block it until the oldest failure is 15 minutes old. Wait, or restart the backend (the count is kept in memory).
-
-The client is the address the reverse proxy forwards in `X-Forwarded-For`. Without a reverse proxy the backend only sees the frontend, so every device shares the same count.
-
-### Issue: Signed out on every device
-
-**Solution:**
-
-Expected after **Change password** (signs out every other device) or **Sign out everywhere**. Sessions also end after 30 days. Sign in again.
-
-### Issue: "Cross-site request refused" behind a reverse proxy
-
-**Solution:**
-
-The reverse proxy must pass the original `Host` header: the backend compares it with the page's `Origin` when the browser sends no `Sec-Fetch-Site`. Traefik and Pangolin do by default; in nginx use `proxy_set_header Host $host;`. Point the proxy at the frontend, never at the backend. See [DEPLOYMENT.md](./DEPLOYMENT.md#reverse-proxy-https).
-
-### Issue: No live updates behind a reverse proxy
-
-**Solution:**
-
-The WebSocket is `/ws` on the same address as the page. Traefik and Pangolin need no extra settings. nginx needs `proxy_http_version 1.1` and the `Upgrade`/`Connection` headers for `/ws` (example in [DEPLOYMENT.md](./DEPLOYMENT.md#nginx)).
-
-## Backend Issues
-
-### Issue: Backend crashes on startup
-
-**Solution:**
-
-Check logs for errors:
-```bash
-docker-compose logs wayfinderr-backend | tail -50
-```
-
-Common causes:
-- Port already in use
-- Database permission issue
-- Missing environment variables
-
-### Issue: "Database is locked"
-
-**Solution:**
+### Forgotten password
 
 ```bash
-# Restart backend to release lock
-docker-compose restart wayfinderr-backend
-
-# Or reset database
-docker-compose exec wayfinderr-backend rm /app/data/wayfinderr.db
-docker-compose restart wayfinderr-backend
+docker compose exec wayfinderr-backend node dist/cli.js reset-auth
 ```
 
-### Issue: "Cannot connect to socket"
+This deletes the account and signs out every session (servers and history are kept). Reopen the
+page: the setup screen is back, and the log has a new setup code. Local run:
+`cd backend && npm run build && npm run reset-auth`.
 
-**Solution:**
+### "Too many attempts: try again in N min"
 
-```bash
-# Ensure database file exists
-docker-compose exec wayfinderr-backend ls -la /app/data/
+5 failed logins (or setup codes, or current passwords) in 15 minutes from the same client block it
+until the oldest failure is 15 minutes old. Wait, or restart the backend (the count is in memory).
+The client is the address the reverse proxy forwards in `X-Forwarded-For`; without a reverse proxy
+every device shares one count.
 
-# Or recreate database
-docker-compose exec wayfinderr-backend rm /app/data/wayfinderr.db
-docker-compose exec wayfinderr-backend npx prisma migrate dev
-```
+### Signed out on every device
 
-## Server Configuration Issues
+Expected after **Change password** (signs out every other device) or **Sign out everywhere**.
+Sessions also end after 30 days.
 
-### Issue: Server test fails - "Connection refused"
+### "Cross-site request refused" behind a reverse proxy
 
-**Solution:**
+The reverse proxy must pass the original `Host` header: the backend compares it with the page's
+`Origin` when the browser sends no `Sec-Fetch-Site`. Traefik and Pangolin do by default; in nginx
+use `proxy_set_header Host $host;`. Point the proxy at the frontend, never at the backend. See
+[Deployment](DEPLOYMENT.md#reverse-proxy-https).
 
-1. Verify credentials:
-   - Check API endpoint is correct
-   - Verify API token is valid
-   - Test API manually:
-   ```bash
-   curl -H "Authorization: Bearer YOUR_TOKEN" \
-     https://user.host.usbx.me/ultra-api/get_diskquota
-   ```
+### No live updates behind a reverse proxy
 
-2. Check SSH connectivity:
-   ```bash
-   ssh -v user@host.usbx.me
-   ```
+The WebSocket is `/ws` on the same address as the page. Traefik and Pangolin need no extra settings;
+nginx needs `proxy_http_version 1.1` and the `Upgrade`/`Connection` headers for `/ws` (example in
+[Deployment](DEPLOYMENT.md#nginx)). The status bar at the bottom says *Live* when it is connected.
 
-3. Check firewall allows SSH (port 22)
+## Servers
 
-4. Check backend logs:
-   ```bash
-   docker-compose logs wayfinderr-backend | grep -i "test\|ssh"
-   ```
+### The test fails
 
-### Issue: Server shows "Online via SSH" (or "Unreachable")
+**Test** checks the free space (Ultra-API, or over SSH) and the SSH/SFTP login, and says which
+part failed.
 
-**Online via SSH**: the storage API did not answer, so the free space was read over SSH
-(the user's quota, else the disk of the upload folder) and the server still takes uploads.
-**Unreachable**: neither the API nor SSH answered; the server takes no uploads.
+- SSH: try the same login from the machine Wayfinderr runs on (`ssh -p <port> <user>@<host>`). A
+  server saved without a password uses the key in `SSH_PRIVATE_KEY_PATH`: with Docker the key file
+  must be mounted in the backend container and readable by it.
+- Ultra-API: check the endpoint (`https://<user>.<host>.usbx.me/ultra-api/get_diskquota`) and the
+  token, by hand:
+  ```bash
+  curl -H "Authorization: Bearer <token>" https://<user>.<host>.usbx.me/ultra-api/get_diskquota
+  ```
+- The remote folder is created if missing: the SSH user must be allowed to.
 
-The Ultra-API service on the server may have stopped. On the **Servers** page, **Restart API**
-runs Ultra's Ultra-API script over SSH and picks *Restart*, the same as doing it by hand:
+### A server shows "Online via SSH", or "Unreachable"
+
+**Online via SSH**: the storage API did not answer, so the free space was read over SSH (the user's
+quota, else the disk of the upload folder) and the server still takes uploads. **Unreachable**:
+neither the API nor SSH answered; the server takes no uploads.
+
+The Ultra-API service on the server may have stopped. **Restart API** on the **Servers** page runs
+Ultra's Ultra-API script over SSH and picks *Restart*, the same as doing it by hand:
 
 ```bash
 bash <(wget -qO- https://scripts.ultra.cc/util-v2/Ultra-API/main.sh)
 ```
 
-(then `3` for *Restart*). Turn on **Restart automatically when unreachable** to have it done
-by itself, at most once every 15 minutes per server. If the restart works but the API stays
+(then `3` for *Restart*). Turn on **Restart automatically when unreachable** to have it done by
+itself, at most once every 15 minutes per server. If the restart works but the API stays
 unreachable, check the endpoint and the token.
 
-### Issue: "Permission denied" on SSH
+## Uploads
 
-**Solution:**
+### A file is not picked up
 
-1. Check SSH key permissions:
-   ```bash
-   chmod 600 ~/.ssh/id_rsa
-   chmod 700 ~/.ssh
-   ```
+- It must be a `.mkv` inside the watch folder (subfolders included) and its size must have been
+  stable for 30 seconds: MakeMKV may still be writing it.
+- Docker Desktop (Windows/macOS) and network shares do not forward file events: set
+  `WATCH_USE_POLLING=true`. The rescan every 30 seconds picks files up anyway, within a minute or two.
+- Check that the folder in `MAKEMKV_OUTPUT_DIR` is the one MakeMKV writes to:
+  ```bash
+  docker compose exec wayfinderr-backend ls -la /makemkv-output/
+  ```
 
-2. Add key to SSH agent:
-   ```bash
-   ssh-add ~/.ssh/id_rsa
-   ```
+### Skipped: "No Italian audio or subtitles"
 
-3. Use key-based auth in Wayfinderr (future feature)
-
-### Issue: "Invalid API token"
-
-**Solution:**
-
-1. Verify token format:
-   - Should start with API credentials
-   - No spaces or extra characters
-   - Check for expiration
-
-2. Generate new token from Ultra.cc panel
-
-3. Update in Wayfinderr UI
-
-## Upload Issues
-
-### Issue: Files not detected
-
-**Solution:**
-
-1. Verify watch directory:
-```bash
-docker-compose exec wayfinderr-backend ls -la /makemkv-output/
-```
-
-2. Check file watcher logs:
-```bash
-docker-compose logs wayfinderr-backend | grep -i "detected\|watch"
-```
-
-3. Verify file path is correct in `docker-compose.yml`
-
-4. Check file isn't being written to (wait for MakeMKV to finish)
-
-### Issue: "File permission denied"
-
-**Solution:**
+The server's media policy skips files without Italian. Check the tracks:
 
 ```bash
-# Check MakeMKV output permissions
-docker-compose exec wayfinderr-backend ls -la /makemkv-output/
-
-# Fix permissions if needed
-docker-compose exec wayfinderr-backend chmod 644 /makemkv-output/*
+docker compose exec wayfinderr-backend ffprobe -v error -show_entries stream=codec_type:stream_tags=language "/makemkv-output/<file>.mkv"
 ```
 
-### Issue: Upload gets stuck at 0%
+If Italian is missing the skip is right. To upload such files anyway, set the server's **Media
+policy** to *Always upload*, then **Retry** the upload. With merging on, such a file is held for a
+merge instead (see [Merge](USAGE.md#merge-with-dyadrr)).
 
-**Solution:**
+### Stuck in queue, or failing
 
-1. Check SSH connection:
-```bash
-docker-compose exec wayfinderr-backend ssh -v user@host
-```
+- Every server that could hold the file may be busy (one upload per server) or full: the dashboard
+  shows their free space.
+- Failed uploads show the error on their page; **Retry** queues them again. Check the SSH login with
+  **Test** on the server.
+- "Permission denied" writing the local file (moving a rip, `DELETE_AFTER_UPLOAD`): the backend
+  container must be able to write the watch folder (no `:ro` on its mount).
 
-2. Check destination disk space:
-```bash
-docker-compose logs wayfinderr-backend | grep -i "disk\|full\|space"
-```
+### Slow uploads
 
-3. Check file is accessible:
-```bash
-docker-compose exec wayfinderr-backend file /makemkv-output/filename.mkv
-```
+The upload runs over SFTP from the machine Wayfinderr runs on: its upload bandwidth is the limit.
+`MAX_CONCURRENT_UPLOADS` uploads run at once, at most one per server.
 
-4. Stop and check logs:
-```bash
-docker-compose restart wayfinderr-backend
-docker-compose logs -f wayfinderr-backend
-```
+## Rips
 
-### Issue: Upload fails with "No Italian content"
+### Nothing is ripped
 
-**Solution:**
+The **Rips** page says what is missing at the top: the MakeMKV runner offline (start the service with
+`--profile makemkv`, `WAYFINDERR_RUNNER=1`), TMDB not configured, the downloads folder not mounted.
+A download is ripped only once nothing in it changed for `RIP_QUIET_MINUTES`; the downloads already
+there when ripping was turned on are listed as skipped (*Rip anyway*). A path matching an
+exclusion rule is skipped on purpose (**Rips** → *Exclusions*).
 
-1. Verify file has Italian audio/subs:
-```bash
-docker-compose exec wayfinderr-backend \
-  ffprobe /makemkv-output/filename.mkv 2>&1 | grep -i language
-```
+### "Needs attention"
 
-2. Should show `language=ita` for audio or subtitles
+The rip did not guess: several long titles, an unsure TMDB match, no Italian track, several discs.
+*Choose…* the title and/or the film, and it goes on. See
+[Automatic ripping](USAGE.md#automatic-ripping).
 
-3. If not present, the file is correctly skipped
+### MakeMKV fails
 
-4. To disable this check (future feature): Configure per-server policy
+An expired `BETA` key, a crash, a damaged download. The rip's menu → *Rip without MakeMKV* rips an
+unencrypted disc with mkvmerge or ffmpeg instead (see [Rip without MakeMKV](USAGE.md#rip-without-makemkv)).
+The MakeMKV GUI on port 5800 shows its own log.
 
-## Database Issues
+### The MakeMKV container cannot write the watch folder
 
-### Issue: Database file is missing
+Set its `USER_ID`/`GROUP_ID` to the owner of the watch folder: at start it takes ownership of
+`/output` if it cannot write there.
 
-**Solution:**
+## Torrent cleanup and release
 
-```bash
-# Recreate database with migrations
-docker-compose exec wayfinderr-backend npx prisma migrate dev
+- **The torrent is not removed**: only a 100% match is removed by itself; anything less shows a
+  suggestion and **Remove torrent now** on the upload page. Generic names (`title_t00.mkv`) never
+  match: rename the file, or rip into a folder named after the film. Set `TMDB_API_KEY` to match
+  names in different languages. See [Remove the source torrent](USAGE.md#remove-the-source-torrent).
+- **Test connection** on the client fails: enable qBittorrent's WebUI; from Docker use
+  `http://host.docker.internal:8080` (the compose file maps it on Linux too).
+- **The tracker command does not start**: the server (or the client's machine, for a local release)
+  needs `tmux` and `bash`, and the command must work in a login shell there. The **Tracker** card
+  shows its output.
 
-# Or just restart (auto-migration runs)
-docker-compose restart wayfinderr-backend
-```
+## Database
 
-### Issue: Database query errors
+### Database errors, or a corrupted file
 
-**Solution:**
-
-```bash
-# Check database integrity
-docker-compose exec wayfinderr-backend sqlite3 /app/data/wayfinderr.db "PRAGMA integrity_check;"
-
-# If corrupted, backup and reset
-docker-compose exec wayfinderr-backend cp /app/data/wayfinderr.db /app/data/wayfinderr.db.backup
-docker-compose exec wayfinderr-backend rm /app/data/wayfinderr.db
-docker-compose restart wayfinderr-backend
-```
-
-## Performance Issues
-
-### Issue: High CPU/Memory usage
-
-**Solution:**
-
-1. Check what's consuming resources:
-```bash
-docker stats wayfinderr-backend wayfinderr-frontend
-```
-
-2. Check for queued uploads:
-```bash
-docker-compose logs wayfinderr-backend | grep -i "queue\|upload"
-```
-
-3. Check database size:
-```bash
-docker-compose exec wayfinderr-backend du -h /app/data/wayfinderr.db
-```
-
-4. Restart containers:
-```bash
-docker-compose restart
-```
-
-### Issue: Slow uploads
-
-**Solution:**
-
-1. Check network speed:
-```bash
-# From backend container
-docker-compose exec wayfinderr-backend \
-  dd if=/dev/zero bs=1M count=100 | ssh user@host "dd of=/tmp/test.bin"
-```
-
-2. Check server disk I/O:
-```bash
-ssh user@host "iostat -x 1"
-```
-
-3. Check file size:
-   - Large files (>2GB) may be slower
-   - SCP doesn't support resume (downloads full)
-
-## Logging & Debugging
-
-### Enable Debug Logging
-
-Edit `docker-compose.yml`:
-```yaml
-environment:
-  LOG_LEVEL: debug
-```
-
-Rebuild and restart:
-```bash
-docker-compose build wayfinderr-backend
-docker-compose up -d
-```
-
-### View All Logs
+Stop the backend, keep a copy of `wayfinderr.db`, then start again: migrations run at every start.
+To start from scratch (servers, history and account lost), remove the volume:
 
 ```bash
-# Real-time logs
-docker-compose logs -f
-
-# Last 100 lines
-docker-compose logs --tail 100
-
-# Specific service
-docker-compose logs -f wayfinderr-backend
-
-# Filter by keyword
-docker-compose logs wayfinderr-backend | grep error
+docker compose down
+docker volume rm wayfinderr_wayfinderr-data
+docker compose up -d
 ```
 
-### Check Health
+(the volume name is `<folder>_wayfinderr-data`; `docker volume ls` shows it). Backups and restore:
+[Deployment](DEPLOYMENT.md#backups).
 
-```bash
-# All services
-docker-compose ps
+## Asking for help
 
-# Specific service
-docker-compose ps wayfinderr-backend
-
-# Resource usage
-docker stats
-
-# Network
-docker network ls
-```
-
-## Getting Help
-
-1. **Check logs first:**
-```bash
-docker-compose logs | tail -100
-```
-
-2. **Search GitHub issues:**
-   - Look for similar problems
-   - Check closed issues
-
-3. **Open new issue:**
-   - Include error logs
-   - Steps to reproduce
-   - Your environment (OS, Docker version)
-
-4. **Check documentation:**
-   - QUICK-START.md
-   - ARCHITECTURE.md
-   - API.md
+1. Look at the **Logs** page (level *debug* with `LOG_LEVEL=debug`) or
+   `docker compose logs --tail 200 wayfinderr-backend`.
+2. Search the [issues](https://github.com/TehMaat/wayfinderr/issues), closed ones too.
+3. Open a new issue with the log lines, the steps to reproduce, your install method, OS and Docker
+   version. Remove passwords, hosts and file names you do not want to share.

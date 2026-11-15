@@ -284,7 +284,7 @@ export function ServerDialog({
                 name="trackerCommand"
                 value={form.trackerCommand}
                 onChange={update}
-                placeholder="ittup -u {path}"
+                placeholder="uploader -u {path}"
                 className="font-mono text-xs"
               />
             </Field>

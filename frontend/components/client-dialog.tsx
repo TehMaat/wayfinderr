@@ -209,7 +209,7 @@ export function ClientDialog({
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Local release</p>
             <Field
               label="Release on this client's machine"
-              hint="Adds Release locally to files not uploaded yet: over SSH, the file is moved from the watch folder into its own folder in the release folder, then the tracker command (ITTUP) uploads it and seeds it from this client"
+              hint="Adds Release locally to files not uploaded yet: over SSH, the file is moved from the watch folder into its own folder in the release folder, then the tracker command uploads it and seeds it from this client"
             >
               <Select name="localRelease" value={String(form.localRelease)} onChange={updateFlag}>
                 <option value="false">Off</option>
@@ -248,14 +248,14 @@ export function ClientDialog({
                   <Input name="hostWatchDir" value={form.hostWatchDir} onChange={update} placeholder="/mnt/data/extracted-mkv" required />
                 </Field>
                 <Field label="Release folder" hint="Where the release folders go, seen by qBittorrent too. Relative to the SSH home, or absolute">
-                  <Input name="releaseDir" value={form.releaseDir} onChange={update} placeholder="/mnt/data/downloads/ittup" required />
+                  <Input name="releaseDir" value={form.releaseDir} onChange={update} placeholder="/mnt/data/downloads/releases" required />
                 </Field>
                 <div className="grid gap-3 sm:grid-cols-[8rem_1fr]">
                   <Field label="Release tag" hint="-TAG at the end">
                     <Input name="releaseTag" value={form.releaseTag} onChange={update} placeholder="None" />
                   </Field>
                   <Field label="Tracker command" hint="{path} {folder} {name} are replaced. Blank: move only">
-                    <Input name="trackerCommand" value={form.trackerCommand} onChange={update} placeholder="ittup -u {path}" className="font-mono" />
+                    <Input name="trackerCommand" value={form.trackerCommand} onChange={update} placeholder="uploader -u {path}" className="font-mono" />
                   </Field>
                 </div>
               </>

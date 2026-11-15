@@ -452,7 +452,7 @@ class ReleaseManager extends EventEmitter {
       const dirs = await archiveDirs(sftp, home, upload.releaseLog ?? '');
       const accepted = upload.releaseLog ? ACCEPTED_BY.exec(upload.releaseLog)?.[1] : null;
       torrent = await findTorrent(sftp, dirs, { path: file, size }, accepted);
-      if (!torrent) problems.push(`no .torrent of it in ${dirs.join(', ') || 'the ITTUP/Unit3Dup archive'}`);
+      if (!torrent) problems.push(`no .torrent of it in ${dirs.join(', ') || 'the uploader’s .torrent archive'}`);
 
       media = await probe(ssh, file).catch((error: Error) => {
         problems.push(`media info: ${error.message}`);
@@ -1150,7 +1150,7 @@ class ReleaseManager extends EventEmitter {
         return null;
       });
       torrent = torrentFields(found);
-      if (!found) outcome.message += ' (its .torrent was not found in the ITTUP/Unit3Dup archive)';
+      if (!found) outcome.message += ' (its .torrent was not found in the uploader’s .torrent archive)';
     }
 
     // The wrapper script, its log and its session (kept with tmux's remain-on-exit) are no longer needed
