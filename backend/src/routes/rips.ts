@@ -136,11 +136,16 @@ router.get('/:id', async (req: Request, res: Response) => {
   res.json(await toPublic(rip));
 });
 
-// POST choose the title and/or the film, then rip
+// POST choose the title and/or the film, then rip (queue: false only saves the choice)
 router.post('/:id/choose', async (req: Request, res: Response) => {
   const titleIndex = req.body?.titleIndex;
   const tmdbId = req.body?.tmdbId;
   const secondLanguage = req.body?.secondLanguage;
+  const queue = req.body?.queue;
+  if (queue !== undefined && typeof queue !== 'boolean') {
+    res.status(400).json({ error: 'queue must be true or false' });
+    return;
+  }
   if ((titleIndex !== undefined && !Number.isInteger(titleIndex)) || (tmdbId !== undefined && !Number.isInteger(tmdbId))) {
     res.status(400).json({ error: 'titleIndex and tmdbId must be integers' });
     return;
@@ -150,9 +155,9 @@ router.post('/:id/choose', async (req: Request, res: Response) => {
     return;
   }
   try {
-    res.json(await toPublic(await ripper.choose(req.params.id, { titleIndex, tmdbId, secondLanguage })));
+    res.json(await toPublic(await ripper.choose(req.params.id, { titleIndex, tmdbId, secondLanguage, queue })));
   } catch (error) {
-    fail(res, error, 'Failed to start the rip');
+    fail(res, error, queue === false ? 'Failed to save the choice' : 'Failed to start the rip');
   }
 });
 

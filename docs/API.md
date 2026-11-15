@@ -834,6 +834,7 @@ GET /api/rips
       "originalTitle": "Le Film",
       "originalLanguage": "fr",
       "year": 2019,
+      "filmChosen": false,
       "secondLanguage": null,
       "progress": 0,
       "outputFile": null,
@@ -865,10 +866,10 @@ A RAR archive has `sourceType` `RAR` and `sourcePath` its first volume. Once lis
 POST /api/rips/:id/choose
 Content-Type: application/json
 
-{ "titleIndex": 1, "tmdbId": 101, "secondLanguage": "eng" }
+{ "titleIndex": 1, "tmdbId": 101, "secondLanguage": "eng", "queue": true }
 ```
 
-Any field may be left out to keep the current one. Allowed when the rip is `NEEDS_ATTENTION`, `FAILED` or `SKIPPED`; the rip is queued with that title and film, without asking again. `secondLanguage` is an audio language of the title (ISO 639-2) kept beside the kept language, for a title with no audio in the film's original language (`null`: none). On its own, a rip whose title has no audio in the original language but has some in another language waits in `NEEDS_ATTENTION` for this choice. The film and the second language chosen on a part of a join are set on the other parts too, and those waiting in `NEEDS_ATTENTION` are queued again: their title is picked again with the film (or they ask for what is still unsure). Errors: 400 (not integers, `secondLanguage` not a three-letter code), 404, 409 (`No such title on the disc`, `No eng audio on the title`, rip in another state).
+Any field may be left out to keep the current one. Allowed when the rip is `NEEDS_ATTENTION`, `FAILED` or `SKIPPED`; the rip is queued with that title and film, without asking again. With `"queue": false` (default `true`) the choice is only saved, to rip later: the rip keeps its status, and a rip in `NEEDS_ATTENTION` with a scanned disc gets the reason `Film saved: rip it from Choose… when you want` (or `Film saved · ` and what is still unsure about its title). A film chosen here or with *Join discs* sets `filmChosen`, and Retry keeps it. `secondLanguage` is an audio language of the title (ISO 639-2) kept beside the kept language, for a title with no audio in the film's original language (`null`: none). On its own, a rip whose title has no audio in the original language but has some in another language waits in `NEEDS_ATTENTION` for this choice. The film and the second language chosen on a part of a join are set on the other parts too, and those waiting in `NEEDS_ATTENTION` are queued again: their title is picked again with the film (or they ask for what is still unsure); with `"queue": false` they keep waiting, with the reason above. Errors: 400 (not integers, `secondLanguage` not a three-letter code, `queue` not a boolean), 404, 409 (`No such title on the disc`, `No eng audio on the title`, rip in another state).
 
 ### Hold for Merge
 
@@ -885,7 +886,7 @@ POST /api/rips/:id/retry
 POST /api/rips/:id/skip
 ```
 
-Retry starts over with MakeMKV (scan and automatic choices; an archive not unpacked yet is listed and unpacked again); not while unpacking, scanning, ripping or joining. A part of a join that failed while joining joins its ripped parts again instead. Skip never rips the disc, stops a running rip or unpacking, and deletes what was unpacked of an archive; on a part of a join it skips every disc of the join and deletes the parts ripped so far.
+Retry starts over with MakeMKV (scan and automatic choices; an archive not unpacked yet is listed and unpacked again), keeping a film chosen by hand (`filmChosen`) and its second language; not while unpacking, scanning, ripping or joining. A part of a join that failed while joining joins its ripped parts again instead. Skip never rips the disc, stops a running rip or unpacking, and deletes what was unpacked of an archive; on a part of a join it skips every disc of the join and deletes the parts ripped so far.
 
 ### Rip Again
 

@@ -164,7 +164,8 @@ export const sourceTorrentsApi = {
 export const ripsApi = {
   listRips: () => apiClient.get<{ status: RipperStatus; rips: Rip[] }>('/api/rips'),
   getRip: (id: string) => apiClient.get<Rip>(`/api/rips/${id}`),
-  chooseRip: (id: string, choice: { titleIndex?: number; tmdbId?: number; secondLanguage?: string | null }) =>
+  // queue: false only saves the choice, the rip is not started
+  chooseRip: (id: string, choice: { titleIndex?: number; tmdbId?: number; secondLanguage?: string | null; queue?: boolean }) =>
     apiClient.post<Rip>(`/api/rips/${id}/choose`, choice),
   retryRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/retry`),
   remuxRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/remux`),
