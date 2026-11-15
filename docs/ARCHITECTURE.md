@@ -1,393 +1,132 @@
-# System Architecture
+# Architecture
 
-Deep dive into Wayfinderr's design and components.
+How Wayfinderr is built: the pieces, how a file goes through them, the data and the security model.
+For the HTTP API see [API.md](API.md).
 
-## High-Level Architecture
+![Wayfinderr architecture](assets/diagrams/architecture.svg)
 
-```
-     Browser (LAN, or HTTPS through a reverse proxy)
-            │ pages, /api, /health, /ws
-┌───────────┼─────────────────────────────────────────────────┐
-│           │            Docker Network (bridge)              │
-├───────────┼─────────────────────────────────────────────────┤
-│           ▼                                                 │
-│  ┌─────────────────┐         ┌─────────────────┐  ┌───────┐ │
-│  │    Frontend     │  /api   │     Backend     │  │MakeMKV│ │
-│  │  Next.js 3000   │────────►│  Express 3001   │◄─┤ 5800  │ │
-│  │   (published)   │  /ws    │ (not published) │  └───────┘ │
-│  └─────────────────┘  proxy  └────────┬────────┘  watch dir │
-│                                       │                     │
-│                              ┌────────▼──────────┐          │
-│                              │ SQLite Database   │          │
-│                              │  (Persistence)    │          │
-│                              └───────────────────┘          │
-└─────────────────────────────────────────────────────────────┘
-                  │              │
-         ┌────────▼──┐    ┌──────▼────────┐
-         │Ultra.cc   │    │Ultra.cc       │
-         │Server 1   │    │Server 2       │
-         └───────────┘    └───────────────┘
-         (SCP Upload)     (SCP Upload)
-```
+## Components
 
-The optional `dyadrr` container (Compose profile `merge`, `MERGE_ENABLED`) works like MakeMKV's runner: it needs no address the backend knows, they only share the watch folder. The backend writes a job file in `<watch folder>/.wayfinderr/dyadrr/jobs` (`analyze` or `merge`, the two files, the options), the runner in the container claims it, runs Dyadrr and writes back its progress, its JSON report and its exit code; `dyadrr.alive` there says the container is running. The protocol is in Dyadrr's [docs/CONTAINER.md](https://github.com/TehMaat/dyadrr/blob/main/docs/CONTAINER.md).
+| Piece | Technology | Role |
+|---|---|---|
+| **Frontend** | Next.js 14, React, Tailwind, Zustand | The web UI, and a same-origin proxy: `/api`, `/health` and the `/ws` WebSocket go to the backend (`next.config.js` rewrites, `BACKEND_URL` compiled in). The only port published |
+| **Backend** | Node.js 20+, Express, `ws`, Prisma | Watches the watch folder, reads the tracks (ffprobe), queues and runs the uploads (SFTP), rips, merges, torrent cleanup, releases; REST API and live events |
+| **Database** | SQLite (Prisma, migrations in `backend/prisma/migrations`) | Servers, uploads, rips, clients, merge pairs, settings, the login account. In the `wayfinderr-data` volume |
+| **MakeMKV container** (optional) | jlesage/makemkv + a shell runner | Rips the discs. Shares the watch folder with the backend: the backend writes a job file in `<watch folder>/.wayfinderr`, the runner claims it, runs `makemkvcon` and writes back its progress and result |
+| **Dyadrr container** (optional) | [Dyadrr](https://github.com/TehMaat/dyadrr) | Analyzes and merges two rips of a film. Same file-job protocol, in `<watch folder>/.wayfinderr/dyadrr/jobs` ([Dyadrr's CONTAINER.md](https://github.com/TehMaat/dyadrr/blob/main/docs/CONTAINER.md)) |
 
-The browser only talks to the frontend. It proxies `/api`, `/health` and the `/ws` WebSocket to the backend over the Docker network (service name `wayfinderr-backend`), so the backend publishes no port and a reverse proxy needs a single entry pointing at the frontend.
+The backend never calls the two containers over the network: they only share the watch folder, and
+each one writes an `alive` file there so the UI can tell whether it is running. The browser only
+talks to the frontend, so a reverse proxy needs a single entry.
 
-## Component Details
+## How a file goes through it
 
-### Frontend (Next.js 14 + React)
+![How a film goes through Wayfinderr](assets/diagrams/workflow.svg)
 
-**Responsibilities:**
-- Real-time dashboard display
-- Server management CRUD
-- Upload history browsing
-- Setup and login screens, account menu
-- Same-origin proxy: `/api`, `/health` and `/ws` to the backend (`next.config.js` rewrites, `BACKEND_URL` compiled in at build time)
+1. **Detection** (`services/fileWatcher.ts`): chokidar watches the watch folder, subfolders
+   included; a file counts once its size has been stable for 30 seconds. A rescan every 30 seconds
+   catches what the watcher misses (Docker Desktop, network shares).
+2. **Media info** (`services/mediaInfo.ts`): ffprobe reads every video, audio and subtitle track;
+   the upload records whether there is Italian audio or subtitles.
+3. **Hold for a merge** (`services/merge/hold.ts`, only with `MERGE_ENABLED`): a file without
+   Italian audio, or with a twin of the same film around (a held file, a rip not done, a torrent of
+   the clients, matched by every TMDB title), is held instead of queued.
+4. **Server choice** (`services/serverManager.ts`): the free space of every server (Ultra-API for
+   Ultra.cc, else over SSH: the account quota or the disk; cached 60 seconds); the reachable server
+   with the most free space that can hold the file and is not busy gets it. Its media policy can
+   skip a file without Italian.
+5. **Upload** (`services/jobQueue.ts`, `services/uploadManager.ts`): SFTP into `<name>.part`, size
+   check, rename. On error, up to the server's retries (3) with backoff: exponential 5 s, 10 s, 20 s…
+   or linear 10 s, 20 s, 30 s. Uploads unfinished at a stop resume at the next start.
+6. **Afterwards**: the source torrent is matched and removed (`services/torrentCleanup.ts`), and
+   the file can be released on the tracker (`services/release`).
 
-**Architecture:**
-```
-next.config.js            # Proxy rewrites, security headers
-app/                      # Next.js pages
-├── layout.tsx            # Root layout: <AuthGate><AppShell/></AuthGate>
-├── page.tsx              # Dashboard
-├── servers/page.tsx      # Server management
-└── uploads/
-    ├── page.tsx          # Upload list
-    └── [id]/page.tsx     # Upload details
+Every step broadcasts an event on the WebSocket (`upload-started`, `progress`, `upload-completed`,
+`rip-updated`, `merge-pair-progress`…): the UI updates without polling.
 
-components/               # Reusable components
-├── auth-gate.tsx         # Loading / unreachable / setup / login screens
-├── account-menu.tsx      # Change password, sign out, sign out everywhere
-├── server-dialog.tsx     # Server form dialog
-└── ...
+## Concurrency
 
-lib/                      # Utilities
-├── api.ts               # API client (relative URLs, 401 -> login screen)
-├── auth.ts              # Zustand auth store
-├── config.ts            # WebSocket URL (same host, /ws)
-├── store.ts             # Zustand store (state management)
-└── useRealtime.ts       # WebSocket hook
-```
+- One upload queue (p-queue): at most `MAX_CONCURRENT_UPLOADS` (2) uploads at a time, and one per
+  server; a file waits while every server that could hold it is busy.
+- Rips run one at a time in the MakeMKV container; RAR unpacking, rips without MakeMKV and joins one
+  at a time in the backend, between rips.
+- One thing writes a film at a time: a merge waits for the rip, unpacking or join in progress, and
+  the next rip waits for the merge.
+- One tracker command at a time per server.
 
-**State Management:**
-- Zustand for client state
-- WebSocket for server state sync
-- URL params for page navigation
-
-### Backend (Express + TypeScript)
-
-**Responsibilities:**
-- File watching and detection
-- Media information extraction
-- Server space management
-- Upload coordination
-- WebSocket real-time updates
-- Login, sessions and cross-site checks
-
-**Architecture:**
-```
-src/
-├── index.ts                 # Entry point
-│                           # - Express app setup
-│                           # - WebSocket server (/ws, cookie auth)
-│                           # - File watcher initialization
-├── cli.ts                   # reset-auth (forgotten password)
-│
-├── config/
-│   ├── index.ts            # Environment variables
-│   └── logger.ts           # Pino logger setup
-│
-├── services/
-│   ├── fileWatcher.ts      # Chokidar + debounce
-│   ├── mediaInfo.ts        # FFprobe integration
-│   ├── serverManager.ts    # Ultra.cc API client
-│   ├── uploadManager.ts    # SSH/SCP handler
-│   ├── jobQueue.ts         # p-queue job queue
-│   ├── release/            # Rename on the server (moverr.py's name), then the tracker command (Unit3Dup) in tmux
-│   ├── merge/              # Dyadrr (MERGE_ENABLED): which files are held for a merge (twin search), file jobs for the dyadrr container,
-│   │                       #   merge pairs, their analysis and merge (pairs.ts)
-│   ├── filmLookup.ts       # A film's TMDB titles in every language, for name matching (torrent cleanup, twin search)
-│   ├── auth.ts             # Account, scrypt hashes, signed session tokens, setup code
-│   ├── loginLimiter.ts     # 5 failures / 15 min per client
-│   └── database.ts         # Prisma wrapper
-│
-├── middleware/
-│   └── security.ts         # Cross-site guard, requireAuth
-│
-├── routes/
-│   ├── auth.ts             # /api/auth endpoints
-│   ├── servers.ts          # Server endpoints
-│   ├── uploads.ts          # Upload endpoints
-│   ├── release.ts          # /api/uploads/:id/release (rename, tracker command)
-│   ├── merge.ts            # /api/merge (merge status)
-│   └── space.ts            # Space info endpoints
-│
-└── types/
-    └── index.ts            # TypeScript interfaces
-```
-
-**Data Flow:**
-
-1. **File Detection**
-   ```
-   chokidar watches /makemkv-output
-        ↓
-   Debounce 500ms (wait for write completion)
-        ↓
-   Emit file-detected event
-        ↓
-   Job queue receives job
-   ```
-
-2. **Media Parsing**
-   ```
-   Job queue processes file
-        ↓
-   FFprobe extracts streams
-        ↓
-   Check for ita audio OR ita subs
-        ↓
-   If match: continue to upload
-      If no match: mark SKIPPED
-   ```
-
-3. **Server Selection**
-   ```
-   Query Ultra.cc API for both servers
-        ↓
-   Compare free space
-        ↓
-   Select server with more space
-        ↓
-   If primary fails: failover to secondary
-   ```
-
-4. **Upload & Retry**
-   ```
-   Create SSH connection
-        ↓
-   Transfer via SCP
-        ↓
-   Emit progress events
-        ↓
-   On error:
-   - Increment retry count
-   - Wait (backoff)
-   - Retry (max 3 times)
-   - If all fail: mark FAILED
-   ```
-
-### Database (SQLite + Prisma)
-
-**Schema:**
-
-```prisma
-model Server {
-  id              String    @id @default(cuid())
-  name            String
-  apiEndpoint     String
-  apiToken        String
-  sshHost         String
-  sshPort         Int       @default(22)
-  sshUsername     String
-  sshPath         String    @default("/")
-  
-  maxRetries      Int       @default(3)
-  backoffStrategy String    @default("exponential")
-  
-  lastSpaceCheckAt DateTime?
-  cachedFreeSpaceBytes String?
-  
-  uploads         Upload[]
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-}
-
-model Upload {
-  id              String    @id @default(cuid())
-  filename        String
-  filepath        String
-  size            BigInt
-  
-  mediaInfo       Json      # { container, videoTracks: [...], audioTracks: [...], subtitles: [...] }
-  hasItalianAudio Boolean
-  hasItalianSubtitles Boolean
-  
-  serverId        String
-  server          Server    @relation(fields: [serverId], references: [id], onDelete: Cascade)
-  
-  status          String    # PENDING|QUEUED|UPLOADING|COMPLETED|FAILED|SKIPPED|CANCELLED|HELD|MERGED
-  progress        Int       @default(0)
-  progressBytes   BigInt    @default(0)
-  
-  error           String?
-  currentRetryCount Int    @default(0)
-  retryStrategy   String   @default("exponential")
-  
-  startedAt       DateTime?
-  completedAt     DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-}
-
-model Setting {             # key/value: login account, session signing key
-  key             String    @id
-  value           String
-  updatedAt       DateTime  @updatedAt
-}
-```
-
-## API Contracts
-
-### WebSocket Messages (Server → Client)
-
-```json
-{
-  "type": "upload-detected",
-  "data": { "filename": "file.mkv" }
-}
-
-{
-  "type": "upload-queued",
-  "data": { "uploadId": "...", "position": 1 }
-}
-
-{
-  "type": "progress",
-  "data": { "uploadId": "...", "progress": 45, "speed": "5MB/s" }
-}
-
-{
-  "type": "upload-completed",
-  "data": { "uploadId": "...", "serverId": "..." }
-}
-
-{
-  "type": "upload-failed",
-  "data": { "uploadId": "...", "error": "SSH timeout" }
-}
-
-{
-  "type": "upload-skipped",
-  "data": { "uploadId": "...", "reason": "No Italian audio/subs" }
-}
-```
-
-### REST API Endpoints
-
-See [API.md](./API.md) for detailed documentation.
-
-## Concurrency Model
-
-### Job Queue (p-queue)
+## Code layout
 
 ```
-Upload Queue
-├── Global concurrency: 2
-├── Per-server concurrency: 1
-└── Queue strategy:
-    1. File detected → job created
-    2. Job queued with priority
-    3. Concurrent processor picks up job
-    4. If server busy: keep in queue
-    5. When server free: start upload
+backend/
+├── prisma/                   schema.prisma + migrations (applied at start in Docker)
+└── src/
+    ├── index.ts              Express app, WebSocket (/ws), start-up and shutdown
+    ├── cli.ts                reset-auth (forgotten password)
+    ├── config/               environment variables, pino logger
+    ├── middleware/           cross-site guard, session / API key check
+    ├── routes/               REST API: auth, servers, space, uploads, release, clients,
+    │                         source-torrents, rips, merge, system, logs
+    └── services/
+        ├── fileWatcher.ts    the watch folder
+        ├── mediaInfo.ts      ffprobe
+        ├── serverManager.ts  server space (ultraApi.ts, sshSpace.ts, serverTypes.ts)
+        ├── jobQueue.ts       the upload queue
+        ├── uploadManager.ts  SFTP upload, retries
+        ├── torrentCleanup.ts qBittorrent matching and removal (qbittorrent.ts, nameMatch.ts)
+        ├── sourceTorrents.ts .torrent files sent beforehand (bookrr)
+        ├── spaceGuard.ts     pauses the torrents when this machine runs out of space
+        ├── diskUsage.ts      the disks of this machine
+        ├── filmLookup.ts     a film's TMDB titles in every language
+        ├── auth.ts           account, sessions, setup code, API key (loginLimiter.ts)
+        ├── database.ts       Prisma queries
+        ├── ripper/           downloads scan, RAR, TMDB, title choice, MakeMKV jobs, remux, joins
+        ├── merge/            holding, pairs, planned pairs, Dyadrr jobs
+        ├── release/          release name, tracker command in tmux, its output and .torrent
+        └── logs/             log history on disk, retention, Dyadrr logs
+
+frontend/
+├── app/                      pages: dashboard, uploads (+ details), servers, rips, clients,
+│                             merge (+ pair, report, logs), logs
+├── components/               UI pieces (dialogs, tables, cards; ui/ = base components)
+└── lib/                      API client, Zustand store, WebSocket hook, helpers
+
+makemkv/                      the wayfinderr-makemkv image: jlesage/makemkv + the rip runner
+scripts/                      Docker helpers, logos, screenshots of the docs
 ```
 
-**Example:**
-```
-Time  Server1  Server2  Queue
-T0    Upload1  Upload2  Upload3, Upload4
-T1    Upload1  Upload2  Upload3, Upload4
-T2    Upload1 (done)    Upload3, Upload4
-T3    Upload3  Upload2  Upload4
-T4    Upload3  Upload2  Upload4
-T5    Upload3 (done)    Upload4
-T6    Upload4  Upload2  (empty)
-```
+## Data model
 
-## Error Handling
+| Model | What it holds |
+|---|---|
+| `Server` | An upload server: type (`ULTRA`, `SEEDBOX`, `SSH`), SSH login, remote folder, Ultra-API, retries, media policy, release settings, cached free space |
+| `Upload` | A file: path, size, media info, status (`PENDING`, `QUEUED`, `UPLOADING`, `COMPLETED`, `FAILED`, `SKIPPED`, `CANCELLED`, `HELD`, `MERGED`), progress, server, source torrent, release, hold reason |
+| `Rip` | A disc or archive in the downloads: status (`WAITING` … `DONE`, `NEEDS_ATTENTION`, `FAILED`, `SKIPPED`), scanned titles, the chosen title and TMDB film, progress, the output file |
+| `TorrentClient` | A qBittorrent client: WebUI login, category, removal rules, low-space pause, local release |
+| `SourceTorrent` | A .torrent sent before its upload exists, kept for good |
+| `MergePair` / `MergePlan` | Two files merged with Dyadrr (analysis, report, merge), and pairs planned before their files arrive |
+| `Setting` | Key/value: the login account, the session key, rip exclusions, merge choices |
 
-### Retry Logic
+Full schema: [`backend/prisma/schema.prisma`](../backend/prisma/schema.prisma).
 
-```
-Upload fails
-    ↓
-currentRetryCount < maxRetries?
-    ├─ YES:
-    │   ├─ Calculate backoff delay
-    │   │   ├─ Exponential: 100ms × 2^attempt
-    │   │   └─ Linear: 100ms × attempt
-    │   ├─ Wait
-    │   └─ Retry
-    │
-    └─ NO: Mark FAILED
-```
+## Security
 
-### Error Types
+- **One account** (username + scrypt hash) in `Setting`. Until it exists every other `/api` route
+  answers 401 `auth_setup_required`, and creating it takes the one-time setup code printed in the
+  backend log (or `WAYFINDERR_SETUP_CODE`).
+- **Sessions**: an HMAC-signed token in the HttpOnly, SameSite=Lax cookie `wayfinderr_session`
+  (`Secure` on HTTPS, from `X-Forwarded-Proto`), valid 30 days. Changing the password or "sign out
+  everywhere" invalidates every older session and closes their WebSockets.
+- **API key** (`X-Api-Key`) for scripts and bookrr, regenerated from the account menu.
+- A session or the key is needed for every `/api` route except `/api/auth`, and for `/ws`.
+- **Cross-site requests** (unsafe methods and the WebSocket) are refused: `Sec-Fetch-Site`, else
+  `Origin` against `X-Forwarded-Host`/`Host`.
+- **Login limiter**: 5 failures per 15 minutes per client (`X-Forwarded-For` from the reverse proxy).
+- **Secrets** (SSH passwords, API tokens, qBittorrent passwords) are stored in the database and never
+  returned by the API (`hasSshPassword`, `hasApiToken`…); logs redact them.
+- Database backups contain the password hash and the session key: keep them private.
 
-| Error | Cause | Handling |
-|-------|-------|----------|
-| SSH Connection Timeout | Network/SSH issues | Retry with backoff |
-| Invalid Credentials | Wrong SSH/API token | Fail, no retry |
-| File Not Found | MakeMKV not finished | Retry |
-| Disk Full | Server out of space | Fail with error |
-| Invalid Media | No Italian content | Skip, no retry |
+## Limits
 
-## Security Considerations
-
-1. **Credentials Storage**
-   - API tokens and SSH passwords stored in database, never returned by the API (`hasApiToken`, `hasSshPassword`)
-   - SSH keys via filesystem/environment
-   - No credential caching beyond session
-
-2. **Access Control**
-   - One account (username + scrypt password hash) in the `Setting` table; until it exists the other `/api` routes answer 401 `auth_setup_required`, and creating it takes the one-time setup code printed in the backend log (or `WAYFINDERR_SETUP_CODE`)
-   - Sessions: HMAC-signed token in the HttpOnly, SameSite=Lax cookie `wayfinderr_session` (`Secure` on HTTPS, via `X-Forwarded-Proto`), valid 30 days. Changing the password or "sign out everywhere" bumps a token version: older sessions stop working and open WebSockets close with code 4401
-   - A session is required for every `/api` route except `/api/auth`, and for the `/ws` WebSocket
-   - Unsafe methods and the WebSocket are refused when cross-site (`Sec-Fetch-Site`, else `Origin` vs `X-Forwarded-Host`/`Host`)
-   - Failed logins, wrong setup codes and wrong current passwords: 5 per 15 minutes per client (`X-Forwarded-For` from the reverse proxy)
-   - Forgotten password: `node dist/cli.js reset-auth` in the backend container deletes the account
-   - Database backups contain the password hash and the session key: keep them private
-
-3. **Data Validation**
-   - Filename validation before upload
-   - Media info parsing sandboxed
-   - API responses validated
-
-## Performance Characteristics
-
-### Benchmarks (Typical)
-
-| Operation | Time | Notes |
-|-----------|------|-------|
-| File detection | <100ms | After debounce |
-| Media parsing | 1-3s | Depends on file size |
-| Server space check | 500ms-2s | API call with caching |
-| 100MB upload | ~20s | At 5MB/s average |
-| 1GB upload | ~3min | At 5MB/s average |
-| DB query (100 records) | <10ms | Indexed queries |
-
-### Optimization Techniques
-
-1. **Caching**: Server space cached 60s
-2. **Debouncing**: File detection debounced 500ms
-3. **Connection Pooling**: SSH connections reused
-4. **Async Processing**: All I/O is non-blocking
-5. **Database Indexes**: Indexed on status, createdAt
-
-## Scaling Considerations
-
-### Limitations
-
-- Single process: can't scale horizontally
-- SQLite: suitable for <100k uploads
-- Single machine: CPU/memory bound
-
-### Future Improvements
-
-1. Move to PostgreSQL for multi-node setup
-2. Add Redis for caching/sessions
-3. Split services (separate workers)
-4. Add load balancing (nginx)
-5. Database sharding/partitioning
+- One backend process and SQLite: fine for a home setup and tens of thousands of uploads, not meant
+  to scale out.
+- One Dyadrr container per watch folder.

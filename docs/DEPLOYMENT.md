@@ -1,48 +1,31 @@
-# Deployment Guide
+# Deployment
 
-Production deployment strategies and best practices.
+Running Wayfinderr on an always-on server: behind HTTPS, with backups, logs and updates. To install
+it first, see [Installation](INSTALLATION.md).
 
-## Pre-Deployment Checklist
+## Checklist
 
-- [ ] Docker images tested locally
-- [ ] Environment variables configured
-- [ ] Account created (setup code from the backend log) before the app is exposed
-- [ ] Database backups enabled
-- [ ] SSH keys set up for servers
-- [ ] HTTPS certificate obtained
-- [ ] Reverse proxy (Pangolin/Traefik or nginx) pointing at the frontend
-- [ ] Monitoring/alerting set up
-- [ ] Log aggregation configured
+- [ ] Account created (setup code from the backend log) **before** the app is reachable from outside
+- [ ] HTTPS through a reverse proxy pointing at the frontend, never at the backend
+- [ ] Port 3000 not reachable around the proxy
+- [ ] Database backups
+- [ ] SSH keys or passwords for every server tested (**Servers** → **Test**)
 
-## Docker Compose Deployment
-
-### Basic Setup
+## Run on a server
 
 ```bash
-# SSH into production server
-ssh user@production.server
-
-# Clone repository
-git clone https://github.com/yourusername/wayfinderr.git
+git clone https://github.com/TehMaat/wayfinderr.git
 cd wayfinderr
-
-# Configure environment
-cp .env.example .env
-nano .env  # Edit with production values
-
-# Pull the images
+cp .env.example .env        # edit: folders, ripping, merging (see CONFIGURATION.md)
 docker compose pull
-
-# Start services
 docker compose up -d
-
-# Verify
 docker compose ps
 ```
 
-Then open `http://<server>:3000` from the LAN and create the account with the setup code from `docker compose logs wayfinderr-backend` **before** exposing the app.
+Then open `http://<server>:3000` from the LAN and create the account with the setup code from
+`docker compose logs wayfinderr-backend` **before** exposing the app.
 
-### Production Configuration
+## Production configuration
 
 The frontend is the only entry point: the browser talks to it alone, and it proxies `/api`, `/health` and the `/ws` WebSocket to the backend over the compose network, by the name `wayfinderr-backend` on port 3001. The backend publishes no port.
 
@@ -73,7 +56,7 @@ Traefik and Pangolin do all of this by default, WebSockets included. Do not let 
 
 ### Pangolin
 
-Create an **HTTP** resource, e.g. `wayfinderr.mydomain.it`, with one target: method `http`, address `172.18.0.111` (the frontend), port `3000`. No other setting is needed.
+Create an **HTTP** resource, e.g. `wayfinderr.example.com`, with one target: method `http`, address `172.18.0.111` (the frontend), port `3000`. No other setting is needed.
 
 Example compose with fixed addresses on Pangolin's Docker network (`pangolin`, created by Pangolin's own compose). The frontend reaches the backend by its service name, `wayfinderr-backend`:
 
@@ -190,50 +173,40 @@ sudo certbot certonly --nginx -d wayfinderr.example.com
 sudo systemctl restart nginx
 ```
 
-## Database Backups
+## Backups
 
-The database also holds the login account (password hash) and the key that signs sessions: keep backups private. Restoring one restores that account too.
+The database (`wayfinderr.db` in the `wayfinderr-data` volume) holds everything set in the UI and the
+upload history, plus the login account (password hash) and the key that signs sessions: keep backups
+private. Restoring one restores that account too.
 
-### Automated Backups
-
-Create `/usr/local/bin/backup-wayfinderr.sh`:
-
-```bash
-#!/bin/bash
-
-BACKUP_DIR="/backups/wayfinderr"
-DB_PATH="/docker/volumes/wayfinderr-data/_data/wayfinderr.db"
-
-mkdir -p $BACKUP_DIR
-
-# Daily backup
-DATE=$(date +%Y-%m-%d)
-cp $DB_PATH $BACKUP_DIR/wayfinderr-$DATE.db
-
-# Keep only 30 days of backups
-find $BACKUP_DIR -name "wayfinderr-*.db" -mtime +30 -delete
-
-# Compress old backups
-gzip -f $BACKUP_DIR/wayfinderr-*.db 2>/dev/null || true
-```
-
-Schedule with cron:
-```bash
-0 2 * * * /usr/local/bin/backup-wayfinderr.sh
-```
-
-### Manual Backup
+Stop the backend for a consistent copy (a few seconds; running uploads resume at the start):
 
 ```bash
-docker-compose exec wayfinderr-backend \
-  sqlite3 /app/data/wayfinderr.db ".backup /tmp/wayfinderr.db.backup"
-
-docker cp wayfinderr-backend:/tmp/wayfinderr.db.backup ./backup.db
+docker compose stop wayfinderr-backend
+docker run --rm -v wayfinderr_wayfinderr-data:/data -v "$PWD":/backup alpine \
+  cp /data/wayfinderr.db /backup/wayfinderr-$(date +%F).db
+docker compose start wayfinderr-backend
 ```
 
-## Monitoring & Logging
+The volume is named after the compose project (`<folder>_wayfinderr-data`): `docker volume ls` shows
+it. Run it from cron for daily copies, and delete the old ones (`find . -name 'wayfinderr-*.db'
+-mtime +30 -delete`).
 
-### Log History (the Logs page)
+**Restore**, or move to another machine: stop the backend, copy the file back into the volume, start
+it again.
+
+```bash
+docker compose stop wayfinderr-backend
+docker run --rm -v wayfinderr_wayfinderr-data:/data -v "$PWD":/backup alpine \
+  cp /backup/wayfinderr-2026-11-15.db /data/wayfinderr.db
+docker compose start wayfinderr-backend
+```
+
+A local run keeps the database in `backend/data/wayfinderr.db`: copy it while the backend is stopped.
+
+## Logs
+
+### Log history (the Logs page)
 
 The backend writes its log to stdout, as always (`docker compose logs wayfinderr-backend`), and also to
 one file a day in the data volume, `/app/data/logs/wayfinderr/<YYYY-MM-DD>.jsonl` (UTC days, JSON Lines:
@@ -255,195 +228,41 @@ backend: the lines are lost from the file only (they are still on stdout). Passw
 headers of failed HTTP requests are redacted from both; the setup code stays on stdout only. Requests
 and WebSocket connections are logged at `debug`.
 
-### Docker Logs
-
-Forward logs to external service:
-
-```yaml
-services:
-  wayfinderr-backend:
-    logging:
-      driver: "awslogs"
-      options:
-        awslogs-group: "/wayfinderr/backend"
-        awslogs-region: "us-east-1"
-```
-
-### Health Checks
-
-Monitor with:
-```bash
-# Check services (no login needed; goes through the frontend to the backend)
-curl https://wayfinderr.example.com/health
-
-# Check database
-docker-compose exec wayfinderr-backend \
-  sqlite3 /app/data/wayfinderr.db "SELECT COUNT(*) FROM Upload;"
-```
-
-### Uptime Monitoring
-
-Service like UptimeRobot:
-- Monitor: `https://wayfinderr.example.com/health`
-- Interval: 5 minutes
-- Alert on failure
-
-## Resource Allocation
-
-### Minimum
-
-- **CPU**: 1 core
-- **Memory**: 1GB
-- **Disk**: 10GB
-
-### Recommended
-
-- **CPU**: 2 cores
-- **Memory**: 2GB
-- **Disk**: 50GB
-
-### High Volume
-
-- **CPU**: 4+ cores
-- **Memory**: 4GB+
-- **Disk**: 500GB+
-
-## Security Best Practices
-
-1. **Never commit secrets:**
-```bash
-# Add to .gitignore
-.env
-.env.*
-```
-
-2. **Create the account before exposing the app:**
-```bash
-# Anyone with the setup code in this log line can create the account
-docker compose logs wayfinderr-backend | grep "setup code"
-# Forgotten password: delete the account, then reopen the page and use the new code from the log
-docker compose exec wayfinderr-backend node dist/cli.js reset-auth
-# (with container_name: wayfinderr-backend, as in the Pangolin example:
-#  docker logs wayfinderr-backend / docker exec wayfinderr-backend ...)
-```
-
-3. **Rotate credentials regularly:**
-```bash
-# Update SSH keys, API tokens every 90 days
-```
-
-4. **Network security:**
-```bash
-# Firewall - only allow needed ports. The backend publishes none; behind a
-# reverse proxy bind the frontend to 127.0.0.1 or publish no port at all
-# (ports published by Docker bypass ufw)
-sudo ufw allow 22/tcp
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw enable
-```
-
-5. **HTTPS only:**
-```bash
-# Redirect HTTP to HTTPS
-# Configure in nginx (see above)
-```
-
-## Updates & Upgrades
-
-### Update Application
+### Container logs
 
 ```bash
-# Download the new images, then recreate the containers that changed
+docker compose logs -f wayfinderr-backend
+docker compose logs --since 1h wayfinderr-backend | grep -i error
+```
+
+### Health check
+
+```bash
+curl https://wayfinderr.example.com/health   # no login needed: {"status":"ok","queue":0}
+```
+
+Point an uptime monitor at it.
+
+## Updates
+
+```bash
 docker compose pull
 docker compose up -d
 ```
 
-`docker compose up -d` or `restart` alone keep running the images already downloaded. With the MakeMKV service add `--profile makemkv` to both commands (or set `COMPOSE_PROFILES=makemkv` in `.env`), or its image is not updated. With images built from source (`docker-compose.build.yml`), `git pull` and then `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build` (with `--profile makemkv` too, if used).
+`docker compose up -d` or `restart` alone keep running the images already downloaded. With the
+optional services add `--profile makemkv` / `--profile merge` to both commands (or set
+`COMPOSE_PROFILES` in `.env`), or their images are not updated. With images built from source, `git
+pull` and then `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
+Migrations run by themselves when the backend starts. Pin a release with `WAYFINDERR_TAG`.
 
-### Update Dependencies
+## Security
 
-```bash
-# Backend
-cd backend
-npm outdated
-npm update
-git commit -am "chore: update dependencies"
-
-# Frontend
-cd frontend
-npm outdated
-npm update
-git commit -am "chore: update dependencies"
-```
-
-## Scaling
-
-### Horizontal Scaling
-
-For multiple machines:
-
-1. Use database migration to PostgreSQL
-2. Add Redis for caching
-3. Load balance with nginx upstream groups
-4. Consider Kubernetes for orchestration
-
-### Vertical Scaling
-
-For single machine:
-
-1. Increase resources (CPU, RAM)
-2. Optimize database indexes
-3. Enable caching
-4. Monitor and tune
-
-## Disaster Recovery
-
-### Restore from Backup
-
-```bash
-# Stop services
-docker-compose down
-
-# Restore database
-rm /docker/volumes/wayfinderr-data/_data/wayfinderr.db
-cp /backups/wayfinderr/wayfinderr-2026-10-04.db \
-   /docker/volumes/wayfinderr-data/_data/wayfinderr.db
-
-# Restart
-docker-compose up -d
-```
-
-### Migration Between Servers
-
-```bash
-# On old server
-docker-compose exec wayfinderr-backend \
-  sqlite3 /app/data/wayfinderr.db ".backup /tmp/db.backup"
-docker cp wayfinderr-backend:/tmp/db.backup ./wayfinderr.db
-
-# On new server
-# Run setup as normal, then
-cp wayfinderr.db /docker/volumes/wayfinderr-data/_data/wayfinderr.db
-docker-compose restart wayfinderr-backend
-```
-
-## Maintenance Windows
-
-Schedule maintenance during low activity:
-
-```bash
-# Announce
-# Create maintenance page
-
-# Stop services
-docker-compose down
-
-# Maintenance tasks (updates, backups, etc)
-
-# Start services
-docker-compose up -d
-
-# Monitor
-docker-compose ps
-```
+- Create the account before the app is reachable; anyone with the setup code in the log can create
+  it. Forgotten password: `docker compose exec wayfinderr-backend node dist/cli.js reset-auth`, then
+  reopen the page and use the new code from the log.
+- Never commit `.env`; keep the API key secret and regenerate it if it leaks (account menu).
+- Publish no port but the frontend's; behind a reverse proxy bind it to `127.0.0.1` or publish none
+  (ports published by Docker bypass `ufw`).
+- Prefer SSH keys to passwords for the servers (`SSH_PRIVATE_KEY_PATH`).
+- Database backups contain the password hash and the session key: keep them private.

@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 480" width="960" height="480" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="t d">
+  <title id="t">How a film goes through Wayfinderr</title>
+  <desc id="d">A finished download (disc or RAR archive) is unpacked, identified on TMDB and ripped into the watch folder, where MakeMKV can also save files by hand. Each new MKV is read with ffprobe. Files without Italian audio, or with a twin of the same film around, can be held and merged by Dyadrr. Then the server with the most free space is picked, the file is uploaded over SFTP with retries, and afterwards the source torrent is removed and the file can be released on the tracker.</desc>
+  <style>
+    .bg { fill: #ffffff; }
+    .lane { fill: #f6f8fa; stroke: #d0d7de; }
+    .box { fill: #ffffff; stroke: #8b5cf6; stroke-width: 1.5; }
+    .opt { fill: #ffffff; stroke: #8b5cf6; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .title { fill: #1f2328; font-size: 14.5px; font-weight: 600; }
+    .sub { fill: #57606a; font-size: 11.5px; }
+    .lbl { fill: #57606a; font-size: 11.5px; font-weight: 600; letter-spacing: .06em; }
+    .edge { stroke: #57606a; stroke-width: 1.5; fill: none; }
+    .elabel { fill: #57606a; font-size: 11.5px; }
+    .arrow { fill: #57606a; }
+    .num { fill: #8b5cf6; }
+    .numt { fill: #ffffff; font-size: 11px; font-weight: 700; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .lane { fill: #161b22; stroke: #30363d; }
+      .box, .opt { fill: #0d1117; stroke: #a78bfa; }
+      .title { fill: #e6edf3; }
+      .sub, .lbl, .elabel { fill: #8b949e; }
+      .edge { stroke: #8b949e; }
+      .arrow { fill: #8b949e; }
+      .num { fill: #a78bfa; }
+      .numt { fill: #0d1117; }
+    }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" class="arrow"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="960" height="480" rx="12"/>
+
+  <!-- Lanes -->
+  <rect class="lane" x="16" y="16" width="928" height="134" rx="10"/>
+  <circle class="num" cx="38" cy="38" r="10"/><text class="numt" x="38" y="42" text-anchor="middle">1</text>
+  <text class="lbl" x="56" y="42">RIP (OPTIONAL, RIP_ENABLED)</text>
+
+  <rect class="lane" x="16" y="166" width="928" height="134" rx="10"/>
+  <circle class="num" cx="38" cy="188" r="10"/><text class="numt" x="38" y="192" text-anchor="middle">2</text>
+  <text class="lbl" x="56" y="192">CHECK</text>
+
+  <rect class="lane" x="16" y="316" width="928" height="134" rx="10"/>
+  <circle class="num" cx="38" cy="338" r="10"/><text class="numt" x="38" y="342" text-anchor="middle">3</text>
+  <text class="lbl" x="56" y="342">UPLOAD</text>
+
+  <!-- Lane 1 -->
+  <rect class="box" x="36" y="62" width="196" height="68" rx="10"/>
+  <text class="title" x="134" y="90" text-anchor="middle">Download complete</text>
+  <text class="sub" x="134" y="110" text-anchor="middle">ISO · BDMV · VIDEO_TS · RAR</text>
+
+  <rect class="opt" x="268" y="62" width="196" height="68" rx="10"/>
+  <text class="title" x="366" y="90" text-anchor="middle">Unpack</text>
+  <text class="sub" x="366" y="110" text-anchor="middle">RAR, on the disk with more room</text>
+
+  <rect class="box" x="500" y="62" width="196" height="68" rx="10"/>
+  <text class="title" x="598" y="90" text-anchor="middle">Identify</text>
+  <text class="sub" x="598" y="110" text-anchor="middle">the film on TMDB, its title</text>
+
+  <rect class="box" x="732" y="62" width="196" height="68" rx="10"/>
+  <text class="title" x="830" y="90" text-anchor="middle">Rip</text>
+  <text class="sub" x="830" y="110" text-anchor="middle">MakeMKV (or mkvmerge, ffmpeg)</text>
+
+  <path class="edge" d="M232 96 H 266" marker-end="url(#a)"/>
+  <path class="edge" d="M464 96 H 498" marker-end="url(#a)"/>
+  <path class="edge" d="M696 96 H 730" marker-end="url(#a)"/>
+  <path class="edge" d="M134 62 V 54 H 584" stroke-dasharray="3 3"/>
+  <path class="edge" d="M584 54 H 598 V 60" marker-end="url(#a)" stroke-dasharray="3 3"/>
+  <text class="elabel" x="290" y="50">a disc, no archive</text>
+
+  <!-- Lane 2 -->
+  <rect class="box" x="732" y="212" width="196" height="68" rx="10"/>
+  <text class="title" x="830" y="240" text-anchor="middle">Watch folder</text>
+  <text class="sub" x="830" y="260" text-anchor="middle">a rip, or MakeMKV by hand</text>
+
+  <rect class="box" x="500" y="212" width="196" height="68" rx="10"/>
+  <text class="title" x="598" y="240" text-anchor="middle">Read the tracks</text>
+  <text class="sub" x="598" y="260" text-anchor="middle">ffprobe: Italian audio, subtitles</text>
+
+  <rect class="opt" x="268" y="212" width="196" height="68" rx="10"/>
+  <text class="title" x="366" y="240" text-anchor="middle">Held for a merge</text>
+  <text class="sub" x="366" y="260" text-anchor="middle">no Italian, or a twin around</text>
+
+  <rect class="opt" x="36" y="212" width="196" height="68" rx="10"/>
+  <text class="title" x="134" y="240" text-anchor="middle">Merge with Dyadrr</text>
+  <text class="sub" x="134" y="260" text-anchor="middle">better video + Italian audio</text>
+
+  <path class="edge" d="M830 130 V 210" marker-end="url(#a)"/>
+  <path class="edge" d="M732 246 H 698" marker-end="url(#a)"/>
+  <path class="edge" d="M500 246 H 466" marker-end="url(#a)"/>
+  <path class="edge" d="M268 246 H 234" marker-end="url(#a)"/>
+  <text class="elabel" x="244" y="238">paired</text>
+
+  <!-- Lane 3 -->
+  <rect class="box" x="36" y="362" width="196" height="68" rx="10"/>
+  <text class="title" x="134" y="390" text-anchor="middle">Pick a server</text>
+  <text class="sub" x="134" y="410" text-anchor="middle">most free space that fits</text>
+
+  <rect class="box" x="268" y="362" width="196" height="68" rx="10"/>
+  <text class="title" x="366" y="390" text-anchor="middle">SFTP upload</text>
+  <text class="sub" x="366" y="410" text-anchor="middle">.part, size check, rename, retry</text>
+
+  <rect class="box" x="500" y="362" width="196" height="68" rx="10"/>
+  <text class="title" x="598" y="390" text-anchor="middle">Completed</text>
+  <text class="sub" x="598" y="410" text-anchor="middle">on the server, in the history</text>
+
+  <rect class="opt" x="732" y="362" width="196" height="68" rx="10"/>
+  <text class="title" x="830" y="390" text-anchor="middle">Afterwards</text>
+  <text class="sub" x="830" y="410" text-anchor="middle">remove the torrent, release</text>
+
+  <path class="edge" d="M134 280 V 360" marker-end="url(#a)"/>
+  <text class="elabel" x="142" y="326">merged file</text>
+  <path class="edge" d="M598 280 V 300 Q 598 308 590 308 H 252 Q 244 308 244 316 V 336 Q 244 344 236 344 H 182 Q 174 344 174 352 V 360" marker-end="url(#a)"/>
+  <text class="elabel" x="606" y="298">Italian, no twin</text>
+  <path class="edge" d="M232 396 H 266" marker-end="url(#a)"/>
+  <path class="edge" d="M464 396 H 498" marker-end="url(#a)"/>
+  <path class="edge" d="M696 396 H 730" marker-end="url(#a)"/>
+</svg>

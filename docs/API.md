@@ -413,7 +413,7 @@ GET /api/uploads/:id
   "hasItalianAudio": true,
   "hasItalianSubtitles": true,
   "mediaInfo": {
-    "container": { "format": "Matroska / WebM", "title": "Il padrino", "duration": 10533.4, "bitrate": 38512000, "chapters": 24 },
+    "container": { "format": "Matroska / WebM", "title": "La città sommersa", "duration": 10533.4, "bitrate": 38512000, "chapters": 24 },
     "videoTracks": [
       {
         "index": 0, "codec": "hevc", "profile": "Main 10", "width": 3840, "height": 2160, "aspectRatio": "16:9",
@@ -562,7 +562,7 @@ The source torrent's .torrent, sent before its upload exists: by [bookrr](https:
 Names are compared exactly; two stored torrents with the same name copy neither. The torrent cleanup then looks for that very hash in every client: found, a certain match (score 100, removed as usual once the upload is on a server); in none, `REMOVED`.
 
 ```
-POST /api/source-torrents?name=Dune.torrent&tmdbId=438631&label=video&origin=bookrr
+POST /api/source-torrents?name=Orbita.Silenziosa.torrent&tmdbId=900002&label=video&origin=bookrr
 Content-Type: application/x-bittorrent
 ```
 
@@ -578,10 +578,10 @@ Every stored torrent, the last first, or one by its v1 info hash (`404` when it 
 ```json
 {
   "infoHash": "edfb378dedd9bc772ded2f449f4b9219a41b5a32",
-  "name": "Dune.2021.1080p.BluRay",
-  "fileName": "Dune.torrent",
+  "name": "Orbita.Silenziosa.2023.1080p.BluRay",
+  "fileName": "Orbita.Silenziosa.torrent",
   "size": "48318382080",
-  "tracker": "tracker.example.org",
+  "tracker": "tracker.example.invalid",
   "tmdbId": 438631,
   "label": "video",
   "origin": "bookrr",
@@ -635,10 +635,10 @@ The media analysis (video, the best audio codec of each language, subtitles, lan
     "subtitles": ["ITA", "ENG"],
     "extraLanguages": { "audio": [], "subtitles": [] }
   },
-  "defaults": { "title": "Il padrino", "year": "1972", "version": "", "remux": true },
+  "defaults": { "title": "La città sommersa", "year": "2019", "version": "", "remux": true },
   "versions": ["Theatrical", "Extended", "Director's Cut", ...],
-  "rip": { "tmdbId": 238, "title": "Il padrino", "year": 1972 },
-  "remotePath": "/home/user/uploads/Il Padrino (1972).mkv",
+  "rip": { "tmdbId": 900001, "title": "La città sommersa", "year": 2019 },
+  "remotePath": "/home/user/uploads/La Città Sommersa (2019).mkv",
   "releaseDir": "downloads/qbittorrent",
   "releaseTag": "TAG",
   "hasTrackerCommand": true,
@@ -652,7 +652,7 @@ The media analysis (video, the best audio codec of each language, subtitles, lan
 POST /api/uploads/:id/release/preview
 Content-Type: application/json
 
-{ "title": "Il padrino", "year": "1972", "version": "Extended", "remux": true }
+{ "title": "La città sommersa", "year": "2019", "version": "Extended", "remux": true }
 ```
 
 Nothing changes. Returns `{ filename, folder, path, autoHybrid, error }`: `autoHybrid` when a REMUX has a Dolby Vision profile 8 layer (HYBRID, no VU); `error` when the name or the year is missing.
@@ -663,7 +663,7 @@ Nothing changes. Returns `{ filename, folder, path, autoHybrid, error }`: `autoH
 POST /api/uploads/:id/release
 Content-Type: application/json
 
-{ "title": "Il padrino", "year": "1972", "version": "", "remux": true, "overwrite": false }
+{ "title": "La città sommersa", "year": "2019", "version": "", "remux": true, "overwrite": false }
 ```
 
 Moves the file on the server (SFTP rename) into `<releaseDir>/<name>/<name>.mkv`, then queues the tracker command (`releaseStatus` `QUEUED`, or `RENAMED` without a command). `409` with `code: "exists"` when that file is already there: send again with `overwrite: true` to replace it. Renaming again moves the file from its current name (and removes the earlier folder if empty).
@@ -677,11 +677,11 @@ POST /api/uploads/:id/release/run
 POST /api/uploads/:id/release/dismiss
 ```
 
-`input` types the text and Enter into the command (`tmux send-keys`). `stop` sends Ctrl-C (Unit3Dup quits cleanly), and the session is killed 10 seconds later if still there; a queued command is just dropped. `run` runs the command again on the renamed file. When an earlier run already made its .torrent (the tracker answered with an error after the hashing, e.g. HTTP 403 or 404), that .torrent is still in a tracker folder of the archive (`<archive>/<TRACKER>/`, the one the earlier output hashed it for: `'ITT' <name> - 41.2 GB`) and ITTUP/Unit3Dup uses it again instead of hashing the file: the run then goes into a second queue of the server, for these re-uploads only, and does not wait for the other commands (`releaseMessage` says so). Without it, or when the server cannot be reached to look, it waits in the server's queue as usual. `dismiss` drops a `CONFIRM` (the name is not wanted now).
+`input` types the text and Enter into the command (`tmux send-keys`). `stop` sends Ctrl-C (Unit3Dup quits cleanly), and the session is killed 10 seconds later if still there; a queued command is just dropped. `run` runs the command again on the renamed file. When an earlier run already made its .torrent (the tracker answered with an error after the hashing, e.g. HTTP 403 or 404), that .torrent is still in a tracker folder of the archive (`<archive>/<TRACKER>/`, the one the earlier output hashed it for: `'TRK' <name> - 41.2 GB`) and the uploader uses it again instead of hashing the file: the run then goes into a second queue of the server, for these re-uploads only, and does not wait for the other commands (`releaseMessage` says so). Without it, or when the server cannot be reached to look, it waits in the server's queue as usual. `dismiss` drops a `CONFIRM` (the name is not wanted now).
 
 ### The .torrent
 
-Once the tracker accepts the upload (`DONE`), the .torrent Unit3Dup downloaded back from it is read from the Unit3Dup archive on the server, `<archive>/<TRACKER>/<name>.torrent` (the file name without its extension, with it, or the name of its folder), and stored with its info hash. The archive is the one ITTUP or Unit3Dup printed (`[*.torrent Archive] '...'`), the `TORRENT_ARCHIVE_PATH` of `~/ittup_config/ittup.json` or `~/Unit3Dup_config/Unit3Dbot.json`, or their default `~/ittup_config/torrent_archive_path` and `~/Unit3Dup_config/torrent_archive_path`; only a .torrent of this very file counts (it holds the file with the same name and size, alone or in its folder). Not found: `releaseMessage` says so and the upload shows the .torrent as missing.
+Once the tracker accepts the upload (`DONE`), the .torrent Unit3Dup downloaded back from it is read from the Unit3Dup archive on the server, `<archive>/<TRACKER>/<name>.torrent` (the file name without its extension, with it, or the name of its folder), and stored with its info hash. The archive is the one the uploader printed (`[*.torrent Archive] '...'`), the `TORRENT_ARCHIVE_PATH` of `~/ittup_config/ittup.json` or `~/Unit3Dup_config/Unit3Dbot.json`, or their default `~/ittup_config/torrent_archive_path` and `~/Unit3Dup_config/torrent_archive_path`; only a .torrent of this very file counts (it holds the file with the same name and size, alone or in its folder). Not found: `releaseMessage` says so and the upload shows the .torrent as missing.
 
 ```
 GET /api/uploads/:id/release/torrent
@@ -718,7 +718,7 @@ For a file already renamed on the server and uploaded to the tracker (before Way
 | `releaseMessage` | The outcome: the tracker's answer, or the error. Unit3Dup exits with 0 after a tracker error too, so its output decides |
 | `releaseStartedAt`, `releaseCompletedAt` | When the command started and ended |
 | `remoteFound` | `null` not looked for · `true` · `false` not found on the server by `link` |
-| `releaseTracker` | The archive folder the .torrent was in: the tracker's name (e.g. `ITT`) |
+| `releaseTracker` | The archive folder the .torrent was in: the tracker's name (e.g. `TRK`) |
 | `releaseTorrentName`, `releaseTorrentPath` | The .torrent's file name and where it is on the server |
 | `releaseTorrentHash` | Its v1 info hash (what the tracker and the clients know it by) |
 | `tmdbId` | The film on TMDB the command went on with, read from Unit3Dup's `'TMDB ID'........ 238` line when it ends (found on its own or typed in; `null` when skipped or not printed). Read from the kept output of earlier releases at start. A ripped upload also has its rip's (`tmdbId` in the rips list) |
@@ -755,9 +755,9 @@ DELETE /api/clients/:id
   "sshUsername": "root",
   "sshPassword": "secret",
   "hostWatchDir": "/mnt/data/extracted-mkv",
-  "releaseDir": "/mnt/data/downloads/ittup",
+  "releaseDir": "/mnt/data/downloads/releases",
   "releaseTag": "TAG",
-  "trackerCommand": "ittup -u {path}"
+  "trackerCommand": "uploader -u {path}"
 }
 ```
 
@@ -1032,8 +1032,8 @@ A pair:
   "id": "pair123",
   "uploadAId": "upload1",
   "uploadBId": "upload2",
-  "fileA": "/makemkv-output/Up (2).mkv",
-  "fileB": "/downloads/Up.2009.2160p/Up.mkv",
+  "fileA": "/makemkv-output/Il Mercante di Nuvole (2010).mkv",
+  "fileB": "/downloads/Il.Mercante.di.Nuvole.2010.2160p/Il.Mercante.di.Nuvole.mkv",
   "originalLanguage": "en",
   "status": "ELIGIBLE",
   "phase": null,
@@ -1068,7 +1068,7 @@ X-Api-Key: <the API key>
 ```json
 {
   "files": [
-    { "infoHash": "edfb378dedd9bc772ded2f449f4b9219a41b5a32", "name": "Dune.2021.2160p.UHD.BluRay", "label": "video" },
+    { "infoHash": "edfb378dedd9bc772ded2f449f4b9219a41b5a32", "name": "Orbita.Silenziosa.2023.2160p.UHD.BluRay", "label": "video" },
     { "infoHash": "0123456789abcdef0123456789abcdef01234567", "label": "audio ITA" }
   ],
   "tmdbId": 438631,
@@ -1114,7 +1114,7 @@ A plan:
   "files": [
     {
       "infoHash": "edfb378dedd9bc772ded2f449f4b9219a41b5a32",
-      "name": "Dune.2021.2160p.UHD.BluRay",
+      "name": "Orbita.Silenziosa.2023.2160p.UHD.BluRay",
       "label": "video",
       "uploadId": null,
       "upload": null,
@@ -1122,10 +1122,10 @@ A plan:
     },
     {
       "infoHash": null,
-      "name": "Dune.2021.ITA",
+      "name": "Orbita.Silenziosa.2023.ITA",
       "label": "audio ITA",
       "uploadId": "upload2",
-      "upload": { "id": "upload2", "filename": "Dune (2021).mkv", "status": "HELD" },
+      "upload": { "id": "upload2", "filename": "Orbita Silenziosa (2023).mkv", "status": "HELD" },
       "rip": null
     }
   ],
@@ -1145,7 +1145,7 @@ A plan:
 
 ```
 GET /api/merge/pairs/:id/merge-preview?name=
-POST /api/merge/pairs/:id/merge   { "choices": { "edgeMismatch": "drop" }, "outputName": "Up (2009)", "replaceExisting": false }
+POST /api/merge/pairs/:id/merge   { "choices": { "edgeMismatch": "drop" }, "outputName": "Il Mercante di Nuvole (2010)", "replaceExisting": false }
 GET /api/merge/pairs/:id/merge-report[?download=1]
 ```
 

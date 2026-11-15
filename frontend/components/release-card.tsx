@@ -264,7 +264,7 @@ export function ReleaseCard({ upload }: { upload: Upload }) {
               content={
                 upload.releaseName
                   ? 'Look for the file and its .torrent on the server again, and read its media info from there'
-                  : 'Already renamed and on the tracker? Find the file on the server (by size) and its .torrent in the ITTUP/Unit3Dup archive'
+                  : 'Already renamed and on the tracker? Find the file on the server (by size) and its .torrent in the uploader’s .torrent archive'
               }
             >
               <Button size="sm" variant="ghost" disabled={busy} onClick={() => run(() => linkRelease(upload.id))}>
@@ -278,7 +278,7 @@ export function ReleaseCard({ upload }: { upload: Upload }) {
               content={
                 upload.releaseTorrentHash
                   ? 'Replace the stored .torrent with one downloaded from the tracker'
-                  : 'Not in the ITTUP/Unit3Dup archive? Add the .torrent downloaded from the tracker'
+                  : 'Not in the uploader’s .torrent archive? Add the .torrent downloaded from the tracker'
               }
             >
               <Button size="sm" variant="ghost" disabled={busy} onClick={() => torrentInput.current?.click()}>

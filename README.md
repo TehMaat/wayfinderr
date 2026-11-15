@@ -2,399 +2,100 @@
   <img src="docs/assets/logo.svg" alt="Wayfinderr logo" width="128" height="128">
 </p>
 
-# Wayfinderr
+<h1 align="center">Wayfinderr</h1>
 
-Automated MKV file transfer system with intelligent server selection and real-time monitoring.
+<p align="center">
+  Rips your film discs, checks the Italian tracks and uploads every MKV to the server with the most free space.
+</p>
 
-Watches the MakeMKV output folder, checks each new MKV for Italian audio/subtitles, and uploads it via SFTP to the server with the most free space, with automatic retry. Optionally it also rips the film discs (ISO, Blu-ray and DVD folders) that land in the downloads folder, and removes the source torrent from qBittorrent once the film is uploaded.
+<p align="center">
+  <img src="https://img.shields.io/badge/Full%20Vibe%20Coded-100%25-8b5cf6" alt="Full Vibe Coded">
+  <a href="https://github.com/TehMaat/wayfinderr/actions/workflows/docker-publish.yml"><img src="https://github.com/TehMaat/wayfinderr/actions/workflows/docker-publish.yml/badge.svg" alt="Docker images"></a>
+  <img src="https://img.shields.io/github/package-json/v/TehMaat/wayfinderr?filename=backend%2Fpackage.json&label=version" alt="Version">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License"></a>
+</p>
 
-**Stack**: Node.js 20 • Express • Prisma + SQLite • Next.js 14 • WebSocket • Docker Compose (optional)
+> [!NOTE]
+> **Full Vibe Coded.** Wayfinderr is written entirely with AI coding assistants, from the first line
+> of code to this README. Read the code, try it on your own setup, and keep backups.
 
----
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/screenshots/dashboard-light.png">
+  <img src="docs/assets/screenshots/dashboard.png" alt="Wayfinderr dashboard">
+</picture>
+
+## What it does
+
+Wayfinderr watches the folder where MakeMKV saves its `.mkv` files. Every new file is checked for
+Italian audio and subtitles (ffprobe) and uploaded over SFTP to the server with the most free
+space, with retries. Optionally it also rips the film discs that finish downloading, removes the
+source torrent from qBittorrent, releases the file on a tracker and merges two rips of the same
+film.
+
+![How a film goes through Wayfinderr](docs/assets/diagrams/workflow.svg)
+
+**Stack**: Node.js 20 · Express · Prisma + SQLite · Next.js 14 · WebSocket · Docker Compose (optional)
 
 ## Features
 
-- 🎯 **Smart Server Selection** - Picks the server with the most free space that can hold the file: Ultra.cc slots (Ultra-API, over SSH while it is down), other seedboxes and plain SSH servers (account quota, else the disk, over SSH)
-- 🔍 **Media Verification** - Detects Italian audio/subtitle tracks with ffprobe
-- 📤 **Reliable Transfers** - SFTP upload to a temporary `.part` file, size check, then rename; automatic retry with backoff
-- 📊 **Real-Time Monitoring** - WebSocket-driven live dashboard
-- 💽 **Local Disk Space** - Free/used space of the disks holding the watch folder, the downloads (with ripping on) and the database, one bar per disk when they are on different disks
-- 🔄 **Job Queue** - Concurrent uploads (max 2 global, max 1 per server); unfinished uploads resume after a restart
-- 🧲 **Torrent Cleanup** - After the upload, finds the torrent the MKV was ripped from (names + TMDB titles in every language) and removes it from qBittorrent
-- 💾 **Full History** - SQLite-backed persistence with upload tracking
-- 🌐 **Web UI** - Dashboard, server management and upload history; dark or light theme, five accent colors
-- 🔐 **Login** - One password-protected account; the browser only talks to the frontend, which proxies the API, so one HTTPS reverse proxy entry is enough
-- 💿 **Automatic ripping** - Film discs that finish downloading are identified on TMDB and ripped with MakeMKV (main title, Italian + original language), then uploaded; anything unsure waits for a choice in the UI. When MakeMKV fails, unencrypted discs can be ripped without it (mkvmerge, ffmpeg)
-- 🏠 **Local release** - With room on this machine, a file is released from the local qBittorrent instead of uploaded: moved and sent to the tracker (ITTUP) over SSH on the machine qBittorrent runs on
-- 🔀 **Merge (in progress)** - Two rips of the same film, better video and Italian audio, merged into one file by [Dyadrr](https://github.com/TehMaat/dyadrr) in its own container, without re-encoding; the files of a pair are held instead of uploaded until then
-- 📦 **RAR archives** - Downloaded RAR archives are unpacked on whichever disk has more free space (downloads or watch folder): the disc inside is ripped, an .mkv is uploaded
-
----
-
-## Quick Start
-
-There are two ways to run it. On a Windows PC where MakeMKV runs, the **local** run is the simplest.
-
-### Option A: local run (no Docker)
-
-Prerequisites: [Node.js 20+](https://nodejs.org) and ffmpeg/ffprobe on the `PATH`.
-
-```bash
-# 1. Backend
-cd backend
-cp .env.example .env        # then set WATCH_DIR to your MakeMKV output folder
-npm install
-npm run db:deploy           # creates the SQLite database
-npm run dev                 # API on http://localhost:3001
-
-# 2. Frontend (second terminal)
-cd frontend
-npm install
-npm run dev                 # http://localhost:3000
-```
-
-Open http://localhost:3000. The frontend proxies `/api`, `/health` and the `/ws` WebSocket to the backend on `http://localhost:3001`; to use another address, set `BACKEND_URL` in `frontend/.env` (see `frontend/.env.example`).
-
-For an always-on install use `npm run build && npm start` in both folders instead of `npm run dev`. `BACKEND_URL` is compiled in by `npm run build`: rebuild after changing it.
-
-### Option B: Docker Compose (prebuilt images)
-
-Prerequisites: Docker with Compose v2. The images are built by GitHub Actions and published on `ghcr.io` (see [Docker images](#docker-images)), so nothing is built locally.
-
-```bash
-cp .env.example .env        # set MAKEMKV_OUTPUT_DIR (and WATCH_USE_POLLING=true on Windows/macOS)
-docker compose pull
-docker compose up -d
-docker compose logs -f wayfinderr-backend
-```
-
-To update: `docker compose pull && docker compose up -d` (with `--profile makemkv` on both if you run the MakeMKV service, or `COMPOSE_PROFILES=makemkv` in `.env`). Data (servers, history, login account) lives in the `wayfinderr-data` volume and survives updates.
-
-Open http://localhost:3000, or `http://<pc-ip>:3000` from other devices on the LAN. The browser only talks to the frontend, which proxies `/api`, `/health` and the `/ws` WebSocket to the backend over the compose network (service name `wayfinderr-backend`); the backend port is not published. To put it on a domain with HTTPS, see [Reverse proxy](./docs/DEPLOYMENT.md#reverse-proxy-https).
-
-ffprobe is included in the backend image. The dashboard's **This machine** card shows the disks as the container sees them: the watch folder is the host folder you mounted, the database lives in the `wayfinderr-data` volume (with Docker Desktop on Windows/macOS that is the Docker VM disk, not a Windows/macOS drive). To also run MakeMKV in Docker (Linux host with an optical drive), use `docker compose --profile makemkv up -d` and uncomment the `devices` section in `docker-compose.yml`.
-
-To build from source instead: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
-
-### Create the account
-
-Wayfinderr stays closed until its single account exists.
-
-1. Open http://localhost:3000: the first visit shows the setup screen.
-2. Copy the one-time **setup code** from the backend log: `docker compose logs wayfinderr-backend | grep "setup code"` (`docker logs wayfinderr-backend` if the container has that name; the backend terminal for a local run). To choose the code yourself, set `WAYFINDERR_SETUP_CODE` for the backend.
-3. Choose a username and a password (at least 8 characters).
-
-Anyone with the setup code can create the account: treat that log line as a secret, and create the account before exposing the app outside the LAN.
-
-Sessions last 30 days (HttpOnly cookie). The account menu at the bottom of the sidebar (your username) has **Change password** (signs out every other device), **API key** (for bookrr and scripts, sent as `X-Api-Key`), **Sign out** and **Sign out everywhere**. After 5 failed attempts in 15 minutes, a client has to wait before trying again.
-
-**Forgotten password**: delete the account, then reopen the page and create it again with the new setup code from the log (servers and history are kept):
-
-```bash
-docker compose exec wayfinderr-backend node dist/cli.js reset-auth   # or: docker exec wayfinderr-backend node dist/cli.js reset-auth
-# local run: cd backend && npm run build && npm run reset-auth
-```
-
-### Configure the servers
-
-1. Open http://localhost:3000 → **Servers** → **Add server**
-2. Pick the **server type**:
-   - **Ultra.cc**: its free space comes from the Ultra-API (over SSH while the API does not answer)
-   - **Other seedbox** (Whatbox, Feral…) or **Plain server** (VPS, NAS, a machine on the LAN): no API, the free space is read over SSH (the account quota, else the disk of the remote folder)
-3. Fill in:
-   - **Ultra.cc only: Username and Host** (`alice` and `zeus` for `zeus.usbx.me`): they fill in the SSH login and the **Ultra-API endpoint**, `https://user.host.usbx.me/ultra-api/get_diskquota`; add the **Ultra-API token** from the Ultra.cc [Storage/Traffic API script](https://docs.ultra.cc/unofficial-ssh-utilities/storagetraffic-api-endpoint)
-   - **SSH Host / Port / Username / Password**: the SSH login (leave the password blank to use the key in `SSH_PRIVATE_KEY_PATH`)
-   - **Remote Folder**: where the files go, e.g. `/home/<user>/media/movies` (created if missing)
-   - **Media Policy**: skip files without Italian audio/subs, or always upload
-4. Click **Test**: it reads the free space (the API, or over SSH) and checks the SSH/SFTP login
-5. Repeat for every server
-
-From now on every new `.mkv` in the watch folder, subfolders included, is uploaded automatically. A file is picked up once its size has been stable for 30 seconds. The folder is also rescanned every 30 seconds, so files the watcher misses (it can happen on Docker Desktop and network shares) are still picked up, within a minute or two. With `DELETE_AFTER_UPLOAD=true` the local file is deleted once it is on the server.
-
-### Automatic ripping (optional)
-
-For films downloaded as discs: every `.iso`, Blu-ray folder (`BDMV`) or DVD folder (`VIDEO_TS`) that finishes downloading is ripped to MKV and uploaded.
-
-1. In `.env`: `RIP_ENABLED=true`, `DOWNLOADS_DIR` (the torrent client's download folder), `TMDB_API_KEY` ([themoviedb.org](https://www.themoviedb.org/settings/api) API key or read access token) and `MAKEMKV_KEY` (your registration key, or `BETA`).
-2. Start the MakeMKV service too: `docker compose --profile makemkv up -d`. Its image, `wayfinderr-makemkv`, is [jlesage/makemkv](https://github.com/jlesage/docker-makemkv) (web GUI on port 5800) plus a runner that executes the rips Wayfinderr asks for.
-
-For each disc Wayfinderr:
-
-1. waits until the download is complete (no `.!qB`/`.part` files, nothing changed for `RIP_QUIET_MINUTES`);
-2. reads its titles (`makemkvcon info`);
-3. finds the film on TMDB from the download name (title and year), or from the disc label;
-4. picks the film's title: the only one at least `RIP_MIN_LENGTH` long (45 minutes; shorter extras are ignored);
-5. rips it keeping video, audio and subtitles in Italian and in the film's original language (Italian first); when the disc has no audio in the original language but has some in another one (a Japanese anime dubbed in English), it asks which one to keep in its place;
-6. moves it to the watch folder as `Title (Year).mkv`, with the Italian TMDB title: the upload follows.
-
-With merging on (`MERGE_ENABLED`, see *Merge with Dyadrr*), a disc without Italian is ripped too, as the better video of a merge: it keeps the original language and English (Dyadrr measures the sync on a language both files have), and its file is held for the merge.
-
-It never guesses: when a disc has more than one long title (several films or cuts) and more than one of them (or none) has Italian audio, many look-alike playlists, no Italian track (with merging off), no audio in the original language (*Choose…* → *Second language*), more discs in the same download, an unsure TMDB match, or there is not enough space, the rip stops on **Rips** → *Needs attention*: *Choose…* the title and/or the film there and it goes on. A film TMDB doesn't know can be ripped all the same: it keeps every language and is named after the download. When the backend starts, the rips still waiting for their film are looked up on TMDB again (and again 10 minutes later if TMDB does not answer), so an update that recognizes more titles also applies to them: the ones identified go on by themselves, or wait only for the title choice. Downloads already in the folder the first time are listed as skipped (*Rip anyway* from the page, or `RIP_EXISTING=true`).
-
-A film already ripped can be ripped again while its disc is still in the downloads (after a change to the tracks kept, for instance): the rip's menu → *Rip again…* rips the same title as the same film with the current settings. The earlier file in the watch folder is deleted right away; the new one gets the same name, and its upload replaces the copy on the server. A joined film is ripped again from every disc and joined again. Not while its upload is still running.
-
-If the torrent client keeps the downloads in progress in a folder inside the downloads (e.g. qBittorrent's *Keep incomplete torrents in* `/downloads/torrents`) and moves them to the downloads folder once complete, pick that folder in **Rips** → *Exclusions* → *Ignored folders*: it is never searched, and the discs listed from it leave the list. Tick *Downloads arrive complete* too: what appears in the downloads is then handled within a minute or two instead of waiting `RIP_QUIET_MINUTES` without changes.
-
-To keep some discs from being ripped (TV series, extras discs...), add rules in **Rips** → *Exclusions*: a disc whose path in the downloads contains one of them (`Serie TV/`, `S0*E`; `*` matches any text, case doesn't matter) is listed as skipped. The dialog shows which discs each rule matches. A new rule also skips the discs not ripped yet; removing it puts back in the queue the discs it skipped.
-
-The rips run one at a time inside the MakeMKV container; Wayfinderr only exchanges small job files with it in `<watch folder>/.wayfinderr`. Set the MakeMKV container's `USER_ID`/`GROUP_ID` to the owner of the watch folder: at start it takes ownership of `/output` if it cannot write there.
-
-#### RAR archives
-
-RAR archives in the downloads (`.rar`, `.part1.rar` + `.part2.rar`..., `.rar` + `.r00`...) are unpacked with `unrar` (included in the Docker image; for a local run install it, or set `UNRAR_PATH`, e.g. `C:/Program Files/WinRAR/UnRAR.exe`). Once the download is complete, Wayfinderr lists the archive without unpacking it:
-
-- one film inside, a disc (ISO, `BDMV`, `VIDEO_TS`) or an `.mkv` (samples aside): it is unpacked;
-- nothing else is handled: an archive without a film (subtitles, extras), with several films, password-protected or holding links is listed as skipped, with the reason.
-
-**Where it is unpacked.** Wayfinderr checks the free space of the disk holding the downloads and of the one holding the watch folder, and unpacks the archive on the one with more space left afterwards (2 GB always stay free). A disc unpacked next to the watch folder counts twice there, since its rip goes there too. Without room on either disk the archive stops on *Needs attention* with the free space of each: free some space, then *Retry*.
-
-- Next to the downloads: `<downloads>/.wayfinderr/unpack/`. With Docker the downloads are read-only for the backend except this folder, mounted writable by `docker-compose.yml`; without that line archives are only unpacked next to the watch folder (the Rips page tells which disks are used).
-- Next to the watch folder: `<watch folder>/.wayfinderr/unpack/`.
-
-**Then:**
-
-- a disc is ripped like any other (MakeMKV reads it where it was unpacked); the unpacked copy is deleted once the rip is done;
-- an `.mkv` is named `Title (Year).mkv` like a rip (TMDB title, or the download name). Unpacked next to the watch folder, it is moved there and uploaded like any other file. Unpacked next to the downloads, it is uploaded from there (moving it would mean copying it to the other disk) and deleted once on the server, or skipped by the server's media policy, or when its upload is deleted; until then a failed or stopped upload can be retried.
-
-Archives are unpacked one at a time, between rips. *Skip* stops an unpacking and deletes what was unpacked. Archives already in the downloads when this was added are listed as skipped (*Rip anyway*, or `RIP_EXISTING=true`). To never unpack them, add the exclusion rule `.rar`.
-
-#### Rip without MakeMKV
-
-When MakeMKV can't rip a disc (makemkvcon crashes, the `BETA` key expired, the runner is offline), **Rips** → the rip's menu → *Rip without MakeMKV* rips it with the backend's own tools instead, included in the Docker image:
-
-| Disc | Tool | Notes |
-|---|---|---|
-| Blu-ray folder (`BDMV`) | `mkvmerge` on the film's playlist (`.mpls`) | joins its clips; languages from `CLIPINF`, chapters from the playlist |
-| Blu-ray `.iso` | the playlist's files extracted with 7-Zip (`7zz`), then `mkvmerge` | needs twice the film's size free on the watch folder disk |
-| DVD (`VIDEO_TS` or `.iso`) | `ffmpeg` (`dvdvideo` input, ffmpeg 7+ built with libdvdnav) | languages, subtitles (VobSub) and chapters from the IFO files |
-
-The disc's titles are read again without MakeMKV (a Blu-ray title is its playlist number, e.g. *Title 800* is `00800.mpls`; a DVD title is the DVD's own), then the rip goes on as usual: the film's title is picked automatically or chosen in *Choose…* (a Blu-ray title already chosen on MakeMKV's scan is kept), the tracks kept are the same (Italian first and default, plus the original language) and the file is moved to the watch folder as `Title (Year).mkv`. *Retry with MakeMKV* goes back to MakeMKV.
-
-Limits: nothing is decrypted, so only unencrypted discs work (as downloaded discs usually are); a Blu-ray played through several angles keeps the first one, 3D keeps only the 2D picture, and forced subtitles are not told apart. Neither tool reports a damaged download, so the playlist's clips must all be there and whole, and the ripped file must be as long as the title: a missing or cut clip fails the rip with the reason. A damaged chunk inside a clip goes unnoticed (that part of the film is skipped). Running locally (no Docker), install MKVToolNix, 7-Zip and ffmpeg 7+, or set `MKVMERGE_PATH`, `SEVENZIP_PATH`, `FFMPEG_PATH`, `FFPROBE_PATH`; the Rips page shows which discs can be ripped without MakeMKV.
-
-### Remove the source torrent (optional)
-
-If the films come from qBittorrent, Wayfinderr can remove each torrent once its MKV is uploaded.
-
-1. In qBittorrent enable the WebUI (Tools → Options → WebUI). Optional: put the disc torrents in a category such as `rip`
-2. Open **Clients** → **Add client**: URL (`http://localhost:8080`; from Docker `http://host.docker.internal:8080`), username/password (or an API key on qBittorrent 5.2+, or blank if the WebUI skips login for this host), category, and whether to keep or delete the downloaded files
-3. Click **Test connection**
-4. For MKVs not ripped by Wayfinderr, set `TMDB_API_KEY` (the ripper's key, see above) so that `IL_PADRINO_t00.mkv` matches `The.Godfather.1972.1080p.BluRay`
-
-How a torrent is matched and removed:
-
-- **Its .torrent sent beforehand** (by [bookrr](https://github.com/TehMaat/bookrr), or added in **Clients** → *Source .torrent files*): copied into the upload as soon as the rip of its download is done, the torrent is the one with that very info hash, whatever client it is in. See below
-- **Ripped by Wayfinderr** (automatic ripping above): the torrent is the one whose folder or file is the rip's download, an exact match whatever the names. With several discs in one download, it waits for all of them
-- **Any other MKV**: the MKV name and its folders inside the watch folder (`_t00`, `DISC_1`, release tags and the leading article are ignored) are compared with every finished torrent's name, content folder and TMDB titles. Generic names such as `title_t00.mkv` never match: rename the file or rip into a folder named after the movie
-- **Automatic** only when it is 100% the torrent: the rip's download, or for a name match the very same title (score 100) with a year in both the MKV name (file or folder, e.g. `Il padrino (1972)`) and the torrent (its name, or its TMDB film) that agrees, and no other torrent matching at all. Anything less (`Blade Runner` vs `Blade Runner 2049`, `IL_PADRINO_t00.mkv` with no year, the title spelled differently, two torrents of the same movie) only shows a suggestion and a **Remove torrent now** button on the upload page
-- The removal waits 5 minutes, then until no other rip or upload of the same download is still running (for an MKV matched by name: no other MKV of the same film queued or uploading, and no MKV in the watch folder written in the last 2 minutes, since MakeMKV may still be ripping the other titles from that ISO)
-- Only finished torrents are ever considered. Note that removing a torrent stops seeding: on private trackers check your ratio rules, or leave **When matched** on "Only suggest"
-
-### Source .torrent files from bookrr (optional)
-
-[bookrr](https://github.com/TehMaat/bookrr) can send the source torrent's .torrent of a film it downloaded, so that the upload keeps it (to download it again) without adding it by hand:
-
-1. Account menu (your username at the bottom of the sidebar) → **API key** → copy it
-2. In bookrr, give that client the address of Wayfinderr and the key
-
-Once the download is complete bookrr sends the .torrent (`POST /api/source-torrents`); Wayfinderr keeps it and copies it into the upload as soon as the rip of that download is done (the rip's download has the torrent's name), or when a file in the watch folder sits under that name. **Clients** → *Source .torrent files* lists them (with the ones still waiting for their rip), downloads and deletes them, and takes .torrent files by hand too. They are kept for good. With a merge, each of the two files gets its own; the merged file's page shows both.
-
-The API key works for every API: keep it secret, and regenerate it from the same dialog if it leaks.
-
-### Release locally (optional)
-
-With room on this machine, a file can be released from the qBittorrent client here instead of being uploaded to a server: the same rename and tracker command as on a server (the **Tracker** card), run over SSH on the machine qBittorrent runs on.
-
-1. On that machine: an SSH login, `tmux`, and the tracker command ([ITTUP](https://github.com/TehMaat/ittup)) set up to seed in this qBittorrent (`ittup.json`). ITTUP gives qBittorrent the folder of the file as it sees it, so qBittorrent must see the release folder at the same path: with qBittorrent in Docker, mount it there too (e.g. `- /mnt/data/downloads/ittup:/mnt/data/downloads/ittup`) and leave `SHARED_QBIT_PATH` on `no_path` (it would put every release in one fixed folder)
-2. **Clients** → edit the client → **Local release** on: SSH host (from Docker, the host's address on the Docker network) and login, the **watch folder** as that machine sees it (e.g. `/mnt/data/extracted-mkv` for a container's `/makemkv-output`), the **release folder** (e.g. `/mnt/data/downloads/ittup`, a folder qBittorrent sees too), the release tag and the tracker command (`ittup -u {path}`). The watch folder and the release folder must be on the same disk: the file is moved, not copied
-3. **Test connection** also checks the SSH login, both folders, tmux and the command
-
-Then **Release locally…** shows in the menu of an upload not on a server yet (queued, uploading, failed, skipped or stopped) and in its **Tracker** card: the upload stops, the file is moved into `<release folder>/<name>/<name>.mkv` on that machine and the tracker command uploads it and seeds it there. The upload then counts as completed (on the client, "qBittorrent (local)"), and its source torrent is cleaned up as after an upload.
-
-### Merge with Dyadrr (optional, in progress)
-
-[Dyadrr](https://github.com/TehMaat/dyadrr) merges two rips of the same film into one file: the better video (a foreign UHD, say) with the Italian audio and subtitles of the other (the Italian Blu-ray), lined up and added without re-encoding. It runs in its own container; Wayfinderr hands it jobs through the watch folder.
-
-1. In `.env`: `MERGE_ENABLED=true` (needs `RIP_LANGUAGE=it`: Dyadrr only works with Italian).
-2. Start the Dyadrr service too: `docker compose --profile merge up -d`. Its image is `ghcr.io/tehmaat/dyadrr` (`DYADRR_TAG`, `latest` by default).
-
-With merging on, a new file in the watch folder can be **held** instead of uploaded, so both files of a pair are still on the disk when they are merged:
-
-- a file **without Italian audio** is always held: it may be the better video of a merge (it would otherwise be skipped, or uploaded without Italian);
-- a file **with Italian audio** is held when a **twin** of the same film is around, certain or doubtful: a held file without Italian, a rip not finished yet, or a torrent of the download clients (downloading or not; the one the file was ripped from left out). Names are compared against every TMDB title of the film (translations, alternative titles), so the Italian Blu-ray of *Altrimenti ci arrabbiamo!* finds the German UHD `Zwei.wie.Pech.und.Schwefel.1974`. A download client that cannot be reached counts as a doubt too;
-- with no twin it is uploaded as before.
-
-**Holding by hand.** When Wayfinderr cannot tell on its own (the other torrent is not in the client yet, its name says nothing, the second disc is ripped later), say it yourself:
-
-- **Hold for merge** in an upload's menu, or on its page, for a file not on a server yet (pending, queued, failed, skipped or stopped): it leaves the upload queue and is held (*Held by hand*). Once it is uploading, stop it first;
-- **Hold for merge** in a rip's menu, at any time before it is done (also while the torrent is still downloading): its file is held as it arrives, without looking for a twin, every part of a join and the `.mkv` of an archive included. The rip shows a *Hold* badge;
-- **Hold every new file**, the switch on the **Merge** page: while on, everything that arrives is held. Rough, but handy while many films to merge come in;
-- **Plan a pair…** on the **Merge** page: two downloads, among the rips not finished, the torrents of the clients and the files not uploaded yet, that will become a pair. Each file is held as it arrives (*Planned pair*); once both are there the pair is created and analyzed on its own. The confirmation before the merge stays. bookrr does the same through the API when it sends the two torrents of a merge (`POST /api/merge/plans`, with the API key, see [docs/API.md](docs/API.md#planned-pairs)), by their info hashes.
-
-A held file is never uploaded, deleted, released locally, cleaned up with its archive or its torrent, until you choose on the **Merge** page, or on its upload page: **Pair…**, **Upload as it is** (the server's media policy still applies) or **Delete file…**. Leaving it there waits for the twin, with no time limit. The page and the upload say why it was held, and which twin was found.
-
-**Pairing and analysis.** **Pair…** on a held file (or **Pair files…** at the top of the page) pairs it with its twin: any two files still on the disk and not being uploaded, held or not; the likely twin is listed first. Dyadrr tells which one is the better video and which one the Italian file, and runs its analysis in its container: it measures how the Italian lines up with the video along the whole film, without writing anything. The page follows it live, then shows what it found: the offset, how much of the film the two files have in common, where the Italian audio goes, the Italian tracks, the warnings, and the choices still to make with what each value would do; or why the pair was refused (`CHECKPOINT_CONTRADICTION`, `LOW_COVERAGE`...), with Dyadrr's full report a click away. The original language (the sync is measured on it when both files have it, else on English) comes from the rip or TMDB, or is typed in. A file being analyzed cannot be uploaded or deleted until it ends or is stopped.
-
-**Merge.** **Merge…** on a pair that can be merged asks the choices left pending (each with what it does) and the merged file's name: the film's usual name (the rip's `Title (Year)`, else its TMDB title, else the better video's file name), in the watch folder. When a file with that name is already in the watch folder or on a server, it asks whether to replace it (the local file is deleted, the upload replaces the one on the server) or stop to check. Dyadrr then checks that nothing changed since the analysis (`--expect`), merges without re-encoding and verifies the result; the page follows it live. The merged file goes to the upload queue like any rip (never held); the two files become **Merged**, and are kept or deleted as set in **Choices** (only the ones in the watch folder: the downloads belong to the torrent client); once the merged file is on a server, the source torrents of both are cleaned up. A merge stopped or failed (`NO_SPACE`, `INPUT_CHANGED`, `VERIFY_FAILED`...) is not a refusal: the pair stays mergeable, with the reason, to merge again. Only one thing writes a film at a time: a merge waits for the rip, unpacking or join in progress to end (*Waiting for the rip in progress to end*), and the next rip waits for the merge, since neither counts the space the other is about to use.
-
-**Choices.** Some pairs need a decision (Dyadrr's *scelte*): the Italian past the end of the video (cut or keep), which Italian audio tracks (all or the main one), Italian PGS already in the better video (keep or drop), the Italian over a different intro or ending (leave out or keep). **Choices** sets each one to a fixed value, passed to every analysis, or to *Ask each time* (the default): the analysis then leaves it pending and shows what each value does, and the merge asks it. It also sets what happens to the two files after a merge: kept (the default) or deleted.
-
-The `dyadrr` service mounts the watch folder writable as `/data/watch` (the job files in `<watch folder>/.wayfinderr/dyadrr/jobs`, the merged film and Dyadrr's temporary files) and the downloads read-only as `/data/downloads`. It keeps the fixed host name `dyadrr`: Dyadrr recognizes its own temporary files by host name, so the ones left by a job stopped abruptly are removed by the next job only if the name stays the same. Only one Dyadrr container per watch folder.
-
----
-
-## Configuration
-
-| Variable | Default | Description |
-|---|---|---|
-| `WATCH_DIR` | `/makemkv-output` | Folder to watch (local run) |
-| `MAKEMKV_OUTPUT_DIR` | `./makemkv-output` | Host folder mounted as the watch folder (Docker) |
-| `WATCH_USE_POLLING` | `false` | Poll the folder instead of using file events (needed for Docker Desktop and network shares) |
-| `DATABASE_URL` | `file:../data/wayfinderr.db` | SQLite file, relative to `backend/prisma/` |
-| `MAX_CONCURRENT_UPLOADS` | `2` | Max uploads running at the same time |
-| `SSH_PRIVATE_KEY_PATH` | – | SSH key for servers saved without a password |
-| `WAYFINDERR_TAG` | `latest` | Docker image version to run |
-| `WAYFINDERR_SETUP_CODE` | random | Backend: fixed setup code for creating the account, instead of the one printed in the log |
-| `BACKEND_URL` | `http://wayfinderr-backend:3001` (Docker image), `http://localhost:3001` (local run) | Frontend **build** setting: where the frontend server proxies `/api`, `/health` and `/ws`. Compiled in by `next build` (Docker build arg), so changing it means rebuilding |
-| `DELETE_AFTER_UPLOAD` | `false` | Delete the local `.mkv` once uploaded |
-| `RIP_ENABLED` | `false` | Rip film discs from the downloads folder (needs the `makemkv` service) |
-| `DOWNLOADS_DIR` | `./downloads` | Docker: host folder with the downloads, mounted read-only in the backend (`/downloads`, but for its `.wayfinderr` folder where archives are unpacked) and MakeMKV (`/storage`) |
-| `RIP_SOURCE_DIR` | `/downloads` | Backend: the downloads folder as it sees it |
-| `RIP_WORK_DIR` | `<WATCH_DIR>/.wayfinderr` | Backend: folder shared with the MakeMKV runner (jobs, rips in progress) |
-| `RIP_QUIET_MINUTES` | `10` | A download is complete when nothing changed for this long |
-| `RIP_MIN_LENGTH` | `2700` | Seconds: shorter titles are never the film |
-| `RIP_EXISTING` | `false` | Also rip the downloads already there when ripping is first enabled |
-| `RIP_LANGUAGE` | `it` | Language always kept (ISO 639-1), besides the film's original one |
-| `UNRAR_PATH` | `unrar` | Backend: the unrar command for RAR archives (in the Docker image) |
-| `MKVMERGE_PATH` | `mkvmerge` | Backend: mkvmerge, to rip a Blu-ray without MakeMKV (in the Docker image) |
-| `SEVENZIP_PATH` | `7zz` | Backend: 7-Zip, to read an ISO without MakeMKV (in the Docker image) |
-| `FFMPEG_PATH` / `FFPROBE_PATH` | `ffmpeg` / `ffprobe` | Backend: to rip a DVD without MakeMKV; needs ffmpeg 7+ with the `dvdvideo` input (in the Docker image) |
-| `TMDB_API_KEY` | – | themoviedb.org API key (v3) or read access token; without it every rip waits for a choice, and torrents are matched only by names in the same language |
-| `TMDB_LANGUAGE` | `it-IT` | Language of the title used for the file name |
-| `MAKEMKV_KEY` | `BETA` | MakeMKV container: registration key, or `BETA` for the free beta key |
-| `WAYFINDERR_RUNNER` | `1` | MakeMKV container: `0` turns the runner off |
-| `WAYFINDERR_CACHE_MB` | `1024` | MakeMKV container: read cache of a rip |
-| `MERGE_ENABLED` | `false` | Merge two rips of a film with Dyadrr (needs the `dyadrr` service and `RIP_LANGUAGE=it`) |
-| `DYADRR_TAG` | `latest` | Docker: Dyadrr image version (`latest`, a release like `0.21.0`, or `sha-<commit>`) |
-
----
-
-## Docker images
-
-The [`Docker images`](.github/workflows/docker-publish.yml) workflow builds the images on every push to `main` and publishes them to GitHub Container Registry. Every tag is multi-platform, `linux/amd64` and `linux/arm64` (Raspberry Pi 4/5, ARM NAS): Docker pulls the one for your machine.
-
-| Image | Tags |
+- 🎯 **Smart server choice**: the server with the most free space that can hold the file. Ultra.cc slots (Ultra-API, or SSH while it is down), other seedboxes and plain SSH servers (account quota, else the disk, over SSH)
+- 🔍 **Media check**: Italian audio and subtitles read with ffprobe; a per-server policy skips files without them
+- 📤 **Reliable transfers**: SFTP to a temporary `.part` file, size check, rename; retries with backoff; unfinished uploads resume after a restart
+- 📊 **Live dashboard**: progress, speed and time left over WebSocket; free space of every server and of the local disks
+- 💿 **Automatic ripping**: discs (ISO, Blu-ray, DVD, also inside RAR archives) identified on TMDB and ripped with MakeMKV, Italian + original language; anything unsure waits for a choice. Unencrypted discs can be ripped without MakeMKV (mkvmerge, ffmpeg)
+- 🧲 **Torrent cleanup**: once uploaded, the source torrent is found (its download, or names and TMDB titles in every language) and removed from qBittorrent
+- 🏷️ **Tracker release**: rename on the server and run your tracker upload command in `tmux`, following its output; or release locally from the qBittorrent machine
+- 🔀 **Merge** (in progress): two rips of a film, better video and Italian audio, merged by [Dyadrr](https://github.com/TehMaat/dyadrr) without re-encoding
+- 🔐 **Login**: one account, sessions, API key for scripts; one reverse proxy entry is enough
+- 🌗 **Dark and light theme**, five accent colors
+
+## Screenshots
+
+| | |
 |---|---|
-| `ghcr.io/tehmaat/wayfinderr-backend` | `latest`, `sha-<commit>`, `1.2.3` / `1.2` for git tags `v1.2.3` |
-| `ghcr.io/tehmaat/wayfinderr-frontend` | same |
-| `ghcr.io/tehmaat/wayfinderr-makemkv` | same (jlesage/makemkv + the rip runner) |
+| ![Rips](docs/assets/screenshots/rips.png) **Rips**: discs found in the downloads, ripped or waiting for a choice | ![Upload details](docs/assets/screenshots/upload-details.png) **Upload details**: transfer, media info, source torrent, release |
+| ![Merge](docs/assets/screenshots/merge.png) **Merge**: files held for a merge, pairs being analyzed | ![Servers](docs/assets/screenshots/servers.png) **Servers**: free space, type and status of every server |
 
-To publish a version: `git tag v1.0.0 && git push --tags`, then set `WAYFINDERR_TAG=1.0.0` in `.env`.
+All screenshots use made-up data. More in the [User guide](docs/USAGE.md).
 
-**Visibility.** New packages are private. To pull a private image, log in once with a [personal access token (classic)](https://github.com/settings/tokens/new?scopes=read:packages) with the `read:packages` scope:
+## Quick start
+
+With Docker Compose and the prebuilt images:
 
 ```bash
-docker login ghcr.io -u <github-user>
+git clone https://github.com/TehMaat/wayfinderr.git
+cd wayfinderr
+cp .env.example .env        # set MAKEMKV_OUTPUT_DIR (and WATCH_USE_POLLING=true on Windows/macOS)
+docker compose up -d
 ```
 
-To make an image public: GitHub → your profile → **Packages** → the image → **Package settings** → **Change visibility** → Public. This cannot be undone, and anyone can then pull the image (which contains the compiled code).
+1. Open http://localhost:3000.
+2. Create the account with the setup code from `docker compose logs wayfinderr-backend | grep "setup code"`.
+3. **Servers** → **Add server** → **Test**.
 
----
+Every new `.mkv` in the watch folder is then uploaded. Other ways to install it (built from
+source, local run on Windows without Docker), MakeMKV and Dyadrr in Docker, updates:
+**[Installation](docs/INSTALLATION.md)**.
 
-## Project Structure
+## Documentation
 
-```
-wayfinderr/
-├── docker-compose.yml        # runs the prebuilt images
-├── docker-compose.build.yml  # override to build from source
-├── .env.example              # Docker Compose settings
-├── .github/workflows/        # image build + publish
-├── backend/              # Express API, file watcher, upload queue
-│   ├── .env.example      # local run settings
-│   ├── src/
-│   └── prisma/           # schema + migrations
-├── frontend/             # Next.js UI
-├── makemkv/              # wayfinderr-makemkv image: jlesage/makemkv + rip runner
-├── docs/
-└── scripts/              # setup/start/stop helpers for Docker
-```
-
----
-
-## API Endpoints
-
-Served through the frontend (`http://localhost:3000/api/...`). Every route except `/api/auth/*` needs the session cookie; see [docs/API.md](./docs/API.md).
-
-### Auth
-- `GET /api/auth/status` - Account configured? Logged in as?
-- `POST /api/auth/setup` - Create the account (setup code from the log)
-- `POST /api/auth/login` / `POST /api/auth/logout` - Sign in / out
-- `POST /api/auth/change-password` - Change password, sign out other sessions
-- `POST /api/auth/logout-everywhere` - Sign out every session
-
-### Servers
-- `GET /api/servers` - List all servers (secrets are never returned: `hasApiToken`, `hasSshPassword`)
-- `POST /api/servers` - Create server
-- `PUT /api/servers/:id` - Update server (blank token or password = keep current)
-- `DELETE /api/servers/:id` - Delete server
-- `POST /api/servers/:id/test` - Test Ultra.cc API + SSH/SFTP
-
-### Uploads
-- `GET /api/uploads?limit=50` - List uploads
-- `GET /api/uploads/:id` - Get upload details
-- `POST /api/uploads/:id/retry` - Re-queue a failed, skipped or stopped upload
-- `POST /api/uploads/:id/cancel` - Stop a queued or running upload (the partial file on the server is deleted)
-- `POST /api/uploads/:id/torrent/check` - Match the upload to its source torrent again
-- `POST /api/uploads/:id/torrent/remove` - Remove the matched torrent now
-
-### Clients (qBittorrent)
-- `GET /api/clients` / `POST /api/clients` / `PUT /api/clients/:id` / `DELETE /api/clients/:id`
-- `POST /api/clients/:id/test` - Login + version + finished torrents in scope
-
-### Space
-- `GET /api/space` - All servers' space
-- `POST /api/space/:id/refresh` - Refresh cache
-
-### System
-- `GET /api/system/disks` - Free/used space of the disks holding the watch folder, the downloads (with ripping on) and the database
-
-### Rips
-- `GET /api/rips` - Rips and the ripping status (enabled, runner online, TMDB configured)
-- `POST /api/rips/:id/choose` - Rip with the given `titleIndex` and/or `tmdbId` (`queue: false`: only save them, to rip later)
-- `POST /api/rips/:id/retry` - Scan and choose again (with MakeMKV)
-- `POST /api/rips/:id/remux` - Rip without MakeMKV (mkvmerge, 7-Zip, ffmpeg)
-- `POST /api/rips/:id/rip-again` - Rip a done film again from its disc (same film and title)
-- `POST /api/rips/:id/skip` - Never rip it (stops a running rip)
-- `GET /api/rips/tmdb/search?query=&year=` - Search a film on TMDB
-
-### Merge
-- `GET /api/merge` - Merge status (enabled, Dyadrr runner online, language supported, files held)
-- `POST /api/uploads/:id/hold/upload` - Upload a file held for a merge as it is
-- `POST /api/uploads/:id/hold/delete` - Delete a file held for a merge (file and record)
-- `GET /api/merge/candidates` - Files that can be paired
-- `GET /api/merge/pairs` / `POST /api/merge/pairs` - Merge pairs / pair two files and analyze them
-- `GET /api/merge/pairs/:id` / `DELETE /api/merge/pairs/:id` - A pair / remove it (the files stay)
-- `POST /api/merge/pairs/:id/analyze` / `POST /api/merge/pairs/:id/cancel` - Analyze again / stop the analysis
-- `GET /api/merge/pairs/:id/report` - Dyadrr's full analyze report
-- `GET /api/merge/pairs/:id/merge-preview` - The merged file's default name, and whether it is already there
-- `POST /api/merge/pairs/:id/merge` - Merge an eligible pair (pending choices, name, replace an existing file)
-- `GET /api/merge/pairs/:id/merge-report` - Dyadrr's full merge report
-- `GET /api/merge/settings` / `PUT /api/merge/settings` - The four choices (a fixed value or `ask`) and the two files after a merge (`keep` or `delete`)
-
----
-
-## Troubleshooting
-
-See **[docs/TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md)** for common issues.
-
----
+| | |
+|---|---|
+| [Installation](docs/INSTALLATION.md) | Docker Compose, local run, first account and server |
+| [Configuration](docs/CONFIGURATION.md) | Every environment variable with its default |
+| [User guide](docs/USAGE.md) | Every page and feature, with screenshots |
+| [Deployment](docs/DEPLOYMENT.md) | HTTPS reverse proxy, backups, logs, updates |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Common problems |
+| [Architecture](docs/ARCHITECTURE.md) | How it is built |
+| [API](docs/API.md) | HTTP endpoints and WebSocket events |
+| [Development](docs/DEVELOPMENT.md) | Checks, screenshots, diagrams, branches |
+| [Changelog](docs/CHANGELOG.md) | What changed in every version |
 
 ## Contributing
 
-Contributions welcome! See **[CONTRIBUTING.md](./CONTRIBUTING.md)** for guidelines.
-
----
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Every pull request updates the
+documentation and the screenshots it touches, and raises the version.
 
 ## License
 
-MIT License - see **[LICENSE](./LICENSE)** file
+MIT: see [LICENSE](LICENSE).

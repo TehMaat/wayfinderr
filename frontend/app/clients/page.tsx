@@ -183,8 +183,8 @@ function TmdbCard() {
             )}
           </p>
           <p className="text-xs text-muted-foreground">
-            Matches an MKV to its torrent across languages: &quot;IL_PADRINO&quot; and
-            &quot;The.Godfather.1972.BluRay&quot; are the same film. Without it only names in the same language match.
+            Matches an MKV to its torrent across languages: &quot;LA_CITTA_SOMMERSA&quot; and
+            &quot;The.Sunken.City.2019.BluRay&quot; are the same film. Without it only names in the same language match.
             Discs ripped by Wayfinderr are matched by their download, TMDB or not. The key is the one the ripper uses:
             set <code className="font-mono">TMDB_API_KEY</code> (free from themoviedb.org → Settings → API).
           </p>

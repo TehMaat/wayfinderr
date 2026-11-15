@@ -75,3 +75,6 @@ tmp/
 # Build
 dist/
 build/
+
+# Screenshots build (scripts/screenshots)
+.next-screenshots/
