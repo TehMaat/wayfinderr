@@ -22,6 +22,7 @@ import {
 } from './archive.js';
 import { DiscType, findDiscs, isDownloadComplete, listFolders, makemkvSource } from './downloads.js';
 import { EXCLUDED_PREFIX, excludedReason, ignoredFolder, matchExclusion, parseExclusions, parseFolders } from './exclusions.js';
+import { retryFilmFields, savedReason } from './filmChoice.js';
 import { joinDir, joinParts, partFile } from './join.js';
 import { describeExit, DiscTitle, languageCodes, parseInfo, parseProgress, parseRipResult, selectionRule } from './makemkv.js';
 import { playlistNumber } from './mpls.js';
@@ -1057,13 +1058,32 @@ class Ripper extends EventEmitter {
    * The film (and second language) of a part of a join, set on its other parts:
    * one film for every disc. The parts waiting for a choice go back in the queue,
    * where their title is picked again with the film (or they ask what is still unsure).
+   * A film saved without ripping (`queue` false) leaves them waiting, with their reason
+   * saying so.
    */
-  private async shareFilm(rip: Rip, shared: Parameters<typeof db.updateRip>[1]) {
+  private async shareFilm(rip: Rip, shared: Parameters<typeof db.updateRip>[1], queue = true) {
     for (const part of await db.getRipsByJoinId(rip.joinId!)) {
       if (part.id === rip.id) continue;
       const waiting = part.status === 'NEEDS_ATTENTION';
-      await this.update(part.id, { ...shared, ...(waiting ? { status: 'QUEUED', reason: null } : {}) });
+      if (!waiting) await this.update(part.id, shared);
+      else if (queue) await this.update(part.id, { ...shared, status: 'QUEUED', reason: null });
+      else {
+        const updated = await this.update(part.id, shared);
+        const reason = await this.savedFilmReason(updated);
+        if (reason !== undefined) await this.update(part.id, { reason });
+      }
     }
+  }
+
+  /**
+   * The reason of a rip waiting for a choice whose film was just saved without
+   * ripping: what is still unsure about its title, if anything. Undefined (keep the
+   * reason) when the rip is not waiting for a choice or its disc is not scanned yet.
+   */
+  private async savedFilmReason(rip: Rip) {
+    if (rip.status !== 'NEEDS_ATTENTION' || !rip.titles) return undefined;
+    const { problems } = await this.pickTitle(rip, JSON.parse(rip.titles));
+    return savedReason(problems);
   }
 
   /** A part of a join ripped: kept in the join's folder until every part is there. */
@@ -1251,9 +1271,14 @@ class Ripper extends EventEmitter {
   /**
    * Rips the given title as the given film, keeping the given audio language
    * beside the kept one (null: none besides the original language); each may be
-   * kept as is.
+   * kept as is. With `queue` false the choice is only saved (issue #76): the rip
+   * stays as it is, to be ripped later, and a film chosen so is kept on Retry.
    */
-  async choose(id: string, choice: { titleIndex?: number; tmdbId?: number; secondLanguage?: string | null }) {
+  async choose(
+    id: string,
+    choice: { titleIndex?: number; tmdbId?: number; secondLanguage?: string | null; queue?: boolean }
+  ) {
+    const queue = choice.queue ?? true;
     const rip = await this.visibleRip(id);
     if (!['NEEDS_ATTENTION', 'FAILED', 'SKIPPED'].includes(rip.status)) throw new Error(`Rip is ${rip.status}`);
     const titles: DiscTitle[] = JSON.parse(rip.titles ?? '[]');
@@ -1266,20 +1291,24 @@ class Ripper extends EventEmitter {
     }
     const movie = choice.tmdbId !== undefined ? await getMovie(choice.tmdbId) : null;
     const shared = {
-      ...(movie ? this.movieFields(movie) : {}),
+      ...(movie ? { ...this.movieFields(movie), filmChosen: true } : {}),
       ...(choice.secondLanguage !== undefined ? { secondLanguage: choice.secondLanguage } : {}),
     };
     return this.exclusive(async () => {
       const current = await this.visibleRip(id);
       if (!['NEEDS_ATTENTION', 'FAILED', 'SKIPPED'].includes(current.status)) throw new Error(`Rip is ${current.status}`);
-      const updated = await this.update(id, {
-        status: 'QUEUED',
-        reason: null,
+      let updated = await this.update(id, {
+        ...(queue ? { status: 'QUEUED', reason: null } : {}),
         ...(choice.titleIndex !== undefined ? { titleIndex: choice.titleIndex } : {}),
         ...shared,
       });
+      if (!queue) {
+        const reason = await this.savedFilmReason(updated);
+        if (reason !== undefined) updated = await this.update(id, { reason });
+        logger.info({ ripId: id, tmdbId: updated.tmdbId, titleIndex: updated.titleIndex }, 'Rip choice saved without ripping');
+      }
       // A part of a join: one film, with the same languages, for every part
-      if (updated.joinId && Object.keys(shared).length > 0) await this.shareFilm(updated, shared);
+      if (updated.joinId && Object.keys(shared).length > 0) await this.shareFilm(updated, shared, queue);
       return updated;
     });
   }
@@ -1309,9 +1338,13 @@ class Ripper extends EventEmitter {
       const identified = rips.find((rip) => rip.tmdbId !== null);
       // A part's second language goes with its film (it depends on the original language)
       const film = movie
-        ? { ...this.movieFields(movie), secondLanguage: identified?.tmdbId === movie.id ? identified.secondLanguage : null }
+        ? {
+            ...this.movieFields(movie),
+            filmChosen: true,
+            secondLanguage: identified?.tmdbId === movie.id ? identified.secondLanguage : null,
+          }
         : identified
-          ? { ...this.movieFields(filmOf(identified)), secondLanguage: identified.secondLanguage }
+          ? { ...this.movieFields(filmOf(identified)), filmChosen: identified.filmChosen, secondLanguage: identified.secondLanguage }
           : {};
       const joinId = rips[0].id;
       const parts: Rip[] = [];
@@ -1363,7 +1396,10 @@ class Ripper extends EventEmitter {
     });
   }
 
-  /** Starts over with MakeMKV: scan and automatic choices again (an archive not unpacked yet is listed again). */
+  /**
+   * Starts over with MakeMKV: scan and automatic choices again (an archive not
+   * unpacked yet is listed again). A film chosen by hand is kept, with its second language.
+   */
   async retry(id: string) {
     const rip = await this.visibleRip(id);
     if (['UNPACKING', 'SCANNING', 'RIPPING', 'JOINING'].includes(rip.status)) throw new Error('Rip in progress');
@@ -1378,12 +1414,7 @@ class Ripper extends EventEmitter {
       ...(isArchive(rip) && !rip.unpackedTo ? { contentType: null, contentPath: null, unpackBytes: null } : {}),
       titles: null,
       titleIndex: null,
-      tmdbId: null,
-      title: null,
-      originalTitle: null,
-      originalLanguage: null,
-      year: null,
-      secondLanguage: null,
+      ...retryFilmFields(rip),
       progress: 0,
     });
   }

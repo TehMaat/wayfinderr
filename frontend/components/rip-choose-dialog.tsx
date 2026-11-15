@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AudioLines, Captions, Combine, ExternalLink, Info, Loader2, RotateCcw, Search, TriangleAlert } from 'lucide-react';
+import { AudioLines, Captions, Combine, ExternalLink, Info, Loader2, RotateCcw, Save, Search, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -235,7 +235,8 @@ export function RipChooseDialog({
   const [results, setResults] = useState<TmdbMovie[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  // What the footer button pressed does: rip (queue) or only save the choice
+  const [saving, setSaving] = useState<'queue' | 'save' | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Join discs… from here: the film picked in this dialog goes with the join
   const [joinOpen, setJoinOpen] = useState(false);
@@ -304,25 +305,31 @@ export function RipChooseDialog({
   if (titles && second !== rip.secondLanguage) payload.secondLanguage = second;
   // A scanned disc needs a title; an unscanned one can only get its film
   const canSubmit = allowed && !saving && (titles ? titleIndex !== null : payload.tmdbId !== undefined);
+  // Save without ripping: anything changed (the film above all, to rip it later)
+  const canSave = allowed && !saving && Object.keys(payload).length > 0;
 
-  const submit = async () => {
-    setSaving(true);
+  const submit = async (queue: boolean) => {
+    setSaving(queue ? 'queue' : 'save');
     setError(null);
     try {
-      await ripsApi.chooseRip(rip.id, payload);
+      await ripsApi.chooseRip(rip.id, { ...payload, ...(queue ? {} : { queue: false }) });
       await useAppStore.getState().refreshRip(rip.id);
       const name = film ? ripName({ title: film.title, year: film.year, downloadName: rip.downloadName }) : rip.downloadName;
-      toast.success(titles ? (joinParts > 0 ? `Part ${rip.joinPart} of ${joinParts} queued` : 'Rip queued') : 'Film saved', {
-        description:
-          joinParts > 0 && (payload.tmdbId !== undefined || payload.secondLanguage !== undefined)
-            ? `${name} · the other discs of the film go on with it`
-            : name,
-      });
+      const filmShared = joinParts > 0 && (payload.tmdbId !== undefined || payload.secondLanguage !== undefined);
+      if (queue) {
+        toast.success(titles ? (joinParts > 0 ? `Part ${rip.joinPart} of ${joinParts} queued` : 'Rip queued') : 'Film saved', {
+          description: filmShared ? `${name} · the other discs of the film go on with it` : name,
+        });
+      } else {
+        toast.success(payload.tmdbId !== undefined ? 'Film saved' : 'Choice saved', {
+          description: `${name} · not ripped now${filmShared ? ', set on every disc of the film' : ''}`,
+        });
+      }
       onOpenChange(false);
     } catch (err) {
       setError(errorMessage(err, 'Could not save the choice'));
     } finally {
-      setSaving(false);
+      setSaving(null);
     }
   };
 
@@ -552,7 +559,7 @@ export function RipChooseDialog({
 
           <DialogFooter>
             {joinable && (
-              <Button variant="outline" className="sm:mr-auto" onClick={openJoin} disabled={saving}>
+              <Button variant="outline" className="sm:mr-auto" onClick={openJoin} disabled={Boolean(saving)}>
                 <Combine />
                 {rip.joinId ? 'Join discs again…' : 'Join discs…'}
               </Button>
@@ -560,8 +567,14 @@ export function RipChooseDialog({
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button onClick={submit} disabled={!canSubmit}>
-              {saving && <Loader2 className="animate-spin" />}
+            <Tooltip content="Saves the choice without ripping: rip it from here when you want">
+              <Button variant="outline" onClick={() => submit(false)} disabled={!canSave}>
+                {saving === 'save' ? <Loader2 className="animate-spin" /> : <Save />}
+                {payload.tmdbId !== undefined ? 'Save film' : 'Save choice'}
+              </Button>
+            </Tooltip>
+            <Button onClick={() => submit(true)} disabled={!canSubmit}>
+              {saving === 'queue' && <Loader2 className="animate-spin" />}
               {titles ? (joinParts > 0 ? 'Rip this part' : 'Rip this title') : 'Use this film'}
             </Button>
           </DialogFooter>
