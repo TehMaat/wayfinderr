@@ -235,7 +235,7 @@ The `dyadrr` service mounts the watch folder writable as `/data/watch` (the job 
 
 ## Logs
 
-What Wayfinderr and Dyadrr did, kept on disk in the data volume (`/app/data/logs`, one file a day): the backend, the Dyadrr runner, and every analysis and merge, phase by phase. Filter by source, level, text and day, and download what you see. A merge pair's page shows its own lines. How long they are kept: `LOG_RETENTION_DAYS` and `LOG_MAX_SIZE_MB` ([Configuration](CONFIGURATION.md#logs)).
+What Wayfinderr and Dyadrr did, kept on disk in the data volume (`/app/data/logs`, one file a day): the backend, the Dyadrr runner, and every analysis and merge, phase by phase. Filter by source, level, text and day, and download what you see. A merge pair's page shows its own lines. With merging on, the backend also says at start whether the release folder of the local releases is mounted and how many films released locally it finds there, and why a film released locally is left out of **Pair…** (see [Troubleshooting](TROUBLESHOOTING.md#torrent-cleanup-and-release)). How long they are kept: `LOG_RETENTION_DAYS` and `LOG_MAX_SIZE_MB` ([Configuration](CONFIGURATION.md#logs)).
 
 ## Look and feel
 

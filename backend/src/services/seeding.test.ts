@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
-import { fileOfUpload, isSeedingPath, releaseOfTorrent, seedingPathOf } from './seeding.js';
+import { describeMiss, fileOfUpload, isSeedingPath, lookupUploadFile, releaseOfTorrent, seedingDirState, seedingPathOf } from './seeding.js';
 
 const release = (id: string, fields: { hash?: string; client?: string; name?: string }) => ({
   id,
@@ -68,4 +68,37 @@ test('a torrent is the release of an upload by its info hash, or by its name on 
   assert.equal(releaseOfTorrent({ hash: 'f'.repeat(40), name: 'Lago.Ferro.1998.1080p.REMUX-NOI.mkv' }, 'c2', releases), null);
   assert.equal(releaseOfTorrent({ hash: 'f'.repeat(40), name: 'Altro.Film.2001-NOI.mkv' }, 'c1', releases), null);
   assert.equal(releaseOfTorrent({ hash: 'f'.repeat(40), name: 'Lago.Ferro.1998.2160p-ALTRI' }, 'c1', releases), null);
+});
+
+test('a film released locally that is not where it seeds says why', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'seeding-'));
+  try {
+    const seeding = path.join(root, 'seeding');
+    mkdirSync(path.join(seeding, 'Lago.Ferro.1998-NOI'), { recursive: true });
+    writeFileSync(path.join(seeding, 'Lago.Ferro.1998-NOI', 'Lago.Ferro.1998-NOI.mkv'), 'x'.repeat(10));
+    const released = {
+      filepath: path.join(root, 'watch', 'Notte sul Lago Ferro (1998).mkv'),
+      localClientId: 'c1',
+      remotePath: '/mnt/seed/Lago.Ferro.1998-NOI/Lago.Ferro.1998-NOI.mkv',
+      size: 10n,
+    };
+    const reason = (u: typeof released, dir = seeding) => lookupUploadFile(u, dir).miss?.reason;
+    assert.equal(reason(released), undefined);
+    assert.equal(reason(released, ''), 'NOT_MOUNTED');
+    assert.equal(reason({ ...released, remotePath: null }), 'NO_REMOTE_PATH');
+    assert.equal(reason({ ...released, remotePath: '/mnt/seed/Lago.Ferro.1998-NOI/Renamed.mkv' }), 'NOT_FOUND');
+    const other = lookupUploadFile({ ...released, size: 11n }, seeding).miss!;
+    assert.equal(other.reason, 'SIZE_MISMATCH');
+    assert.equal(other.sizeThere, '10');
+    assert.match(describeMiss(other), /^SIZE_MISMATCH: .*\(.*Lago\.Ferro\.1998-NOI\.mkv, 10 bytes there, 11 uploaded\)$/);
+    assert.match(describeMiss(lookupUploadFile(released, '').miss!), /^NOT_MOUNTED: the release folder is not mounted \(LOCAL_RELEASE_DIR is not set\)$/);
+    // A file kept in the watch folder: nothing to explain when it is gone
+    assert.equal(lookupUploadFile({ ...released, localClientId: null }, seeding).miss, undefined);
+
+    assert.deepEqual(seedingDirState(''), { state: 'NOT_SET' });
+    assert.deepEqual(seedingDirState(seeding), { state: 'READABLE', entries: 1 });
+    assert.deepEqual(seedingDirState(path.join(root, 'missing')), { state: 'UNREADABLE', error: 'ENOENT' });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

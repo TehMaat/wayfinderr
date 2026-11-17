@@ -217,7 +217,16 @@ Set its `USER_ID`/`GROUP_ID` to the owner of the watch folder: at start it takes
   from **Pair…**: set `SEEDING_DIR` in `.env` to the client's release folder on this machine (the
   same disk as the watch folder) and recreate the backend and `dyadrr` containers. If it is set, the
   file seeding there must have the size of the uploaded one: a file changed or moved by hand is
-  not taken.
+  not taken. The backend log says which (`docker logs wayfinderr-backend`, or **Logs**, source
+  *backend*): at start, `Release folder /seeding: N entries, X of Y films released locally found
+  there`, or why the folder cannot be read; then one line per film left out, `Released locally, not
+  offered for a merge: <file>: <reason>` with the path it looked at:
+  - `NOT_MOUNTED`: `LOCAL_RELEASE_DIR` is not set in the backend;
+  - `NO_REMOTE_PATH`: Wayfinderr does not know where the release moved the file;
+  - `NOT_FOUND`: no file at `<release folder>/<name>/<name>.mkv` (moved or renamed after the release,
+    or the client's release folder is not the one mounted);
+  - `SIZE_MISMATCH`: a file is there, with another size than the uploaded one;
+  - `UNREADABLE`: the folder or the file cannot be read by the backend's user (`EACCES`).
 - **The tracker command does not start**: the server (or the client's machine, for a local release)
   needs `tmux` and `bash`, and the command must work in a login shell there. The **Tracker** card
   shows its output.
