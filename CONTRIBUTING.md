@@ -30,6 +30,11 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 - **Describe the current behavior and the expected behavior**
 - **Explain why this enhancement would be useful**
 
+Every proposal becomes an issue first: whoever receives it (the AI assistant included) analyzes it
+against the code and the docs and opens an issue with the context, the proposal, what changes, the
+acceptance criteria and the open questions. Work starts only when the maintainer gives the go-ahead,
+and the pull request closes the issue with `Closes #N`.
+
 ### Pull Requests
 
 - Fill in the required template

@@ -25,6 +25,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Every proposal gets a GitHub issue (issue #82), opened before the work starts or kept for later, so nothing proposed is lost and every pull request closes one (CLAUDE.md, CONTRIBUTING.md)
+- A proposal is analyzed in its issue (what it touches, how, what changes, acceptance points, open questions), and the work starts only at the maintainer's go-ahead (CLAUDE.md, CONTRIBUTING.md)
 - Documentation rewritten (issues #40, #41): a shorter README with screenshots and the **Full Vibe Coded** note; new [Installation](INSTALLATION.md) (every way to install), [Configuration](CONFIGURATION.md) (every variable), [User guide](USAGE.md) (every page, with screenshots) and [Development](DEVELOPMENT.md) pages; the architecture and the workflow drawn as SVG diagrams instead of ASCII art; Deployment and Troubleshooting brought up to date; QUICK-START, SETUP, FRONTEND and TESTING, out of date, removed. Every film, torrent and tracker name in the docs and the UI examples is made up. The docs and the screenshots are now updated with every change (CONTRIBUTING.md, CLAUDE.md, pull request template)
 - Every request (`Request received`) and WebSocket connection is logged at `debug` instead of `info`: the pages poll, and they filled the log
 - Passwords, keys and the headers and body of failed HTTP requests (an axios error carries the qBittorrent cookie) are redacted from the log
