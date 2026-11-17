@@ -227,6 +227,14 @@ Set its `USER_ID`/`GROUP_ID` to the owner of the watch folder: at start it takes
     or the client's release folder is not the one mounted);
   - `SIZE_MISMATCH`: a file is there, with another size than the uploaded one;
   - `UNREADABLE`: the folder or the file cannot be read by the backend's user (`EACCES`).
+- **The Remote path of a release is wrong, or the file shows as missing**: once the tracker command
+  ends with `DONE`, Wayfinderr looks for the file by its exact size, where it was released, else
+  within 3 levels of the release and upload folders. A file the command moved there is followed
+  (`Release moved by the tracker command: <old> → <new>` in the backend log); one moved anywhere
+  else (a fixed seeding folder such as `SHARED_QBIT_PATH`) is not found: the old path is kept, the
+  file shows as missing and the log says `Release not found after the tracker command`. Point the
+  uploader at the release folder, or move the file back and press **Link**. `Cannot check where the
+  release is` is an SSH or SFTP error: nothing was changed.
 - **The tracker command does not start**: the server (or the client's machine, for a local release)
   needs `tmux` and `bash`, and the command must work in a login shell there. The **Tracker** card
   shows its output.
