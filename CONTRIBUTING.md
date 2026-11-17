@@ -241,7 +241,7 @@ the Docker workflow publishes the images as `0.8.1` and `0.8`.
 
 ## Pull Request Process
 
-1. Link the issue the pull request implements (`Closes #N`)
+1. Make sure the work has an issue (every proposal gets one) and say `Closes #N` in the pull request
 2. Update the documentation and take the screenshots again (see [Documentation and screenshots](#documentation-and-screenshots))
 3. Update `docs/CHANGELOG.md` with notes on your changes
 4. Raise the version in both packages
