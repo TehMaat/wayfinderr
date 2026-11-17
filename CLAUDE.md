@@ -1,5 +1,21 @@
 # Wayfinderr
 
+## Issues
+
+Every proposal from the maintainer ("there's this thing…": a feature, a change, a bug, a doc fix,
+an idea for later) gets a GitHub issue on `TehMaat/wayfinderr`, and no code is written for it:
+
+1. search the open issues first: when one already covers it, add to that issue instead of opening
+   another;
+2. analyze the proposal against the code and the docs: what it touches, how it could be done,
+   risks, open questions;
+3. open the issue with the analysis: what is asked and why, what changes (code, docs,
+   screenshots), the acceptance points, the open questions; a proposal too large for one pull
+   request becomes a parent issue with sub-issues;
+4. give the maintainer the issue's link and **stop**: go ahead only when the maintainer says so.
+
+The pull request says `Closes #N` and the CHANGELOG entry cites `(issue #N)`.
+
 ## Versioning
 
 Every pull request to `main` raises the version in both `backend/package.json` and
