@@ -461,6 +461,14 @@ export class DatabaseService {
     }) as Promise<Upload[]>;
   }
 
+  /** Uploads released on a server or on a client's machine (see seeding.ts) */
+  async getReleasedUploads(): Promise<Upload[]> {
+    return this.prisma.upload.findMany({
+      where: { OR: [{ releaseTorrentHash: { not: null } }, { localClientId: { not: null } }] },
+      select: this.detailFields,
+    }) as Promise<Upload[]>;
+  }
+
   // Uploads whose file is under this folder, or is this file
   async getUploadsByPathPrefix(prefix: string): Promise<Upload[]> {
     return this.prisma.upload.findMany({ where: { filepath: { startsWith: prefix } }, select: this.detailFields }) as Promise<

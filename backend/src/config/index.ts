@@ -27,6 +27,8 @@ export const loadConfig = (): Config => {
   const databaseUrl = process.env.DATABASE_URL || 'file:./data/wayfinderr.db';
   const watchDir = process.env.WATCH_DIR || '/makemkv-output';
   const sourceDir = process.env.RIP_SOURCE_DIR || '/downloads';
+  // The release folder of a local release, mounted read only (empty: not mounted)
+  const seedingDir = (process.env.LOCAL_RELEASE_DIR || '').trim();
   return {
     NODE_ENV: (process.env.NODE_ENV as 'development' | 'production') || 'development',
     PORT: parseInt(process.env.PORT || '3001', 10),
@@ -60,9 +62,12 @@ export const loadConfig = (): Config => {
       // Fixed by Dyadrr's file job protocol: /data/watch/.wayfinderr/dyadrr/jobs in its container
       JOBS_DIR: path.join(watchDir, '.wayfinderr', 'dyadrr', 'jobs'),
       // The folders the dyadrr service mounts as /data/<name> (docker-compose.yml)
+      // Files released locally, still seeding: read where they are, never written
+      SEEDING_DIR: seedingDir,
       FOLDERS: [
         { name: 'watch', dir: watchDir },
         { name: 'downloads', dir: sourceDir },
+        ...(seedingDir ? [{ name: 'seeding', dir: seedingDir }] : []),
       ],
     },
     LOGS: {

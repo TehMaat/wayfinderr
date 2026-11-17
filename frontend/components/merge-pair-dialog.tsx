@@ -77,6 +77,11 @@ function CandidateRow({
           {candidate.status.toLowerCase()}
         </Badge>
       )}
+      {candidate.seeding && (
+        <Badge variant="info" className="shrink-0" title="Released locally: read where it seeds, never moved or deleted">
+          seeding
+        </Badge>
+      )}
     </button>
   );
 }
