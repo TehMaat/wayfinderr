@@ -10,7 +10,8 @@
  *     is already in the archive (made by an earlier run, see madeTorrent) has a second
  *     queue of its own: the file is not hashed again, so it does not wait for the others.
  * Once the tracker accepts it, the .torrent it gives back is read from the Unit3Dup
- * archive (<archive>/<TRACKER>/<file name>.torrent) and kept with its info hash.
+ * archive (<archive>/<TRACKER>/<file name>.torrent) and kept with its info hash; first,
+ * remotePath is checked, as the command may have moved the file (checkRemotePath).
  * Releases made before, or by hand, are linked to their file and .torrent by link().
  *
  * Local release: a file not uploaded yet can be released on the machine of a download
@@ -247,6 +248,75 @@ const isDir = (attrs: { mode: number }) => (attrs.mode & 0o170000) === 0o040000;
 const statOf = (sftp: SFTPWrapper, p: string) => sftpCall<Stats>((cb) => sftp.stat(p, cb)).catch(() => null);
 
 /**
+ * The file of this upload on the server: where it was last seen, else the one
+ * file of the same size (and type) in the release or upload folder.
+ */
+export const locate = async (
+  ssh: SSHClient,
+  sftp: SFTPWrapper,
+  upload: Pick<Upload, 'remotePath' | 'filename' | 'size'>,
+  server: Pick<ReleaseTarget, 'releaseDir' | 'sshPath'>,
+  absolute: (p: string) => string
+): Promise<string | null> => {
+  const size = Number(upload.size);
+  for (const known of [upload.remotePath, path.posix.join(remoteDirOf(server), upload.filename)]) {
+    if (!known) continue;
+    const stats = await statOf(sftp, absolute(known));
+    if (stats && !isDir(stats) && stats.size === size) return absolute(known);
+  }
+
+  const roots = [...new Set([absolute(releaseDirOf(server)), absolute(remoteDirOf(server))])];
+  // A missing folder makes find exit with 1: what it printed still counts
+  const listed = await exec(ssh, `find ${roots.map(shellQuote).join(' ')} -maxdepth 3 -type f -size ${size}c 2>/dev/null`);
+  const extension = path.posix.extname(upload.filename).toLowerCase();
+  const candidates = listed.stdout
+    .split('\n')
+    .filter((p) => p && !path.posix.basename(p).startsWith('.') && path.posix.extname(p).toLowerCase() === extension)
+    .slice(0, MAX_LINK_CANDIDATES);
+  if (candidates.length <= 1) return candidates[0] ?? null;
+
+  // Several: the released one is in a folder of its own name
+  const released = candidates.filter(
+    (p) => path.posix.basename(path.posix.dirname(p)) === path.posix.basename(p, path.posix.extname(p))
+  );
+  if (released.length === 1) return released[0];
+  throw new ReleaseError(
+    `${candidates.length} files of ${size} bytes on the server, cannot tell which one it is: ${candidates.slice(0, 3).join(', ')}`
+  );
+};
+
+/** Where a released file is now, compared with its remotePath */
+export type Whereabouts =
+  | { kind: 'in-place'; path: string }
+  | { kind: 'moved'; from: string; path: string }
+  | { kind: 'missing'; path: string }
+  | { kind: 'error'; error: string };
+
+/**
+ * Where the released file is after its release changed (the tracker command may move
+ * it, e.g. into a seeding folder): its remotePath, else found by its exact size as
+ * link() does. Nothing is thrown: an SSH/SFTP error (or several files of its size) is
+ * an 'error', and changes nothing.
+ */
+export const whereabouts = async (
+  ssh: SSHClient,
+  sftp: SFTPWrapper,
+  upload: Pick<Upload, 'remotePath' | 'filename' | 'size'> & { remotePath: string },
+  server: Pick<ReleaseTarget, 'releaseDir' | 'sshPath'>,
+  home: string
+): Promise<Whereabouts> => {
+  const absolute = (p: string) => (path.posix.isAbsolute(p) ? p : path.posix.join(home, p));
+  const known = absolute(upload.remotePath);
+  try {
+    const found = await locate(ssh, sftp, upload, server, absolute);
+    if (!found) return { kind: 'missing', path: known };
+    return found === known ? { kind: 'in-place', path: found } : { kind: 'moved', from: known, path: found };
+  } catch (error) {
+    return { kind: 'error', error: (error as Error).message };
+  }
+};
+
+/**
  * The folders ITTUP or Unit3Dup may archive their .torrent files in: the one the
  * output names, the ones in their configuration, and their default ones. Absolute paths.
  */
@@ -439,7 +509,7 @@ class ReleaseManager extends EventEmitter {
     let media: MediaInfo | null = null;
     const problems: string[] = [];
     try {
-      const located = await this.locate(ssh, sftp, upload, server, absolute);
+      const located = await locate(ssh, sftp, upload, server, absolute);
       if (!located) {
         await db.updateUpload(uploadId, { remoteFound: false });
         throw new ReleaseError(
@@ -529,41 +599,37 @@ class ReleaseManager extends EventEmitter {
   }
 
   /**
-   * The file of this upload on the server: where it was last seen, else the one
-   * file of the same size (and type) in the release or upload folder.
+   * Once a release changed (its tracker command ended with DONE): remotePath follows the
+   * file when the command moved it; a file found nowhere is marked missing, its path kept.
+   * An SSH/SFTP error changes nothing. Never run otherwise (not at start, not on a timer).
    */
-  private async locate(
-    ssh: SSHClient,
-    sftp: SFTPWrapper,
-    upload: Upload,
-    server: ReleaseTarget,
-    absolute: (p: string) => string
-  ): Promise<string | null> {
-    const size = Number(upload.size);
-    for (const known of [upload.remotePath, path.posix.join(remoteDirOf(server), upload.filename)]) {
-      if (!known) continue;
-      const stats = await statOf(sftp, absolute(known));
-      if (stats && !isDir(stats) && stats.size === size) return absolute(known);
+  private async checkRemotePath(run: Run): Promise<void> {
+    const upload = await db.getUploadById(run.uploadId);
+    if (!upload?.remotePath) return;
+    const server = await this.targetOfUpload(upload).catch(() => null);
+    const { ssh, sftp } = run;
+    const where =
+      !server || !ssh || !sftp
+        ? { kind: 'error' as const, error: server ? 'no connection' : 'the server no longer exists' }
+        : await sftpCall<string>((cb) => sftp.realpath('.', cb))
+            .then((home) => whereabouts(ssh, sftp, { ...upload, remotePath: upload.remotePath! }, server, home))
+            .catch((error: Error) => ({ kind: 'error' as const, error: error.message }));
+    const uploadId = run.uploadId;
+    switch (where.kind) {
+      case 'in-place':
+        if (upload.remoteFound !== true) await db.updateUpload(uploadId, { remoteFound: true });
+        return;
+      case 'moved':
+        logger.info({ uploadId, from: where.from, to: where.path }, `Release moved by the tracker command: ${where.from} → ${where.path}`);
+        await db.updateUpload(uploadId, { remotePath: where.path, remoteFound: true });
+        return;
+      case 'missing':
+        logger.warn({ uploadId, path: where.path }, `Release not found after the tracker command: no file of ${upload.size} bytes at ${where.path} nor in the release or upload folder`);
+        await db.updateUpload(uploadId, { remoteFound: false });
+        return;
+      case 'error':
+        logger.warn({ uploadId, error: where.error }, 'Cannot check where the release is after the tracker command: its path is kept');
     }
-
-    const roots = [...new Set([absolute(releaseDirOf(server)), absolute(remoteDirOf(server))])];
-    // A missing folder makes find exit with 1: what it printed still counts
-    const listed = await exec(ssh, `find ${roots.map(shellQuote).join(' ')} -maxdepth 3 -type f -size ${size}c 2>/dev/null`);
-    const extension = path.posix.extname(upload.filename).toLowerCase();
-    const candidates = listed.stdout
-      .split('\n')
-      .filter((p) => p && !path.posix.basename(p).startsWith('.') && path.posix.extname(p).toLowerCase() === extension)
-      .slice(0, MAX_LINK_CANDIDATES);
-    if (candidates.length <= 1) return candidates[0] ?? null;
-
-    // Several: the released one is in a folder of its own name
-    const released = candidates.filter(
-      (p) => path.posix.basename(path.posix.dirname(p)) === path.posix.basename(p, path.posix.extname(p))
-    );
-    if (released.length === 1) return released[0];
-    throw new ReleaseError(
-      `${candidates.length} files of ${size} bytes on the server, cannot tell which one it is: ${candidates.slice(0, 3).join(', ')}`
-    );
   }
 
   /** After the tracker accepted the upload: its .torrent from the Unit3Dup archive (null when not there) */
@@ -1142,9 +1208,11 @@ class ReleaseManager extends EventEmitter {
           ? { status: 'FAILED', message: 'The command stopped without finishing' }
           : parseOutcome(log, code, run.skipped);
 
-    // Accepted by the tracker: the .torrent it gave back, from the ITTUP/Unit3Dup archive
+    // Accepted by the tracker: where the file is now (the command may have moved it), then
+    // the .torrent it gave back, from the ITTUP/Unit3Dup archive
     let torrent = {};
     if (outcome.status === 'DONE') {
+      await this.checkRemotePath(run);
       const found = await this.collectTorrent(run, log).catch((error: Error) => {
         logger.warn({ uploadId: run.uploadId, error: error.message }, 'Cannot read the .torrent');
         return null;

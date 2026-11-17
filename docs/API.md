@@ -710,7 +710,7 @@ For a file already renamed on the server and uploaded to the tracker (before Way
 
 | Field | Meaning |
 |---|---|
-| `remotePath` | Where the file is on the server (set once uploaded, updated by the rename) |
+| `remotePath` | Where the file is on the server (set once uploaded, updated by the rename, by Link, and when the tracker command moved it: checked once it ends with `DONE`) |
 | `releaseStatus` | `null` · `CONFIRM` name to confirm · `RENAMED` (no tracker command) · `QUEUED` · `RUNNING` · `NEEDS_INPUT` the command waits on a question · `DONE` the tracker accepted it · `SKIPPED` duplicate skipped · `UNKNOWN` ended without a tracker answer · `FAILED` · `CANCELLED` |
 | `releaseName` | The file name after the rename |
 | `releasePrompt` | JSON `{ kind, text }` while `NEEDS_INPUT`: `kind` is `tmdb`, `duplicate`, `trailer` (Unit3Dup's questions) or `text` (an unfinished line ending like a question, after 15 s of silence). The TMDB question is answered on its own, once, with the rip's TMDB id |

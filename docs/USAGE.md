@@ -187,6 +187,8 @@ The API key works for every API: keep it secret, and regenerate it from the same
 
 A completed upload can be released on a tracker from the server it is on: the **Tracker** card of the upload proposes a release name from its media info (`NAME.YEAR.RESOLUTION.AUDIO.SUBS-TAG`, editable), renames the file on the server into `<release folder>/<name>/<name>.mkv`, then runs the server's **tracker command** there over SSH inside `tmux`, so it survives a dropped connection or a restart of Wayfinderr. The card follows its output live and answers its questions (the TMDB id, a duplicate, a trailer); once it is done it keeps the `.torrent` the tracker gave back.
 
+Once the tracker accepts it (on a server or locally, the first run or a run again), Wayfinderr checks where the file is now, by its exact size: where it was released, else in the release and upload folders (as **Link** does). If the tracker command moved it, the **Remote path** follows it and the log says `Release moved by the tracker command: <old> → <new>`; if it is nowhere, the path is kept and the file shows as missing. An SSH error changes nothing. Besides the rename and **Link**, which set the path where they just moved or found the file, this is the only time it is checked: never at start, never on a timer.
+
 Set it per server in **Servers** → edit: the release folder, the release tag (`-TAG` at the end of the name) and the tracker command (e.g. `uploader -u {path}`; `{path}`, `{folder}` and `{name}` are replaced). With **After each upload** → *Ask for the release name right away*, the card asks right after every upload. The server needs `tmux` and `bash`. See the [Release API](API.md#release-api) for every detail.
 
 ## Release locally
