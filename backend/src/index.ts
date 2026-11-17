@@ -36,6 +36,7 @@ import { checkHold, HoldDecision } from './services/merge/hold.js';
 import { mergePairs } from './services/merge/pairs.js';
 import { HOLD_ALL_MESSAGE, manualHolds, RIP_MESSAGE } from './services/merge/manual.js';
 import { mergePlans } from './services/merge/plans.js';
+import { logSeedingState } from './services/seeding.js';
 
 // Prisma returns BigInt for sizes: serialize them as strings in JSON responses
 (BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function () {
@@ -507,6 +508,8 @@ const startServer = async () => {
 
     // Follow the Dyadrr jobs of the merge pairs (also when merging was turned off since)
     mergePairs.start();
+    // Merging on: whether the films released locally are found where they seed
+    if (mergeActive()) await logSeedingState().catch((error) => logger.error({ error }, 'Release folder check failed'));
 
     // Start HTTP server
     httpServer.listen(config.PORT, () => {

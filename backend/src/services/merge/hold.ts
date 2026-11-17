@@ -4,7 +4,7 @@ import { db } from '../database.js';
 import { FilmTitles, filmById, filmByName } from '../filmLookup.js';
 import { isMeaningfulTitle, MatchName, parseName } from '../nameMatch.js';
 import { describeError, getQbitClient } from '../qbittorrent.js';
-import { fileOfUpload, releasedUploads, releaseOfTorrent } from '../seeding.js';
+import { lookupUploadFile, releasedUploads, releaseOfTorrent, SeedingMiss } from '../seeding.js';
 import { mapLimit, mkvNames, scoreAgainst, SUGGEST_SCORE, topLevelName } from '../torrentCleanup.js';
 
 /**
@@ -62,7 +62,17 @@ export interface TwinRelease {
   hasItalianAudio: boolean;
   local: boolean; // released on the machine of a download client, not on a server
   pairable: boolean; // its file can be read where it seeds (release folder mounted)
+  missing?: SeedingMiss; // why not, when it cannot
 }
+
+// What to do about a released film that cannot be paired where it seeds
+const MISSING_HINT: Record<SeedingMiss, string> = {
+  NOT_MOUNTED: 'mount its release folder (LOCAL_RELEASE_DIR) to pair it',
+  NO_REMOTE_PATH: 'Wayfinderr does not know where it was moved, so it cannot be paired',
+  NOT_FOUND: 'not found in the release folder (moved or renamed?): see the log',
+  SIZE_MISMATCH: 'the file in the release folder has another size: see the log',
+  UNREADABLE: 'the release folder cannot be read (user or permissions): see the log',
+};
 
 export interface TwinMatch {
   candidate: TwinCandidate;
@@ -110,7 +120,7 @@ export const describeRelease = (release: TwinRelease, torrent: string, client?: 
   if (!release.local) return `the file "${release.filename}" (${audio}), released on a server and ${seeding}: not on this machine`;
   return release.pairable
     ? `the file "${release.filename}" (${audio}), released locally and ${seeding}: it can be paired where it seeds`
-    : `the file "${release.filename}" (${audio}), released locally and ${seeding}: mount its release folder (LOCAL_RELEASE_DIR) to pair it`;
+    : `the file "${release.filename}" (${audio}), released locally and ${seeding}: ${MISSING_HINT[release.missing ?? 'NOT_MOUNTED']}`;
 };
 
 const describe = ({ candidate }: TwinMatch): string => {
@@ -226,6 +236,7 @@ const torrentCandidates = async (ownRip: Rip | null, problems: string[]): Promis
           const released = releaseOfTorrent({ hash: torrent.hash, name: torrent.name, topLevel }, client.id, releases);
           if (released) {
             const rip = await db.getRipByOutputFile(released.filepath);
+            const { file, miss } = lookupUploadFile(released);
             const all = [...names, ...mkvNames(released.filepath), ...(rip ? ripNames(rip) : [])];
             return {
               ...identity(all, rip ? await ripFilm(rip) : await filmOfNames(all)),
@@ -236,7 +247,8 @@ const torrentCandidates = async (ownRip: Rip | null, problems: string[]): Promis
                 filename: released.filename,
                 hasItalianAudio: released.hasItalianAudio,
                 local: Boolean(released.localClientId),
-                pairable: fileOfUpload(released) !== null,
+                pairable: file !== null,
+                ...(released.localClientId && miss ? { missing: miss.reason } : {}),
               },
             };
           }
@@ -273,7 +285,9 @@ export const checkHold = async (upload: Upload): Promise<HoldDecision | null> =>
           name: m.candidate.label,
           score: m.score,
           certain: m.certain,
-          release: m.candidate.release?.filename ?? null,
+          release: m.candidate.release
+            ? { file: m.candidate.release.filename, pairable: m.candidate.release.pairable, missing: m.candidate.release.missing ?? null }
+            : null,
         })),
       problems,
       held: decision?.kind ?? null,

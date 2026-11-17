@@ -7,7 +7,7 @@ import { config } from '../../config/index.js';
 import logger from '../../config/logger.js';
 import { db } from '../database.js';
 import { mkvNames } from '../torrentCleanup.js';
-import { fileOfUpload, UploadFile } from '../seeding.js';
+import { describeMiss, lookupUploadFile, UploadFile } from '../seeding.js';
 import { filmByName } from '../filmLookup.js';
 import { outputName, ripper, safeFileName } from '../ripper/index.js';
 import { logs } from '../logs/index.js';
@@ -198,6 +198,8 @@ class MergePairs extends EventEmitter {
   private polling = false;
   // Last progress sent per pair, so unchanged progress is not written again
   private lastProgress = new Map<string, string>();
+  // Films released locally left out of the candidates, by upload: logged once per reason and path
+  private missLogged = new Map<string, string>();
 
   start(): void {
     if (this.timer) return;
@@ -270,7 +272,23 @@ class MergePairs extends EventEmitter {
     const uploads = (await Promise.all(PAIRABLE.map((status) => db.getUploadsByStatus(status)))).flat();
     return uploads
       .filter((u) => !busy.has(u.id))
-      .map((u) => ({ upload: u, file: fileOfUpload(u) }))
+      .map((u) => {
+        const { file, miss } = lookupUploadFile(u);
+        // A film released locally that should be here: why not, once until it changes
+        if (miss) {
+          const key = `${miss.reason}|${miss.path}|${miss.sizeThere ?? ''}|${miss.error ?? ''}`;
+          if (this.missLogged.get(u.id) !== key) {
+            this.missLogged.set(u.id, key);
+            logger.warn(
+              { uploadId: u.id, filename: u.filename, ...miss },
+              `Released locally, not offered for a merge: ${u.filename}: ${describeMiss(miss)}`
+            );
+          }
+        } else if (this.missLogged.delete(u.id) && file) {
+          logger.info({ uploadId: u.id, filename: u.filename, path: file.path }, `Released locally, found where it seeds again: ${u.filename}`);
+        }
+        return { upload: u, file };
+      })
       .filter((c): c is { upload: Upload; file: UploadFile } => c.file !== null)
       .sort(
         (a, b) =>
@@ -606,12 +624,11 @@ class MergePairs extends EventEmitter {
     const upload = await db.getUploadById(uploadId);
     if (!upload) throw new MergeError('Upload not found', 404);
     if (!PAIRABLE.includes(upload.status)) throw new MergeError(`${upload.filename} is ${upload.status}: it cannot be merged now`);
-    const file = fileOfUpload(upload);
+    const { file, miss } = lookupUploadFile(upload);
     if (!file) {
+      if (miss) logger.warn({ uploadId, filename: upload.filename, ...miss }, `Released locally, cannot be paired: ${upload.filename}: ${describeMiss(miss)}`);
       throw new MergeError(
-        upload.localClientId
-          ? `${upload.filename} was released locally and its release folder is not mounted here (LOCAL_RELEASE_DIR), or the file seeding there is not the same`
-          : `${upload.filename} is no longer on the disk`
+        miss ? `${upload.filename} was released locally and cannot be read where it seeds: ${describeMiss(miss)}` : `${upload.filename} is no longer on the disk`
       );
     }
     const busy = (await db.getMergePairsOfUpload(uploadId)).find((p) => p.id !== pairId && ACTIVE.includes(p.status));

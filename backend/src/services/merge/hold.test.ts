@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { parseName } from '../nameMatch.js';
 import type { FilmTitles } from '../filmLookup.js';
 import { decideHold, identity, matchTwin, rankTwins, type TwinCandidate, type TwinMatch } from './hold.js';
+import type { SeedingMiss } from '../seeding.js';
 
 const ARRABBIAMO: FilmTitles = {
   id: 11000,
@@ -104,10 +105,10 @@ test('certain twins come first, then the best names', () => {
   );
 });
 
-const released = (pairable: boolean, local = true, hasItalianAudio = true): TwinMatch => ({
+const released = (pairable: boolean, local = true, hasItalianAudio = true, missing?: SeedingMiss): TwinMatch => ({
   candidate: {
     ...candidate('torrent', 'Lago.Ferro.1998.1080p.REMUX-NOI.mkv', null, 'qBittorrent'),
-    release: { filename: 'Notte sul Lago Ferro (1998).mkv', hasItalianAudio, local, pairable },
+    release: { filename: 'Notte sul Lago Ferro (1998).mkv', hasItalianAudio, local, pairable, missing },
   },
   certain: true,
   score: 100,
@@ -121,6 +122,7 @@ test('a torrent seeding the release of a file sent before is that file: named, a
     'No Italian audio: kept as the better video of a merge. Its twin may be the file "Notte sul Lago Ferro (1998).mkv" (with Italian audio), released locally and seeding as "Lago.Ferro.1998.1080p.REMUX-NOI.mkv" in qBittorrent: it can be paired where it seeds'
   );
   assert.match(decideHold(false, [released(false)])!.message, /: mount its release folder \(LOCAL_RELEASE_DIR\) to pair it$/);
+  assert.match(decideHold(false, [released(false, true, true, 'NOT_FOUND')])!.message, /: not found in the release folder \(moved or renamed\?\): see the log$/);
   assert.match(decideHold(false, [released(false, false, false)])!.message, /\(without Italian audio\), released on a server and seeding as .*: not on this machine$/);
 });
 
