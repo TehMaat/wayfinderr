@@ -4,6 +4,7 @@ import { db } from '../database.js';
 import { FilmTitles, filmById, filmByName } from '../filmLookup.js';
 import { isMeaningfulTitle, MatchName, parseName } from '../nameMatch.js';
 import { describeError, getQbitClient } from '../qbittorrent.js';
+import { fileOfUpload, releasedUploads, releaseOfTorrent } from '../seeding.js';
 import { mapLimit, mkvNames, scoreAgainst, SUGGEST_SCORE, topLevelName } from '../torrentCleanup.js';
 
 /**
@@ -18,6 +19,10 @@ import { mapLimit, mkvNames, scoreAgainst, SUGGEST_SCORE, topLevelName } from '.
  *   compared against every TMDB title of the film, so an Italian disc finds the German
  *   release of the same film (Altrimenti ci arrabbiamo! and Zwei.wie.Pech.und.Schwefel.1974);
  * - with no twin it is uploaded as before.
+ *
+ * A torrent that is the release of a file Wayfinderr already sent (seeding.ts) is that
+ * file: the message names it, with its Italian audio or not, and says whether it can be
+ * paired where it seeds (released locally, with its release folder mounted).
  *
  * Before that search, what was decided by hand (issue #53): a file of a planned pair
  * (plans.ts) is held for that pair, a file whose rip was marked "Hold for merge" is held,
@@ -48,6 +53,15 @@ export interface TwinCandidate extends Identity {
   source: 'upload' | 'rip' | 'torrent';
   label: string; // file name, download name or torrent name
   where?: string; // the torrent's client, the rip's status
+  release?: TwinRelease; // the torrent seeds the release of a file Wayfinderr sent
+}
+
+// The file a torrent is the release of
+export interface TwinRelease {
+  filename: string;
+  hasItalianAudio: boolean;
+  local: boolean; // released on the machine of a download client, not on a server
+  pairable: boolean; // its file can be read where it seeds (release folder mounted)
 }
 
 export interface TwinMatch {
@@ -89,19 +103,35 @@ export const matchTwin = (file: Identity, candidate: TwinCandidate): TwinMatch |
   return { candidate, certain: best.score === 100 && best.dated, score: best.score };
 };
 
+/** A released file as a twin: what it is, where it seeds, and whether it can be paired now. */
+export const describeRelease = (release: TwinRelease, torrent: string, client?: string): string => {
+  const audio = release.hasItalianAudio ? 'with Italian audio' : 'without Italian audio';
+  const seeding = `seeding as "${torrent}"${client ? ` in ${client}` : ''}`;
+  if (!release.local) return `the file "${release.filename}" (${audio}), released on a server and ${seeding}: not on this machine`;
+  return release.pairable
+    ? `the file "${release.filename}" (${audio}), released locally and ${seeding}: it can be paired where it seeds`
+    : `the file "${release.filename}" (${audio}), released locally and ${seeding}: mount its release folder (LOCAL_RELEASE_DIR) to pair it`;
+};
+
 const describe = ({ candidate }: TwinMatch): string => {
   const film = candidate.filmLabel ? ` (TMDB: ${candidate.filmLabel})` : '';
   if (candidate.source === 'upload') return `the held file "${candidate.label}"${film}`;
   if (candidate.source === 'rip') return `the rip of "${candidate.label}"${candidate.where ? `, ${candidate.where}` : ''}${film}`;
+  if (candidate.release) return `${describeRelease(candidate.release, candidate.label, candidate.where)}${film}`;
   return `the torrent "${candidate.label}"${candidate.where ? ` in ${candidate.where}` : ''}${film}`;
 };
 
 const why = (match: TwinMatch) =>
   match.candidate.filmId !== null && match.score === 100 && match.certain ? 'same TMDB film' : `${match.score}% name match`;
 
-/** The best match first: certain ones, then by score. */
+// A released file that can be paired where it seeds
+const pairableRelease = (match: TwinMatch) => Number(Boolean(match.candidate.release?.pairable));
+
+/** The best match first: certain ones, then by score, then a released file that can be paired now. */
 export const rankTwins = (matches: TwinMatch[]): TwinMatch[] =>
-  [...matches].sort((a, b) => Number(b.certain) - Number(a.certain) || b.score - a.score);
+  [...matches].sort(
+    (a, b) => Number(b.certain) - Number(a.certain) || b.score - a.score || pairableRelease(b) - pairableRelease(a)
+  );
 
 /**
  * Held or not, and why. `problems`: what could not be searched (a download client
@@ -179,23 +209,38 @@ const ripCandidates = async (ownRip: Rip | null): Promise<TwinCandidate[]> => {
   }));
 };
 
-// Every torrent of the enabled download clients, but the one the file was ripped from
+// Every torrent of the enabled download clients, but the one the file was ripped from.
+// The release of a file Wayfinderr sent is known by that file too: its names and its rip's film
 const torrentCandidates = async (ownRip: Rip | null, problems: string[]): Promise<TwinCandidate[]> => {
   const candidates: TwinCandidate[] = [];
+  const releases = await releasedUploads();
   for (const client of (await db.getTorrentClients()).filter((c) => c.enabled)) {
     try {
       const torrents = (await getQbitClient(client).getTorrents(client.category)).filter(
         (t) => !ownRip || topLevelName(t) !== ownRip.downloadName
       );
       candidates.push(
-        ...(await mapLimit(torrents, TMDB_CONCURRENCY, async (torrent) => {
-          const names = rawNames(torrent.name, topLevelName(torrent));
-          return {
-            ...identity(names, await filmOfNames(names)),
-            source: 'torrent' as const,
-            label: torrent.name,
-            where: client.name,
-          };
+        ...(await mapLimit(torrents, TMDB_CONCURRENCY, async (torrent): Promise<TwinCandidate> => {
+          const topLevel = topLevelName(torrent);
+          const names = rawNames(torrent.name, topLevel);
+          const released = releaseOfTorrent({ hash: torrent.hash, name: torrent.name, topLevel }, client.id, releases);
+          if (released) {
+            const rip = await db.getRipByOutputFile(released.filepath);
+            const all = [...names, ...mkvNames(released.filepath), ...(rip ? ripNames(rip) : [])];
+            return {
+              ...identity(all, rip ? await ripFilm(rip) : await filmOfNames(all)),
+              source: 'torrent',
+              label: torrent.name,
+              where: client.name,
+              release: {
+                filename: released.filename,
+                hasItalianAudio: released.hasItalianAudio,
+                local: Boolean(released.localClientId),
+                pairable: fileOfUpload(released) !== null,
+              },
+            };
+          }
+          return { ...identity(names, await filmOfNames(names)), source: 'torrent', label: torrent.name, where: client.name };
         }))
       );
     } catch (error) {
@@ -223,7 +268,13 @@ export const checkHold = async (upload: Upload): Promise<HoldDecision | null> =>
       film: file.filmLabel ?? file.names.map((n) => n.title),
       twins: rankTwins(matches)
         .slice(0, 3)
-        .map((m) => ({ source: m.candidate.source, name: m.candidate.label, score: m.score, certain: m.certain })),
+        .map((m) => ({
+          source: m.candidate.source,
+          name: m.candidate.label,
+          score: m.score,
+          certain: m.certain,
+          release: m.candidate.release?.filename ?? null,
+        })),
       problems,
       held: decision?.kind ?? null,
     },

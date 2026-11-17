@@ -12,6 +12,7 @@ import { parseReleaseName } from './ripper/releaseName.js';
 import { tmdbConfigured } from './ripper/tmdb.js';
 import { filmByName } from './filmLookup.js';
 import { sourceTorrents, torrentFileName } from './sourceTorrents.js';
+import { releasedUploads, releaseOfTorrent } from './seeding.js';
 
 /**
  * Removes from qBittorrent the torrent an uploaded MKV was ripped from.
@@ -22,6 +23,10 @@ import { sourceTorrents, torrentFileName } from './sourceTorrents.js';
  * with TMDB, every title of its film. A torrent is removed automatically only when
  * it is 100% the one: the rip's download, or a name match on the very same title
  * and year with no other torrent in sight; anything else is left to the user.
+ *
+ * The torrent of a release made by Wayfinderr (on a server, or locally on the machine of
+ * a client: see seeding.ts) seeds for good: it is never a source torrent, and is never
+ * removed, automatically or by hand.
  */
 
 // Score needed to suggest a torrent in the UI (automatic removal needs a certain match)
@@ -252,12 +257,12 @@ export class TorrentCleanup extends EventEmitter {
 
     const torrentsByClient: { client: TorrentClient; torrents: QbitTorrent[] }[] = [];
     const errors: string[] = [];
+    // Releases seed for good (this file's own one, released locally, too): never a source
+    const releases = await releasedUploads();
     for (const client of clients) {
       try {
         const torrents = await getQbitClient(client).getCompletedTorrents(client.category);
-        // Released locally, its release seeds in this client too: never the source
-        const release = upload.releaseTorrentHash?.toLowerCase();
-        torrentsByClient.push({ client, torrents: torrents.filter((t) => t.hash.toLowerCase() !== release) });
+        torrentsByClient.push({ client, torrents: torrents.filter((t) => !this.releaseOf(t, client, releases)) });
       } catch (error) {
         errors.push(`${client.name}: ${describeError(error)}`);
       }
@@ -386,6 +391,18 @@ export class TorrentCleanup extends EventEmitter {
         continue;
       }
       if (torrent) {
+        const release = this.releaseOf(torrent, client, await releasedUploads());
+        if (release) {
+          await this.setStatus(upload.id, {
+            torrentStatus: 'NO_MATCH',
+            torrentMessage: `${why}, but "${torrent.name}" in ${client.name} seeds the release of ${release.filename}: it is never removed.`,
+            torrentClientId: null,
+            torrentHash: null,
+            torrentName: null,
+            torrentScore: null,
+          });
+          return;
+        }
         await this.matched(upload, { client, torrent, score: 100, matched: '' }, why);
         return;
       }
@@ -483,6 +500,11 @@ export class TorrentCleanup extends EventEmitter {
     return activeRip ? `MakeMKV is still writing ${activeRip}` : null;
   }
 
+  // The upload a torrent is the release of (see seeding.ts)
+  private releaseOf(torrent: QbitTorrent, client: TorrentClient, releases: Upload[]): Upload | null {
+    return releaseOfTorrent({ hash: torrent.hash, name: torrent.name, topLevel: topLevelName(torrent) }, client.id, releases);
+  }
+
   /** Removes the torrent unless a rip or another upload of the same download is still in progress */
   private async tryRemove(hash: string, clientId: string): Promise<void> {
     const client = await db.getTorrentClientById(clientId);
@@ -495,6 +517,12 @@ export class TorrentCleanup extends EventEmitter {
       const torrent = await getQbitClient(client).getTorrent(hash);
       if (!torrent) {
         await this.setStatusForHash(hash, ['WAITING'], 'REMOVED', `Already gone from ${client.name}`);
+        return;
+      }
+
+      const release = this.releaseOf(torrent, client, await releasedUploads());
+      if (release) {
+        await this.setStatusForHash(hash, ['WAITING'], 'NO_MATCH', `"${torrent.name}" seeds the release of ${release.filename}: it is never removed`);
         return;
       }
 
@@ -518,6 +546,9 @@ export class TorrentCleanup extends EventEmitter {
     const qbit = getQbitClient(client);
     // Its tracker is kept with the hash: once removed, the client can no longer tell
     const torrent = await qbit.getTorrent(hash);
+    // The last check before anything goes: a release's torrent and files stay, always
+    const release = torrent ? this.releaseOf(torrent, client, await releasedUploads()) : null;
+    if (torrent && release) throw new Error(`"${torrent.name}" seeds the release of ${release.filename}: it is never removed`);
     const tracker = torrent ? await this.trackerOf(client, torrent) : null;
     await qbit.deleteTorrent(hash, client.deleteFiles);
     if (await qbit.getTorrent(hash)) {

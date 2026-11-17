@@ -142,6 +142,7 @@ export interface LogsConfig {
 export interface MergeConfig {
   ENABLED: boolean;
   JOBS_DIR: string; // shared with the Dyadrr runner, inside the watch folder
+  SEEDING_DIR: string; // the release folder of a local release, read only ('' when not mounted)
   FOLDERS: { name: string; dir: string }[]; // mounted in the Dyadrr container as /data/<name>
 }
 

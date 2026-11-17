@@ -20,6 +20,7 @@ changed). The frontend settings are compiled in by `npm run build`: rebuild it a
 |---|---|---|
 | `MAKEMKV_OUTPUT_DIR` | `./makemkv-output` | Host folder with the `.mkv` files (the watch folder), mounted as `/makemkv-output` in the backend, `/output` in MakeMKV, `/data/watch` in Dyadrr |
 | `DOWNLOADS_DIR` | `./downloads` | Host folder with the downloads (discs, RAR archives): read-only in the backend (`/downloads`, but for its `.wayfinderr` folder where archives are unpacked), MakeMKV (`/storage`) and Dyadrr (`/data/downloads`) |
+| `SEEDING_DIR` | `./seeding` | Host folder where the films released locally seed (the **release folder** of the download client on this machine, **Clients** page): read-only in the backend (`/seeding`) and Dyadrr (`/data/seeding`), so a film released locally can still be merged where it seeds. Wayfinderr never writes or deletes there |
 | `WAYFINDERR_TAG` | `latest` | Image version: `latest` (last commit on `main`), a release like `0.32.1`, or `sha-<commit>` |
 | `WAYFINDERR_REGISTRY` | `ghcr.io/tehmaat` | Where the Wayfinderr images come from (a fork's registry, a mirror) |
 | `DYADRR_TAG` | `latest` | Dyadrr image version: `latest`, a release like `0.21.0`, or `sha-<commit>` |
@@ -83,6 +84,7 @@ All of them are in the Docker image; for a local run install them, or point thes
 | Variable | Default | Description |
 |---|---|---|
 | `MERGE_ENABLED` | `false` | Merge two rips of a film with Dyadrr (needs the `dyadrr` service and `RIP_LANGUAGE=it`). See [Merge with Dyadrr](USAGE.md#merge-with-dyadrr) |
+| `LOCAL_RELEASE_DIR` | – | The release folder of a local release (`SEEDING_DIR`), as the backend sees it, read only: a film released locally is paired where it seeds, and Dyadrr reads it as `/data/seeding`. Empty: not mounted. *Fixed in compose* (`/seeding`) |
 
 ## Frontend (build time)
 

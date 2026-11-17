@@ -210,6 +210,14 @@ Set its `USER_ID`/`GROUP_ID` to the owner of the watch folder: at start it takes
   names in different languages. See [Remove the source torrent](USAGE.md#remove-the-source-torrent).
 - **Test connection** on the client fails: enable qBittorrent's WebUI; from Docker use
   `http://host.docker.internal:8080` (the compose file maps it on Linux too).
+- **A release's torrent is never removed**: by design, the torrent of a film Wayfinderr released
+  (on a server or locally) seeds for good. The upload says *seeds the release of …: it is never
+  removed*; remove it from qBittorrent yourself if you mean to.
+- **"mount its release folder (LOCAL_RELEASE_DIR) to pair it"**, or a film released locally missing
+  from **Pair…**: set `SEEDING_DIR` in `.env` to the client's release folder on this machine (the
+  same disk as the watch folder) and recreate the backend and `dyadrr` containers. If it is set, the
+  file seeding there must have the size of the uploaded one: a file changed or moved by hand is
+  not taken.
 - **The tracker command does not start**: the server (or the client's machine, for a local release)
   needs `tmux` and `bash`, and the command must work in a login shell there. The **Tracker** card
   shows its output.

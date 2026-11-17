@@ -1009,7 +1009,7 @@ Dyadrr's four choices (its `docs/CLI.md`, *Scelte*), each a fixed value passed t
 GET /api/merge/candidates
 ```
 
-The uploads that can be paired: held, completed, skipped, failed or stopped, with their file still on the disk, and not in a pair being analyzed; held ones first. Each: `id`, `filename`, `filepath`, `size`, `status`, `hasItalianAudio`, `holdKind`, `holdMessage`, `mediaInfo`.
+The uploads that can be paired: held, completed, skipped, failed or stopped, with their file still on the disk (a film released locally: seeding in the mounted release folder, `LOCAL_RELEASE_DIR`, with the same size), and not in a pair being analyzed; held ones first. Each: `id`, `filename`, `filepath` (where the file is read: for a film released locally, in the release folder), `seeding` (released locally, read where it seeds, never deleted), `size`, `status`, `hasItalianAudio`, `holdKind`, `holdMessage`, `mediaInfo`.
 
 ### Merge Pairs
 
@@ -1023,7 +1023,7 @@ DELETE /api/merge/pairs/:id
 GET /api/merge/pairs/:id/report[?download=1]
 ```
 
-Two files of the same film, analyzed by Dyadrr (`dyadrr analyze` in the `dyadrr` container, through a file job). `POST /api/merge/pairs` pairs two candidates (in any order: Dyadrr picks the better video, the *reference*, and the Italian file, the *donor*) and queues the analysis; `originalLanguage` (ISO 639-1 or 639-2, an IETF tag) is optional: without it, it comes from a rip of either file, else TMDB, else none (the sync is then measured on English). The fixed choices of the settings are passed along. 409 with merging off, a file not pairable (uploading, gone from the disk, outside the watch folder and the downloads, already in a pair being analyzed); 400 for two equal ids or a bad language.
+Two files of the same film, analyzed by Dyadrr (`dyadrr analyze` in the `dyadrr` container, through a file job). `POST /api/merge/pairs` pairs two candidates (in any order: Dyadrr picks the better video, the *reference*, and the Italian file, the *donor*) and queues the analysis; `originalLanguage` (ISO 639-1 or 639-2, an IETF tag) is optional: without it, it comes from a rip of either file, else TMDB, else none (the sync is then measured on English). The fixed choices of the settings are passed along. 409 with merging off, a file not pairable (uploading, gone from the disk, released locally without its release folder mounted, outside the watch folder, the downloads and the release folder, already in a pair being analyzed); 400 for two equal ids or a bad language.
 
 A pair:
 

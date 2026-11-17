@@ -33,6 +33,9 @@ services:
       - RIP_LANGUAGE=${RIP_LANGUAGE:-it}
       # Merge two rips of a film (better video + Italian audio) with Dyadrr (needs the dyadrr service)
       - MERGE_ENABLED=${MERGE_ENABLED:-false}
+      # The release folder of a local release (SEEDING_DIR), read only: a film released
+      # locally can still be merged where it seeds
+      - LOCAL_RELEASE_DIR=/seeding
     # Lets the backend reach qBittorrent on this machine as http://host.docker.internal:8080
     # (built into Docker Desktop, needed on Linux)
     extra_hosts:
@@ -47,6 +50,9 @@ services:
       # downloads disk has more free space than the watch folder's (without this line, only
       # next to the watch folder)
       - ${DOWNLOADS_DIR:-./downloads}/.wayfinderr:/downloads/.wayfinderr
+      # The folder where the films released locally seed (the release folder of the download
+      # client on this machine), read only: Wayfinderr never writes or deletes there
+      - ${SEEDING_DIR:-./seeding}:/seeding:ro
       - wayfinderr-data:/app/data
     restart: unless-stopped
     networks:
@@ -102,6 +108,8 @@ services:
       - ${MAKEMKV_OUTPUT_DIR:-./makemkv-output}:/data/watch
       # The downloads, read only: an .mkv there can be merged too
       - ${DOWNLOADS_DIR:-./downloads}:/data/downloads:ro
+      # The films released locally, read only: merged where they seed
+      - ${SEEDING_DIR:-./seeding}:/data/seeding:ro
     restart: unless-stopped
     networks:
       - wayfinderr

@@ -7,6 +7,7 @@ import { config } from '../../config/index.js';
 import logger from '../../config/logger.js';
 import { db } from '../database.js';
 import { mkvNames } from '../torrentCleanup.js';
+import { fileOfUpload, UploadFile } from '../seeding.js';
 import { filmByName } from '../filmLookup.js';
 import { outputName, ripper, safeFileName } from '../ripper/index.js';
 import { logs } from '../logs/index.js';
@@ -28,6 +29,10 @@ import { currentProgress, DyadrrChoices, DyadrrEvent, DyadrrReport, jobOutcome }
  *
  * The four choices are settings: a fixed value, passed to every analysis, or "ask"
  * each time, left pending in the report and chosen before the merge.
+ *
+ * A file released locally and seeding (seeding.ts) is paired where it seeds, in the
+ * release folder mounted read only: it is read there, never moved or deleted, and its
+ * upload stays COMPLETED after the merge.
  */
 
 export class MergeError extends Error {
@@ -57,7 +62,7 @@ export const DEFAULT_CHOICES: ChoiceSettings = { tail: 'ask', italian: 'ask', re
 
 // A queued or running job: the pair waits for its report
 const ACTIVE = ['ANALYZING', 'MERGING'];
-// Uploads that can be paired: their file is on the disk and nothing else is using it
+// Uploads that can be paired: their file is on the disk (or seeding) and nothing else is using it
 const PAIRABLE = ['HELD', 'COMPLETED', 'SKIPPED', 'FAILED', 'CANCELLED'];
 const POLL_MS = 2000;
 // A code ISO 639-1 or 639-2, or an IETF tag (pt-BR): Dyadrr checks it for real
@@ -257,19 +262,27 @@ class MergePairs extends EventEmitter {
     return settings;
   }
 
-  /** The uploads that can be paired: their file is still on the disk, and no upload or pair uses it. */
+  /** The uploads that can be paired: their file is still on the disk or seeding, and no upload or pair uses it. */
   async candidates() {
     const busy = new Set(
       (await db.getMergePairsByStatus(ACTIVE)).flatMap((p) => [p.uploadAId, p.uploadBId])
     );
     const uploads = (await Promise.all(PAIRABLE.map((status) => db.getUploadsByStatus(status)))).flat();
     return uploads
-      .filter((u) => !busy.has(u.id) && existsSync(u.filepath))
-      .sort((a, b) => Number(b.status === 'HELD') - Number(a.status === 'HELD') || b.createdAt.getTime() - a.createdAt.getTime())
-      .map((u) => ({
+      .filter((u) => !busy.has(u.id))
+      .map((u) => ({ upload: u, file: fileOfUpload(u) }))
+      .filter((c): c is { upload: Upload; file: UploadFile } => c.file !== null)
+      .sort(
+        (a, b) =>
+          Number(b.upload.status === 'HELD') - Number(a.upload.status === 'HELD') ||
+          b.upload.createdAt.getTime() - a.upload.createdAt.getTime()
+      )
+      .map(({ upload: u, file }) => ({
         id: u.id,
         filename: u.filename,
-        filepath: u.filepath,
+        filepath: file.path,
+        // Released locally: read where it seeds, never deleted
+        seeding: file.seeding,
         size: u.size.toString(),
         status: u.status,
         hasItalianAudio: u.hasItalianAudio,
@@ -287,12 +300,13 @@ class MergePairs extends EventEmitter {
     }
     if (uploadIds[0] === uploadIds[1]) throw new MergeError('Pick two different files', 400);
     const language = this.checkLanguage(originalLanguage);
-    const uploads = await Promise.all(uploadIds.map((id: string) => this.pairable(id)));
+    const sides = await Promise.all(uploadIds.map((id: string) => this.pairable(id)));
+    const uploads = sides.map((side) => side.upload);
     const pair = await db.createMergePair({
       uploadAId: uploads[0].id,
       uploadBId: uploads[1].id,
-      fileA: uploads[0].filepath,
-      fileB: uploads[1].filepath,
+      fileA: sides[0].file,
+      fileB: sides[1].file,
       originalLanguage: language ?? (await this.originalLanguageOf(uploads)),
       // Not ANALYZING (the column's default) until its job is written: analyze() refuses
       // a pair already analyzing, and one that fails to start can be analyzed again
@@ -311,11 +325,12 @@ class MergePairs extends EventEmitter {
     if (ACTIVE.includes(pair.status)) throw new MergeError(`The pair is already ${pair.status === 'MERGING' ? 'being merged' : 'being analyzed'}`);
     if (pair.status === 'MERGED') throw new MergeError('The pair is already merged');
     const language = originalLanguage === undefined ? pair.originalLanguage : this.checkLanguage(originalLanguage);
-    for (const uploadId of [pair.uploadAId, pair.uploadBId]) await this.pairable(uploadId, pair.id);
+    // Where each file is now: a file released since the pair was made is read where it seeds
+    const [a, b] = [await this.pairable(pair.uploadAId, pair.id), await this.pairable(pair.uploadBId, pair.id)];
 
     const jobId = await dyadrr.submit({
       command: 'analyze',
-      inputs: [pair.fileA, pair.fileB],
+      inputs: [a.file, b.file],
       originalLanguage: language ?? undefined,
       ...fixedChoices(await this.getChoiceSettings()),
     });
@@ -323,6 +338,8 @@ class MergePairs extends EventEmitter {
     const updated = await db.updateMergePair(id, {
       status: 'ANALYZING',
       jobId,
+      fileA: a.file,
+      fileB: b.file,
       originalLanguage: language,
       phase: null,
       progress: null,
@@ -378,8 +395,14 @@ class MergePairs extends EventEmitter {
     const files = [pair.fileA, pair.fileB];
     // The reference first: its name is the better video's
     const order = report?.roles ? [files[report.roles.reference], files[report.roles.donor]] : files;
+    // A file read where it seeds has no rip of its own path: its upload's path tells it
+    const uploadPath = new Map<string, string>();
+    for (const [file, uploadId] of [[pair.fileA, pair.uploadAId], [pair.fileB, pair.uploadBId]]) {
+      const upload = await db.getUploadById(uploadId);
+      if (upload) uploadPath.set(file, upload.filepath);
+    }
     for (const file of order) {
-      const rip = await db.getRipByOutputFile(file);
+      const rip = await db.getRipByOutputFile(uploadPath.get(file) ?? file);
       if (rip) return outputName(rip);
     }
     for (const file of order) {
@@ -578,19 +601,27 @@ class MergePairs extends EventEmitter {
     return value.trim().toLowerCase();
   }
 
-  private async pairable(uploadId: string, pairId?: string): Promise<Upload> {
+  /** The upload, and where its file is read: its own path, or where it seeds (released locally). */
+  private async pairable(uploadId: string, pairId?: string): Promise<{ upload: Upload; file: string }> {
     const upload = await db.getUploadById(uploadId);
     if (!upload) throw new MergeError('Upload not found', 404);
     if (!PAIRABLE.includes(upload.status)) throw new MergeError(`${upload.filename} is ${upload.status}: it cannot be merged now`);
-    if (!existsSync(upload.filepath)) throw new MergeError(`${upload.filename} is no longer on the disk`);
+    const file = fileOfUpload(upload);
+    if (!file) {
+      throw new MergeError(
+        upload.localClientId
+          ? `${upload.filename} was released locally and its release folder is not mounted here (LOCAL_RELEASE_DIR), or the file seeding there is not the same`
+          : `${upload.filename} is no longer on the disk`
+      );
+    }
     const busy = (await db.getMergePairsOfUpload(uploadId)).find((p) => p.id !== pairId && ACTIVE.includes(p.status));
     if (busy) throw new MergeError(`${upload.filename} is already in another pair being analyzed or merged`);
     try {
-      dyadrr.toJobPath(upload.filepath);
+      dyadrr.toJobPath(file.path);
     } catch {
-      throw new MergeError(`${upload.filename} is not in the watch folder or the downloads, so Dyadrr cannot read it`);
+      throw new MergeError(`${upload.filename} is not in the watch folder, the downloads or the release folder, so Dyadrr cannot read it`);
     }
-    return upload;
+    return { upload, file: file.path };
   }
 
   /** The film's original language, from a rip of either file or TMDB; null when unknown. */
@@ -714,12 +745,18 @@ class MergePairs extends EventEmitter {
   /** The two inputs after a verified merge: MERGED, and deleted when the setting says so. */
   private async afterMerge(pair: MergePair, inputsAfter: InputsAfter): Promise<void> {
     const name = pair.outputPath ? path.basename(pair.outputPath) : 'the merged file';
-    for (const uploadId of [pair.uploadAId, pair.uploadBId]) {
+    for (const [uploadId, file] of [
+      [pair.uploadAId, pair.fileA],
+      [pair.uploadBId, pair.fileB],
+    ]) {
       const upload = await db.getUploadById(uploadId);
       if (!upload) continue;
-      // Only a file of the watch folder: the downloads belong to the torrent client
+      // Only the upload's own file, in the watch folder: the downloads belong to the torrent
+      // client, and a file read where it seeds (released locally) stays there. Its old path
+      // in the watch folder may be the merged file's name by now
       const relative = path.relative(config.WATCH_DIR, upload.filepath);
-      const inWatch = Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
+      const inWatch =
+        path.resolve(file) === path.resolve(upload.filepath) && Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
       if (inputsAfter === 'delete' && inWatch) {
         await rm(upload.filepath, { force: true });
         logger.info({ pairId: pair.id, filepath: upload.filepath }, 'Merge input deleted');

@@ -74,6 +74,7 @@ backend/
         ├── uploadManager.ts  SFTP upload, retries
         ├── torrentCleanup.ts qBittorrent matching and removal (qbittorrent.ts, nameMatch.ts)
         ├── sourceTorrents.ts .torrent files sent beforehand (bookrr)
+        ├── seeding.ts        released films: where they seed, their torrents never removed
         ├── spaceGuard.ts     pauses the torrents when this machine runs out of space
         ├── diskUsage.ts      the disks of this machine
         ├── filmLookup.ts     a film's TMDB titles in every language

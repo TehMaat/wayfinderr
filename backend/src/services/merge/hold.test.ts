@@ -103,3 +103,28 @@ test('certain twins come first, then the best names', () => {
     ]
   );
 });
+
+const released = (pairable: boolean, local = true, hasItalianAudio = true): TwinMatch => ({
+  candidate: {
+    ...candidate('torrent', 'Lago.Ferro.1998.1080p.REMUX-NOI.mkv', null, 'qBittorrent'),
+    release: { filename: 'Notte sul Lago Ferro (1998).mkv', hasItalianAudio, local, pairable },
+  },
+  certain: true,
+  score: 100,
+});
+
+test('a torrent seeding the release of a file sent before is that file: named, and pairable or not', () => {
+  const ready = decideHold(false, [released(true)]);
+  assert.equal(ready?.kind, 'NO_ITALIAN');
+  assert.equal(
+    ready!.message,
+    'No Italian audio: kept as the better video of a merge. Its twin may be the file "Notte sul Lago Ferro (1998).mkv" (with Italian audio), released locally and seeding as "Lago.Ferro.1998.1080p.REMUX-NOI.mkv" in qBittorrent: it can be paired where it seeds'
+  );
+  assert.match(decideHold(false, [released(false)])!.message, /: mount its release folder \(LOCAL_RELEASE_DIR\) to pair it$/);
+  assert.match(decideHold(false, [released(false, false, false)])!.message, /\(without Italian audio\), released on a server and seeding as .*: not on this machine$/);
+});
+
+test('between equal twins, a released file that can be paired now comes first', () => {
+  const ranked = rankTwins([released(false), released(true)]);
+  assert.equal(ranked[0].candidate.release?.pairable, true);
+});

@@ -478,6 +478,8 @@ export interface MergeCandidate {
   id: string;
   filename: string;
   filepath: string;
+  // Released locally: read where it seeds, in the release folder, never deleted
+  seeding?: boolean;
   size: string;
   status: UploadStatus;
   hasItalianAudio: boolean;
