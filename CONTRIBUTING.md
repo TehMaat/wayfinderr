@@ -236,13 +236,14 @@ the Docker workflow publishes the images as `0.8.1` and `0.8`.
 
 ## Pull Request Process
 
-1. Update the documentation and take the screenshots again (see [Documentation and screenshots](#documentation-and-screenshots))
-2. Update `docs/CHANGELOG.md` with notes on your changes
-3. Raise the version in both packages
-4. Add tests if applicable
-5. Ensure all checks pass
-6. Request review from maintainers
-7. Address feedback and comments
+1. Make sure the work has an issue (every proposal gets one) and say `Closes #N` in the pull request
+2. Update the documentation and take the screenshots again (see [Documentation and screenshots](#documentation-and-screenshots))
+3. Update `docs/CHANGELOG.md` with notes on your changes
+4. Raise the version in both packages
+5. Add tests if applicable
+6. Ensure all checks pass
+7. Request review from maintainers
+8. Address feedback and comments
 
 Merged branches are deleted by the **Branch cleanup** workflow (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#branches)).
 
