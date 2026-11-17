@@ -1,5 +1,19 @@
 # Wayfinderr
 
+## Proposals become issues
+
+When the maintainer proposes something ("there's this thing…": a feature, a change, a problem, an
+idea), do not write code:
+
+1. analyze the proposal against the code and the docs: what it touches, how it could be done,
+   risks, open questions;
+2. open a GitHub issue with the analysis: clear title, context, proposal, what changes (code,
+   docs, screenshots), acceptance criteria, open questions;
+3. give the maintainer the link to the issue and **stop**: go ahead only when the maintainer says
+   so.
+
+The pull request that implements the issue closes it with `Closes #N`.
+
 ## Versioning
 
 Every pull request to `main` raises the version in both `backend/package.json` and
