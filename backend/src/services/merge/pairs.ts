@@ -13,6 +13,7 @@ import { outputName, ripper, safeFileName } from '../ripper/index.js';
 import { logs } from '../logs/index.js';
 import { dyadrr, mergeActive } from './index.js';
 import { currentProgress, DyadrrChoices, DyadrrEvent, DyadrrReport, jobOutcome } from './jobs.js';
+import { reportFileName, ReportStep } from './reportName.js';
 
 /**
  * Pairs of files of the same film, merged with Dyadrr. The user pairs two files by
@@ -431,6 +432,17 @@ class MergePairs extends EventEmitter {
     }
     // The file's own name, without the " (2)" the ripper adds to a name already used
     return safeFileName(path.basename(order[0], path.extname(order[0])).replace(/ \(\d+\)$/, ''));
+  }
+
+  /**
+   * The name of a report saved from the pair: "<film> - <step> - <outcome> - <day>.json".
+   * The film is the merged file's name once a merge was asked (it may have been chosen by
+   * hand), else the name the merge would give it.
+   */
+  async reportFileName(id: string, step: ReportStep, report: DyadrrReport): Promise<string> {
+    const pair = await this.find(id);
+    const film = pair.outputPath ? path.basename(pair.outputPath, '.mkv') : await this.defaultOutputName(pair);
+    return reportFileName(film, step, report);
   }
 
   /** What the merge dialog needs: the default name, and whether a file with that name is already there. */
