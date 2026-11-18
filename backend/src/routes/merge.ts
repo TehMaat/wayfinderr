@@ -4,6 +4,8 @@ import { mergeStatus } from '../services/merge/index.js';
 import { MergeError, mergePairs, OutputExistsError } from '../services/merge/pairs.js';
 import { HoldError, manualHolds } from '../services/merge/manual.js';
 import { mergePlans } from '../services/merge/plans.js';
+import type { DyadrrReport } from '../services/merge/jobs.js';
+import { attachmentHeader, type ReportStep } from '../services/merge/reportName.js';
 
 const router = Router();
 
@@ -103,10 +105,10 @@ router.get('/pairs/:id', async (req: Request, res: Response) => {
   }
 });
 
-// A report as a file to save (?download=1), or as JSON to read
-const sendReport = (req: Request, res: Response, report: unknown, name: string) => {
+// A report as a file to save (?download=1), named after the film, the step, the outcome and the day, or as JSON to read
+const sendReport = async (req: Request, res: Response, report: DyadrrReport, step: ReportStep) => {
   if (req.query.download === '1') {
-    res.setHeader('Content-Disposition', `attachment; filename="dyadrr-${name}-${req.params.id}.json"`);
+    res.setHeader('Content-Disposition', attachmentHeader(await mergePairs.reportFileName(req.params.id, step, report)));
     res.type('application/json').send(JSON.stringify(report, null, 2) + '\n');
     return;
   }
@@ -121,7 +123,7 @@ router.get('/pairs/:id/report', async (req: Request, res: Response) => {
       res.status(404).json({ error: 'No report yet' });
       return;
     }
-    sendReport(req, res, report, 'analyze');
+    await sendReport(req, res, report, 'analyze');
   } catch (error) {
     fail(res, error, 'read the analysis report');
   }
@@ -162,7 +164,7 @@ router.get('/pairs/:id/merge-report', async (req: Request, res: Response) => {
       res.status(404).json({ error: 'No merge report yet' });
       return;
     }
-    sendReport(req, res, report, 'merge');
+    await sendReport(req, res, report, 'merge');
   } catch (error) {
     fail(res, error, 'read the merge report');
   }
