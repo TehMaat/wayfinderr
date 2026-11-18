@@ -18,6 +18,54 @@ export const HOLD_LABELS: Record<HoldKind, string> = {
 };
 
 /**
+ * What can be done with a held file: pair it, upload it as it is, delete it. On the held
+ * card, and on the card of a pair it is in that Dyadrr is not running.
+ */
+export function HeldActions({
+  upload,
+  onPair,
+  pairLabel = 'Pair…',
+  onDeleted,
+  className,
+}: {
+  upload: Upload;
+  // Pairs it with its twin, or another file (shown when merging is on)
+  onPair?: () => void;
+  pairLabel?: string;
+  onDeleted?: () => void;
+  className?: string;
+}) {
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const upload_ = async () => {
+    setBusy(true);
+    await uploadHeld(upload.id);
+    setBusy(false);
+  };
+
+  return (
+    <div className={cn('flex shrink-0 flex-wrap gap-2', className)}>
+      {onPair && (
+        <Button size="sm" onClick={onPair}>
+          <Link2 />
+          {pairLabel}
+        </Button>
+      )}
+      <Button variant="outline" size="sm" onClick={upload_} disabled={busy}>
+        <UploadIcon />
+        Upload as it is
+      </Button>
+      <Button variant="outline" size="sm" onClick={() => setDeleteOpen(true)}>
+        <FileX2 />
+        Delete file…
+      </Button>
+      <DeleteHeldDialog upload={upload} open={deleteOpen} onOpenChange={setDeleteOpen} onDeleted={onDeleted} />
+    </div>
+  );
+}
+
+/**
  * A file held for a merge: why, and what can be done with it. Waiting needs no button:
  * the file stays held until it is uploaded or deleted.
  */
@@ -35,15 +83,6 @@ export function HeldNotice({
   onPair?: () => void;
   className?: string;
 }) {
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  const upload_ = async () => {
-    setBusy(true);
-    await uploadHeld(upload.id);
-    setBusy(false);
-  };
-
   return (
     <div className={cn('flex flex-col gap-3 rounded-lg border border-info/40 bg-info/10 p-4 text-sm sm:flex-row sm:items-center', className)}>
       <Merge className="hidden h-4 w-4 shrink-0 text-info sm:block" />
@@ -63,23 +102,7 @@ export function HeldNotice({
           {upload.holdMessage ?? 'Waiting for its twin.'}
         </p>
       </div>
-      <div className="flex shrink-0 flex-wrap gap-2">
-        {onPair && (
-          <Button size="sm" onClick={onPair}>
-            <Link2 />
-            Pair…
-          </Button>
-        )}
-        <Button variant="outline" size="sm" onClick={upload_} disabled={busy}>
-          <UploadIcon />
-          Upload as it is
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => setDeleteOpen(true)}>
-          <FileX2 />
-          Delete file…
-        </Button>
-      </div>
-      <DeleteHeldDialog upload={upload} open={deleteOpen} onOpenChange={setDeleteOpen} onDeleted={onDeleted} />
+      <HeldActions upload={upload} onPair={onPair} onDeleted={onDeleted} />
     </div>
   );
 }

@@ -17,6 +17,7 @@ import { PageHeader } from '@/components/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip } from '@/components/ui/tooltip';
 import { mergeApi } from '@/lib/api';
+import { unpairedHeld } from '@/lib/merge';
 import { languageName } from '@/lib/rips';
 import { useAppStore, type MergePair, type MergePairStatus, type MergePlan, type MergeStatus, type Upload } from '@/lib/store';
 import { cn, errorMessage } from '@/lib/utils';
@@ -112,7 +113,7 @@ function PlannedPairs({ plans }: { plans: MergePlan[] }) {
   );
 }
 
-/** The files held for a merge, newest first, with why and what to do with each */
+/** The files held for a merge and not in a pair, newest first, with why and what to do with each */
 function HeldFiles({ uploads, onPair }: { uploads: Upload[]; onPair?: (uploadId: string) => void }) {
   return (
     <Card className="flex flex-col gap-3 p-4">
@@ -121,7 +122,8 @@ function HeldFiles({ uploads, onPair }: { uploads: Upload[]; onPair?: (uploadId:
         <p className="text-xs text-muted-foreground">
           Not uploaded until you say so: files without Italian audio, files whose twin of the same film (another file, a
           rip or a torrent, by its titles in every language) is around, for sure or maybe, and files held by hand or for
-          a planned pair. Leave them here to wait for the twin, upload them as they are, or delete them.
+          a planned pair. Leave them here to wait for the twin, upload them as they are, or delete them. Once paired,
+          a file is followed on its pair's card, and comes back here when the pair is removed.
         </p>
       </div>
       {uploads.map((upload) => (
@@ -191,7 +193,7 @@ function Pairs({
           }
         />
         {shown.map((pair) => (
-          <MergePairCard key={pair.id} pair={pair} runnerAlive={runnerAlive} />
+          <MergePairCard key={pair.id} pair={pair} runnerAlive={runnerAlive} onPair={onPair} />
         ))}
       </section>
     );
@@ -213,8 +215,9 @@ export default function MergePage() {
   const [failed, setFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const allUploads = useAppStore((s) => s.uploads);
-  const held = allUploads.filter((u) => u.status === 'HELD');
   const pairs = useAppStore((s) => s.mergePairs);
+  // A held file in a pair still on the page is followed on the pair's card
+  const held = unpairedHeld(allUploads, pairs);
   // Paired plans are in the pairs: only the ones still waiting or not paired
   const allPlans = useAppStore((s) => s.mergePlans);
   const plans = allPlans.filter((p) => p.status !== 'PAIRED');

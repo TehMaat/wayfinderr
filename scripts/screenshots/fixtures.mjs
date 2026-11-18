@@ -155,16 +155,21 @@ export const patchResponse = (url, body) => {
   }
 
   // Shown as analyzing: there is no Dyadrr behind the demo, so the backend calls it not started
+  // (a refused pair stays as seeded)
   if (p === '/api/merge/pairs') {
-    return json.map((pair) => ({
-      ...pair,
-      status: 'ANALYZING',
-      phase: 'checkpoints',
-      progress: 58,
-      reasonCode: null,
-      reasonMessage: null,
-      completedAt: null,
-    }));
+    return json.map((pair) =>
+      pair.status === 'REFUSED'
+        ? pair
+        : {
+            ...pair,
+            status: 'ANALYZING',
+            phase: 'checkpoints',
+            progress: 58,
+            reasonCode: null,
+            reasonMessage: null,
+            completedAt: null,
+          }
+    );
   }
 
   if (p === '/api/merge') return { ...json, status: { ...json.status, runnerAlive: true, runnerLastSeen: 2 } };

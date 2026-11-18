@@ -273,7 +273,9 @@ router.post('/:id/hold/delete', async (req: Request, res: Response) => {
     await db.deleteUpload(upload.id);
     // A file of a planned pair: its side waits for a file again
     await mergePlans.forgetUpload(upload.id);
-    logger.info({ uploadId: upload.id, filepath: upload.filepath }, 'Held file deleted');
+    // Its pairs still to act on (refused, failed, stopped, ready) go with it
+    const pairsRemoved = await mergePairs.forgetUpload(upload.id);
+    logger.info({ uploadId: upload.id, filepath: upload.filepath, pairsRemoved }, 'Held file deleted');
     res.json({ ok: true });
   } catch (error) {
     logger.error(error, 'Failed to delete a held file');

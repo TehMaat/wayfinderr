@@ -215,7 +215,7 @@ async function main() {
     tmdbId: 900001,
   });
   await done(lanterne, beta.id, 180, 2);
-  await done(aurora, alpha.id, 420, 3);
+  const auroraUpload = await done(aurora, alpha.id, 420, 3);
   await done(gelsi, beta.id, 1500, 4, { torrentStatus: 'REVIEW', torrentScore: 82, torrentMessage: 'Two torrents could be its source: choose one' });
   await prisma.upload.create({
     data: {
@@ -283,6 +283,51 @@ async function main() {
       phase: 'checkpoints',
       progress: 58,
       startedAt: ago(4),
+    },
+  });
+
+  // A refused pair: its held UHD is followed on the pair's card (not listed twice), with what it can still do
+  const auroraUhdName = `${aurora.title.replace(/ /g, '.')}.${aurora.year}.2160p.UHD.BluRay.HEVC-EXAMPLE.mkv`;
+  const auroraUhd = await prisma.upload.create({
+    data: {
+      filename: auroraUhdName,
+      filepath: watch(auroraUhdName),
+      size: BigInt(Math.round(64.8 * GB)),
+      mediaInfo: media({ ...aurora, uhd: true, hdr: true, original: 'eng', italian: false, title: aurora.title }),
+      status: 'HELD',
+      holdKind: 'NO_ITALIAN',
+      holdMessage: `No Italian audio: kept as the better video of a merge. Its twin may be the file "${fileOf(aurora)}"`,
+      createdAt: ago(140),
+    },
+  });
+  await prisma.mergePair.create({
+    data: {
+      uploadAId: auroraUhd.id,
+      uploadBId: auroraUpload.id,
+      fileA: auroraUhd.filepath,
+      fileB: auroraUpload.filepath,
+      originalLanguage: 'en',
+      status: 'REFUSED',
+      reasonCode: 'CHECKPOINT_CONTRADICTION',
+      reasonMessage: 'Checkpoints contradict the offset: first at 3761412 ms',
+      dyadrrVersion: '0.21.1',
+      startedAt: ago(130),
+      completedAt: ago(118),
+    },
+  });
+
+  // Held and not paired yet: waiting for its twin, the rip still to choose
+  const mercanteUhdName = `${mercante.title.replace(/ /g, '.')}.${mercante.year}.2160p.UHD.BluRay.HEVC-EXAMPLE.mkv`;
+  await prisma.upload.create({
+    data: {
+      filename: mercanteUhdName,
+      filepath: watch(mercanteUhdName),
+      size: BigInt(Math.round(71.2 * GB)),
+      mediaInfo: media({ ...mercante, uhd: true, hdr: true, original: 'jpn', italian: false, title: mercante.title }),
+      status: 'HELD',
+      holdKind: 'NO_ITALIAN',
+      holdMessage: `No Italian audio: kept as the better video of a merge. Its twin may be the rip of "${torrentOf(mercante)}"`,
+      createdAt: ago(20),
     },
   });
 

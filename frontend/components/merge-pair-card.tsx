@@ -21,6 +21,7 @@ import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Tooltip } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { HeldActions } from '@/components/held-notice';
 import { MergeConfirmDialog } from '@/components/merge-confirm-dialog';
 import { CheckpointStrip } from '@/components/report/checkpoint-chart';
 import { CHECKPOINT_OUTCOMES, withClock } from '@/lib/dyadrr';
@@ -32,9 +33,10 @@ import {
   formatOffset,
   MERGE_CHOICES,
   PAIR_STATUS,
+  pairIdle,
   PHASE_LABELS,
 } from '@/lib/merge';
-import { useAppStore, type MergePair, type MergeSummary } from '@/lib/store';
+import { useAppStore, type MergePair, type MergeSummary, type Upload } from '@/lib/store';
 import { errorMessage, formatBytes } from '@/lib/utils';
 
 function Fact({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
@@ -185,8 +187,49 @@ function Result({ summary }: { summary: MergeSummary }) {
   );
 }
 
+/**
+ * The held files of a pair Dyadrr is not running: what they could do in "Held for a merge",
+ * where they are not listed while in the pair. One line per held side.
+ */
+function HeldSides({ pair, onPair }: { pair: MergePair; onPair?: (uploadId: string) => void }) {
+  const uploads = useAppStore((s) => s.uploads);
+  if (!pairIdle(pair)) return null;
+  const held = [pair.uploadAId, pair.uploadBId]
+    .map((id) => uploads.find((u) => u.id === id))
+    .filter((u): u is Upload => u?.status === 'HELD');
+  if (held.length === 0) return null;
+  return (
+    <div className="space-y-2 border-t pt-3">
+      {held.map((upload) => (
+        <div key={upload.id} className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <p className="min-w-0 truncate text-muted-foreground">
+            <span className="text-foreground">Held</span> ·{' '}
+            <Link href={`/uploads/${upload.id}`} className="hover:underline" title={upload.filename}>
+              {upload.filename}
+            </Link>
+          </p>
+          <HeldActions
+            upload={upload}
+            onPair={onPair ? () => onPair(upload.id) : undefined}
+            pairLabel="Pair with another…"
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** A pair of files: its analysis while Dyadrr runs it, then what it found */
-export function MergePairCard({ pair, runnerAlive }: { pair: MergePair; runnerAlive: boolean }) {
+export function MergePairCard({
+  pair,
+  runnerAlive,
+  onPair,
+}: {
+  pair: MergePair;
+  runnerAlive: boolean;
+  // Pair… with a held side as the first file (shown when merging is on)
+  onPair?: (uploadId: string) => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const status = PAIR_STATUS[pair.status] ?? PAIR_STATUS.ERROR;
@@ -364,6 +407,8 @@ export function MergePairCard({ pair, runnerAlive }: { pair: MergePair; runnerAl
       {summary && pair.status === 'REFUSED' && summary.warnings.length > 0 && (
         <Result summary={{ ...summary, choices: [] }} />
       )}
+
+      <HeldSides pair={pair} onPair={onPair} />
 
       <p className="text-[11px] text-muted-foreground">
         Original language: {pair.originalLanguage ?? 'unknown (measured on English)'}

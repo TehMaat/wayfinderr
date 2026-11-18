@@ -66,6 +66,18 @@ const ACTIVE = ['ANALYZING', 'MERGING'];
 // Uploads that can be paired: their file is on the disk (or seeding) and nothing else is using it
 const PAIRABLE = ['HELD', 'COMPLETED', 'SKIPPED', 'FAILED', 'CANCELLED'];
 const POLL_MS = 2000;
+
+/** A pair still to act on: not being analyzed or merged, not merged. A held file deleted takes it along. */
+export const pairToForget = (status: string): boolean => !ACTIVE.includes(status) && status !== 'MERGED';
+
+/** The pair of these two uploads, in either order, that can be analyzed again (not merged): pairing them again reuses it. */
+export const pairOfUploads = <P extends { uploadAId: string; uploadBId: string; status: string }>(
+  pairs: P[],
+  [a, b]: [string, string]
+): P | undefined =>
+  pairs.find(
+    (p) => p.status !== 'MERGED' && ((p.uploadAId === a && p.uploadBId === b) || (p.uploadAId === b && p.uploadBId === a))
+  );
 // A code ISO 639-1 or 639-2, or an IETF tag (pt-BR): Dyadrr checks it for real
 const LANGUAGE = /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i;
 
@@ -319,6 +331,12 @@ class MergePairs extends EventEmitter {
     }
     if (uploadIds[0] === uploadIds[1]) throw new MergeError('Pick two different files', 400);
     const language = this.checkLanguage(originalLanguage);
+    // Already a pair (refused, stopped, failed or ready): analyzed again, never a second pair of the same files
+    const existing = pairOfUploads(await db.getMergePairsOfUpload(uploadIds[0]), [uploadIds[0], uploadIds[1]]);
+    if (existing) {
+      logger.info({ pairId: existing.id, files: [existing.fileA, existing.fileB], originalLanguage: language }, 'Merge pair already there: analyzed again');
+      return this.analyze(existing.id, originalLanguage);
+    }
     const sides = await Promise.all(uploadIds.map((id: string) => this.pairable(id)));
     const uploads = sides.map((side) => side.upload);
     const pair = await db.createMergePair({
@@ -609,6 +627,16 @@ class MergePairs extends EventEmitter {
     this.lastProgress.delete(id);
     logger.info({ pairId: id }, 'Merge pair removed');
     this.emit('pair-removed', { pairId: id });
+  }
+
+  /**
+   * A held file deleted: its pairs still to act on go too (Analyze again would find no
+   * file). Not one Dyadrr runs (the file cannot be deleted then), nor a merged one.
+   */
+  async forgetUpload(uploadId: string): Promise<number> {
+    const pairs = (await db.getMergePairsOfUpload(uploadId)).filter((p) => pairToForget(p.status));
+    for (const pair of pairs) await this.remove(pair.id);
+    return pairs.length;
   }
 
   /** Whether an upload is in a pair being analyzed (or merged): its file must stay. */

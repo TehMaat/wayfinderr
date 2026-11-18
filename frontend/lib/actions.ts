@@ -70,6 +70,8 @@ export async function deleteHeld(id: string): Promise<boolean> {
   try {
     await uploadsApi.deleteHeld(id);
     useAppStore.getState().removeUpload(id);
+    // Its pairs still to act on went with it
+    useAppStore.getState().loadMergePairs().catch(() => undefined);
     useAppStore.getState().loadStats().catch(() => undefined);
     toast.success('File deleted');
     return true;
