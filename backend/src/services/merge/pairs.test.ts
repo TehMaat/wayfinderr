@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { DyadrrReport } from './jobs.js';
-import { DEFAULT_CHOICES, fixedChoices, parseChoiceSettings, progressPercent, reportSummary } from './pairs.js';
+import { DEFAULT_CHOICES, fixedChoices, pairOfUploads, pairToForget, parseChoiceSettings, progressPercent, reportSummary } from './pairs.js';
 
 test('choice settings: "ask" by default, invalid stored values dropped', () => {
   assert.deepEqual(parseChoiceSettings(undefined), DEFAULT_CHOICES);
@@ -123,4 +123,21 @@ test('the merge summary: the delivered file, the --expect check, the warnings', 
   assert.deepEqual(summary.expect, { result: 'pass', differences: [] });
   assert.deepEqual(summary.warnings, [{ code: 'OUTPUT_TRANSFER_OFFSET', message: '−18.6 ms', source: 'verify' }]);
   assert.equal(mergeSummary(null), null);
+});
+
+test('the same two files paired again: the pair already there, in either order, unless merged', () => {
+  const pairs = [
+    { id: 'merged', uploadAId: 'a', uploadBId: 'b', status: 'MERGED' },
+    { id: 'other', uploadAId: 'a', uploadBId: 'c', status: 'REFUSED' },
+    { id: 'refused', uploadAId: 'b', uploadBId: 'a', status: 'REFUSED' },
+  ];
+  assert.equal(pairOfUploads(pairs, ['a', 'b'])?.id, 'refused');
+  assert.equal(pairOfUploads(pairs, ['c', 'a'])?.id, 'other');
+  assert.equal(pairOfUploads(pairs, ['a', 'd']), undefined);
+  assert.equal(pairOfUploads(pairs.slice(0, 1), ['a', 'b']), undefined);
+});
+
+test('a held file deleted takes along its pairs still to act on, not a running or merged one', () => {
+  for (const status of ['ELIGIBLE', 'REFUSED', 'ERROR', 'CANCELLED']) assert.equal(pairToForget(status), true, status);
+  for (const status of ['ANALYZING', 'MERGING', 'MERGED']) assert.equal(pairToForget(status), false, status);
 });

@@ -1,4 +1,4 @@
-import type { MergeChoiceName, MergePairStatus } from './store';
+import type { MergeChoiceName, MergePair, MergePairStatus, Upload } from './store';
 
 // Dyadrr's four choices (its docs/CLI.md, "Scelte"): what each one decides and what each value does
 export const MERGE_CHOICES: Record<
@@ -94,3 +94,32 @@ export const formatOffset = (ms: number | null | undefined): string => {
 };
 
 export const fileName = (filepath: string) => filepath.split(/[\\/]/).pop() ?? filepath;
+
+// A pair still on the page and not merged: its held files are followed on its card, not in "Held for a merge"
+const OPEN_PAIR: MergePairStatus[] = ['ANALYZING', 'ELIGIBLE', 'MERGING', 'REFUSED', 'ERROR', 'CANCELLED'];
+// Dyadrr is not running it: a held side can be paired with another file, uploaded or deleted from its card
+export const pairIdle = (pair: MergePair) => pair.status !== 'ANALYZING' && pair.status !== 'MERGING' && pair.status !== 'MERGED';
+
+/** The uploads in a pair still on the page */
+export const pairedUploadIds = (pairs: MergePair[]): Set<string> =>
+  new Set(pairs.filter((p) => OPEN_PAIR.includes(p.status)).flatMap((p) => [p.uploadAId, p.uploadBId]));
+
+/** The held files not in a pair: the ones listed in "Held for a merge" (and counted in the sidebar) */
+export const unpairedHeld = (uploads: Upload[], pairs: MergePair[]): Upload[] => {
+  const paired = pairedUploadIds(pairs);
+  return uploads.filter((u) => u.status === 'HELD' && !paired.has(u.id));
+};
+
+/** The file's partner in a pair, or null when the file is not in it */
+export const partnerOf = (pair: MergePair, uploadId: string): string | null =>
+  pair.uploadAId === uploadId ? pair.uploadBId : pair.uploadBId === uploadId ? pair.uploadAId : null;
+
+/** The files already paired with this one (not merged), by partner: Pair… marks them, and pairing them again reuses that pair */
+export const pairedPartners = (pairs: MergePair[], uploadId: string): Map<string, MergePair> => {
+  const partners = new Map<string, MergePair>();
+  for (const pair of pairs) {
+    const partner = pair.status === 'MERGED' ? null : partnerOf(pair, uploadId);
+    if (partner && !partners.has(partner)) partners.set(partner, pair);
+  }
+  return partners;
+};

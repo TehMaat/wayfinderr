@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { ArrowUpFromLine, Disc3, LayoutDashboard, Magnet, Merge, Plus, ScrollText, Server as ServerIcon, UploadCloud } from 'lucide-react';
+import { unpairedHeld } from '@/lib/merge';
 import { useAppStore } from '@/lib/store';
 import { SERVER_STATES, serverState } from '@/lib/server-status';
 import { cn } from '@/lib/utils';
@@ -33,7 +34,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const filters = useAppStore((s) => s.filters);
   const setFilters = useAppStore((s) => s.setFilters);
   const ripsToChoose = useAppStore((s) => s.rips.filter((r) => r.status === 'NEEDS_ATTENTION').length);
-  const heldForMerge = useAppStore((s) => s.uploads.filter((u) => u.status === 'HELD').length);
+  // The held files not in a pair, as on the Merge page
+  const heldForMerge = useAppStore((s) => unpairedHeld(s.uploads, s.mergePairs).length);
 
   const activeServerIds = new Set(uploads.filter((u) => u.status === 'UPLOADING').map((u) => u.serverId));
 

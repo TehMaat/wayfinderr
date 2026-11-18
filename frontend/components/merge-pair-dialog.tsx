@@ -15,7 +15,8 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { mergeApi } from '@/lib/api';
-import { useAppStore, type MergeCandidate } from '@/lib/store';
+import { PAIR_STATUS, pairedPartners } from '@/lib/merge';
+import { useAppStore, type MergeCandidate, type MergePair } from '@/lib/store';
 import { cn, errorMessage, formatBytes } from '@/lib/utils';
 
 // Words of a file name, for putting the likely twin first
@@ -47,14 +48,32 @@ const videoHeight = (c: MergeCandidate): number | null => {
   }
 };
 
+/** A pair already made with the first file: refused (with Dyadrr's code), or its status */
+function PairedBadge({ pair }: { pair: MergePair }) {
+  const refused = pair.status === 'REFUSED';
+  const status = PAIR_STATUS[pair.status] ?? PAIR_STATUS.ERROR;
+  return (
+    <Badge
+      variant={refused ? 'warning' : 'secondary'}
+      className="shrink-0"
+      title="Already paired with the first file: Analyze runs that pair again"
+    >
+      {refused ? `Refused${pair.reasonCode ? `: ${pair.reasonCode}` : ''}` : `Paired: ${status.label.toLowerCase()}`}
+    </Badge>
+  );
+}
+
 function CandidateRow({
   candidate,
   selected,
   onSelect,
+  paired,
 }: {
   candidate: MergeCandidate;
   selected: boolean;
   onSelect: () => void;
+  // Already paired with the first file
+  paired?: MergePair;
 }) {
   const height = videoHeight(candidate);
   return (
@@ -69,6 +88,7 @@ function CandidateRow({
       <span className="min-w-0 flex-1 truncate">{candidate.filename}</span>
       {height && <span className="shrink-0 text-xs text-muted-foreground">{height}p</span>}
       <span className="shrink-0 text-xs text-muted-foreground">{formatBytes(Number(candidate.size), 1)}</span>
+      {paired && <PairedBadge pair={paired} />}
       <Badge variant={candidate.hasItalianAudio ? 'success' : 'secondary'} className="shrink-0">
         {candidate.hasItalianAudio ? 'ITA' : 'no ITA'}
       </Badge>
@@ -88,7 +108,8 @@ function CandidateRow({
 
 /**
  * Pairs two files of the same film for Dyadrr: the better video and the Italian one,
- * in any order (Dyadrr tells which is which). The analysis starts right away.
+ * in any order (Dyadrr tells which is which). The analysis starts right away. Two files
+ * already paired are not paired twice: their pair is analyzed again.
  */
 export function MergePairDialog({
   open,
@@ -105,6 +126,10 @@ export function MergePairDialog({
   const [language, setLanguage] = useState('');
   const [filter, setFilter] = useState('');
   const [busy, setBusy] = useState(false);
+  const pairs = useAppStore((s) => s.mergePairs);
+  // The files already paired with the first one: marked, and a refused one listed last
+  const partners = useMemo(() => (first ? pairedPartners(pairs, first) : new Map<string, MergePair>()), [pairs, first]);
+  const again = second ? partners.get(second) : undefined;
 
   useEffect(() => {
     if (!open) return;
@@ -125,7 +150,8 @@ export function MergePairDialog({
   }, [open, firstId, onOpenChange]);
 
   const firstFile = candidates?.find((c) => c.id === first) ?? null;
-  // The second file: the likely twin first (similar name, the other side of the Italian audio)
+  // The second file: the likely twin first (similar name, the other side of the Italian audio),
+  // the ones already refused with the first file last
   const others = useMemo(() => {
     if (!candidates) return [];
     const query = filter.trim().toLowerCase();
@@ -133,8 +159,9 @@ export function MergePairDialog({
     if (!firstFile) return list;
     const score = (c: MergeCandidate) =>
       likeness(firstFile.filename, c.filename) + (c.hasItalianAudio !== firstFile.hasItalianAudio ? 0.5 : 0);
-    return [...list].sort((a, b) => score(b) - score(a));
-  }, [candidates, first, firstFile, filter]);
+    const refused = (c: MergeCandidate) => Number(partners.get(c.id)?.status === 'REFUSED');
+    return [...list].sort((a, b) => refused(a) - refused(b) || score(b) - score(a));
+  }, [candidates, first, firstFile, filter, partners]);
 
   const analyze = async () => {
     if (!first || !second) return;
@@ -142,8 +169,10 @@ export function MergePairDialog({
     try {
       const { data } = await mergeApi.createPair([first, second], language.trim() || undefined);
       await useAppStore.getState().refreshMergePair(data.id);
-      toast.success('Analysis started', {
-        description: 'Dyadrr is checking whether the two files line up',
+      toast.success(again ? 'Analysis started again' : 'Analysis started', {
+        description: again
+          ? 'The two files were already a pair: Dyadrr checks it again'
+          : 'Dyadrr is checking whether the two files line up',
       });
       onOpenChange(false);
     } catch (err) {
@@ -211,6 +240,7 @@ export function MergePairDialog({
                       candidate={c}
                       selected={c.id === second}
                       onSelect={() => setSecond(c.id)}
+                      paired={partners.get(c.id)}
                     />
                   ))}
                   {others.length === 0 && <p className="py-2 text-xs text-muted-foreground">No other file.</p>}
@@ -223,12 +253,13 @@ export function MergePairDialog({
               <Input
                 value={language}
                 onChange={(e) => setLanguage(e.target.value)}
-                placeholder="From TMDB (e.g. en, ja, fr)"
+                placeholder={again ? 'As before (e.g. en, ja, fr)' : 'From TMDB (e.g. en, ja, fr)'}
                 className="h-8 w-56 text-sm"
               />
               <p className="text-xs text-muted-foreground">
-                The sync is measured on the original language when both files have it, else on English. Leave it blank
-                to take it from TMDB.
+                {again
+                  ? `The two files are already a pair: it is analyzed again, not paired twice. Leave the language blank to keep ${again.originalLanguage ? `the one it had (${again.originalLanguage})` : 'measuring on English'}.`
+                  : 'The sync is measured on the original language when both files have it, else on English. Leave it blank to take it from TMDB.'}
               </p>
             </div>
           </div>
@@ -240,7 +271,7 @@ export function MergePairDialog({
           </Button>
           <Button onClick={analyze} disabled={!first || !second || busy}>
             {busy && <Loader2 className="animate-spin" />}
-            Analyze
+            {again ? 'Analyze again' : 'Analyze'}
           </Button>
         </DialogFooter>
       </DialogContent>

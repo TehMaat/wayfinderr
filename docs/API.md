@@ -500,7 +500,7 @@ Uploads it as it is: it goes to the upload queue (the server's media policy stil
 POST /api/uploads/:id/hold/delete
 ```
 
-Deletes the file from the watch folder (one unpacked from an archive next to the downloads is deleted by the ripper) and its record. **Response:** 200 OK `{ "ok": true }`, 404, 409 if it is not held.
+Deletes the file from the watch folder (one unpacked from an archive next to the downloads is deleted by the ripper) and its record. Its merge pairs that Dyadrr is not running and that are not merged (`ELIGIBLE`, `REFUSED`, `ERROR`, `CANCELLED`) are removed too, each with `merge-pair-removed`: without the file they could not be analyzed again. **Response:** 200 OK `{ "ok": true }`, 404, 409 if it is not held or while a pair of it is being analyzed or merged.
 
 `DELETE /api/uploads/:id` (remove from the history) answers 409 for a held file: its file would stay in the watch folder, never picked up again.
 
@@ -1023,7 +1023,7 @@ DELETE /api/merge/pairs/:id
 GET /api/merge/pairs/:id/report[?download=1]
 ```
 
-Two files of the same film, analyzed by Dyadrr (`dyadrr analyze` in the `dyadrr` container, through a file job). `POST /api/merge/pairs` pairs two candidates (in any order: Dyadrr picks the better video, the *reference*, and the Italian file, the *donor*) and queues the analysis; `originalLanguage` (ISO 639-1 or 639-2, an IETF tag) is optional: without it, it comes from a rip of either file, else TMDB, else none (the sync is then measured on English). The fixed choices of the settings are passed along. 409 with merging off, a file not pairable (uploading, gone from the disk, released locally without its release folder mounted, outside the watch folder, the downloads and the release folder, already in a pair being analyzed); 400 for two equal ids or a bad language.
+Two files of the same film, analyzed by Dyadrr (`dyadrr analyze` in the `dyadrr` container, through a file job). `POST /api/merge/pairs` pairs two candidates (in any order: Dyadrr picks the better video, the *reference*, and the Italian file, the *donor*) and queues the analysis; two files already paired (a pair not merged, in either order) are not paired twice: that pair is analyzed again, as with `/analyze`, and returned (without `originalLanguage`, it keeps its own); `originalLanguage` (ISO 639-1 or 639-2, an IETF tag) is optional: without it, it comes from a rip of either file, else TMDB, else none (the sync is then measured on English). The fixed choices of the settings are passed along. 409 with merging off, a file not pairable (uploading, gone from the disk, released locally without its release folder mounted, outside the watch folder, the downloads and the release folder, already in a pair being analyzed); 400 for two equal ids or a bad language.
 
 A pair:
 

@@ -15,6 +15,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { ReleaseDialog } from '@/components/release-dialog';
 import { canRelease, localReleaseClient, releaseRunning } from '@/components/release-badge';
 import { deleteHeld, deleteUpload, holdUpload, retryUpload, stopUpload, uploadHeld } from '@/lib/actions';
+import { pairIdle, partnerOf } from '@/lib/merge';
 import { useAppStore, type Upload } from '@/lib/store';
 
 export const canRetry = (u: Upload) => u.status === 'FAILED' || u.status === 'SKIPPED' || u.status === 'CANCELLED';
@@ -71,6 +72,8 @@ export function DeleteHeldDialog({
   onOpenChange: (open: boolean) => void;
   onDeleted?: () => void;
 }) {
+  // Its pairs still to act on go with it (Analyze again would find no file)
+  const pairs = useAppStore((s) => s.mergePairs.filter((p) => pairIdle(p) && partnerOf(p, upload.id) !== null).length);
   return (
     <ConfirmDialog
       open={open}
@@ -80,6 +83,7 @@ export function DeleteHeldDialog({
         <>
           <span className="font-medium text-foreground">{upload.filename}</span> is deleted from the watch folder and
           removed from the list. It is not uploaded, and it cannot be merged any more.
+          {pairs > 0 && (pairs === 1 ? ' Its pair is removed too.' : ` Its ${pairs} pairs are removed too.`)}
         </>
       }
       confirmLabel="Delete"
