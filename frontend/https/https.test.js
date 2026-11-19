@@ -52,7 +52,7 @@ test('without HTTPS_DOMAIN there is no HTTPS', () => {
 
 test('HTTPS settings and their defaults', () => {
   const { https: settings } = readConfig({ HTTPS_DOMAIN: ' Wayfinderr.Example.com. ' }, '/app');
-  assert.deepEqual(settings, { domain: DOMAIN, certDir: '/app/certs', httpsPort: 443, httpPort: 80 });
+  assert.deepEqual(settings, { domain: DOMAIN, certDir: '/app/certs', httpsPort: 443, httpPort: 80, certSource: 'files', acme: null });
   const custom = readConfig(
     { HTTPS_DOMAIN: DOMAIN, HTTPS_CERT_DIR: 'my-certs', HTTPS_PORT: '8443', HTTP_PORT: '0' },
     '/app',

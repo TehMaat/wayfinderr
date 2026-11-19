@@ -72,6 +72,7 @@ export const loadConfig = (): Config => {
     },
     HTTPS: {
       DOMAIN: (process.env.HTTPS_DOMAIN || '').trim().toLowerCase().replace(/\.$/, ''),
+      CERT_SOURCE: (process.env.HTTPS_CERT_SOURCE || '').trim().toLowerCase() || 'files',
       CERT_DIR: path.resolve(process.env.HTTPS_CERT_DIR || '/app/certs'),
       SSH: {
         HOST: (process.env.HTTPS_CERT_SSH_HOST || '').trim(),

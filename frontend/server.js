@@ -11,6 +11,7 @@
 const { spawn } = require('node:child_process');
 const { readConfig } = require('./https/config');
 const { startHttps } = require('./https/server');
+const { AcmeManager } = require('./https/acme');
 
 function line(level, message) {
   const text = `${new Date().toISOString()} [https] ${level}: ${message}`;
@@ -37,12 +38,14 @@ const next = spawn(process.execPath, [require.resolve('next/dist/bin/next'), 'st
 });
 
 let httpsLayer = null;
+let acmeManager = null;
 let stopping = false;
 let exitCode = null; // 1 when HTTPS failed: the container stops and restarts
 
 async function stop(signal) {
   if (stopping) return;
   stopping = true;
+  if (acmeManager) acmeManager.stop();
   if (httpsLayer) await httpsLayer.close();
   if (next.exitCode === null && next.signalCode === null) next.kill(signal);
 }
@@ -56,6 +59,7 @@ function fail(message) {
 next.on('exit', async (code, signal) => {
   if (!stopping) {
     stopping = true;
+    if (acmeManager) acmeManager.stop();
     if (httpsLayer) await httpsLayer.close();
   }
   process.exit(exitCode ?? code ?? (signal === 'SIGTERM' || signal === 'SIGINT' ? 0 : 1));
@@ -65,15 +69,37 @@ next.on('error', (err) => fail(`cannot start Next.js: ${err.message}`));
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => stop(signal));
 
 if (config.https) {
+  // Let's Encrypt (HTTPS_CERT_SOURCE=acme): its challenges are answered on the HTTP port
+  const challenges = config.https.acme ? new Map() : null;
   startHttps({
     ...config.https,
     target: { host: '127.0.0.1', port: config.nextPort },
     log,
+    challenges,
     onFatal: (err) => fail(err.message),
   })
     .then((layer) => {
       httpsLayer = layer;
-      if (stopping) layer.close();
+      if (stopping) {
+        layer.close();
+        return;
+      }
+      if (config.https.acme) {
+        const { directoryUrl, email, staging } = config.https.acme;
+        log.info(
+          `Let's Encrypt${staging ? ' (staging: test certificates, not trusted by browsers)' : ''} for ${config.https.domain}: ${directoryUrl}`,
+        );
+        acmeManager = new AcmeManager({
+          domain: config.https.domain,
+          certDir: config.https.certDir,
+          directoryUrl,
+          email,
+          challenges,
+          log,
+          onCertificate: () => layer.reload(),
+        });
+        acmeManager.start();
+      }
     })
     .catch((err) =>
       fail(

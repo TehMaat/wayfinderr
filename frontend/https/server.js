@@ -45,6 +45,7 @@ function describe(info, now) {
  * @param {(err: Error) => void} options.onFatal the HTTPS port could not listen
  * @param {() => Date} [options.now]
  * @param {boolean} [options.watch] watch the folder and check it on a timer (off in tests)
+ * @param {Map<string, string>} [options.challenges] Let's Encrypt's, answered on the HTTP port
  */
 async function startHttps(options) {
   const { domain, certDir, target, log, onFatal } = options;
@@ -126,9 +127,11 @@ async function startHttps(options) {
   let httpServer = null;
   let httpPort = null;
   if (options.httpPort !== null) {
-    httpServer = http.createServer(createRedirectHandler(domain));
+    httpServer = http.createServer(createRedirectHandler(domain, options.challenges || null));
     httpPort = await listen(httpServer, options.httpPort);
-    log.info(`HTTP on port ${httpPort}: every request redirected to https://${domain}`);
+    log.info(
+      `HTTP on port ${httpPort}: every request redirected to https://${domain}${options.challenges ? ", Let's Encrypt's challenges answered" : ''}`,
+    );
   }
 
   await reload();

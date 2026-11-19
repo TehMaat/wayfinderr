@@ -10,9 +10,22 @@ function redirectLocation(domain, url) {
   return `https://${domain}${pathAndQuery}`;
 }
 
-/** Request handler of the HTTP port: 301 for GET and HEAD, 308 (same method) otherwise */
-function createRedirectHandler(domain) {
+const CHALLENGE_PATH = '/.well-known/acme-challenge/';
+
+/**
+ * Request handler of the HTTP port: 301 for GET and HEAD, 308 (same method) otherwise.
+ * With challenges (Let's Encrypt, token → key authorization), their path is answered
+ * here instead: 200 with the key authorization of a token in progress, else 404.
+ */
+function createRedirectHandler(domain, challenges = null) {
   return (req, res) => {
+    if (challenges && typeof req.url === 'string' && req.url.startsWith(CHALLENGE_PATH)) {
+      const token = req.url.slice(CHALLENGE_PATH.length).split('?')[0];
+      const keyAuthorization = challenges.get(token);
+      res.writeHead(keyAuthorization ? 200 : 404, { 'content-type': 'text/plain; charset=utf-8', connection: 'close' });
+      res.end(keyAuthorization || 'Unknown challenge\n');
+      return;
+    }
     const location = redirectLocation(domain, req.url);
     const status = req.method === 'GET' || req.method === 'HEAD' ? 301 : 308;
     res.writeHead(status, { location, 'content-type': 'text/plain; charset=utf-8', connection: 'close' });
