@@ -12,7 +12,8 @@ Where they go:
   `frontend/.env` (copy `frontend/.env.example`).
 
 Restart the backend after a change (`docker compose up -d` recreates the containers whose settings
-changed). The frontend settings are compiled in by `npm run build`: rebuild it after a change.
+changed). The frontend settings are compiled in by `npm run build`: rebuild it after a change; only
+its [HTTPS settings](#frontend-https) are read at start.
 
 ## Docker Compose
 
@@ -26,6 +27,8 @@ changed). The frontend settings are compiled in by `npm run build`: rebuild it a
 | `DYADRR_TAG` | `latest` | Dyadrr image version: `latest`, a release like `0.21.0`, or `sha-<commit>` |
 | `DYADRR_REGISTRY` | `ghcr.io/tehmaat` | Where the Dyadrr image comes from |
 | `COMPOSE_PROFILES` | – | Optional services started by plain `docker compose up -d`: `makemkv`, `merge`, or both (`makemkv,merge`) |
+| `COMPOSE_FILE` | – | `docker-compose.yml:docker-compose.https.yml` (`;` on Windows) for the [built-in HTTPS](DEPLOYMENT.md#built-in-https): every `docker compose` command then includes the HTTPS file |
+| `HTTPS_DOMAIN` | – | With `docker-compose.https.yml`: the app's domain, passed to the frontend ([Frontend (HTTPS)](#frontend-https)). Required there: compose stops without it |
 
 ## Backend
 
@@ -97,6 +100,19 @@ rebuilding.
 | `APP_VERSION` | `package.json` version | Version shown in the sidebar (CI passes the release tag) |
 | `GIT_COMMIT` | `git rev-parse HEAD` | Commit shown next to the version |
 | `NEXT_DIST_DIR` | `.next` | Build folder (the screenshots script builds into its own) |
+
+## Frontend (HTTPS)
+
+Read when the frontend starts (`npm start`, the Docker image). Without `HTTPS_DOMAIN` the frontend
+serves the app on port 3000 over plain HTTP, as always. See [Built-in HTTPS](DEPLOYMENT.md#built-in-https).
+
+| Variable | Default | Description |
+|---|---|---|
+| `HTTPS_DOMAIN` | – | The app's domain, e.g. `wayfinderr.example.com` (a host name, no wildcard, no port): turns HTTPS on. The certificate must cover it, and port 80 redirects there. A wrong value stops the frontend with the reason in the log |
+| `HTTPS_CERT_DIR` | `certs` in the frontend folder (`/app/certs`, the `wayfinderr-certs` volume, in the image) | Folder with `fullchain.pem` and `privkey.pem`, reloaded when they change |
+| `HTTPS_PORT` | `443` | HTTPS port inside the container (or of a local run) |
+| `HTTP_PORT` | `80` | Port that redirects to HTTPS. `0`: none |
+| `PORT` | `3000` | Port of the app over plain HTTP (Next.js), where HTTPS forwards |
 
 ## MakeMKV container
 

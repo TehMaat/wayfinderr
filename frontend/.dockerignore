@@ -2,3 +2,7 @@ node_modules
 .next
 .env
 .env.local
+# Certificates are mounted at run time (wayfinderr-certs volume), never built in
+certs
+https/fixtures
+https/*.test.js

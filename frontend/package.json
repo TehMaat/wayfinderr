@@ -1,12 +1,13 @@
 {
   "name": "wayfinderr-frontend",
-  "version": "0.37.0",
+  "version": "0.38.0",
   "description": "Wayfinderr - Frontend UI for automatic MKV file uploader",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node server.js",
+    "test": "node --test https/https.test.js",
     "lint": "next lint"
   },
   "dependencies": {

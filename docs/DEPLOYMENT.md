@@ -1,13 +1,14 @@
 # Deployment
 
-Running Wayfinderr on an always-on server: behind HTTPS, with backups, logs and updates. To install
+Running Wayfinderr on an always-on server: on HTTPS, with backups, logs and updates. To install
 it first, see [Installation](INSTALLATION.md).
 
 ## Checklist
 
 - [ ] Account created (setup code from the backend log) **before** the app is reachable from outside
-- [ ] HTTPS through a reverse proxy pointing at the frontend, never at the backend
-- [ ] Port 3000 not reachable around the proxy
+- [ ] HTTPS: [built into the frontend](#built-in-https), or through a [reverse proxy](#reverse-proxy-https)
+  pointing at the frontend, never at the backend
+- [ ] Port 3000 not reachable from outside around HTTPS (built-in HTTPS binds it to `127.0.0.1`)
 - [ ] Database backups
 - [ ] SSH keys or passwords for every server tested (**Servers** → **Test**)
 
@@ -44,7 +45,86 @@ services:
       - "127.0.0.1:3000:3000"  # only the reverse proxy reaches it
 ```
 
+## Built-in HTTPS
+
+The frontend can serve HTTPS itself, with no reverse proxy and no other container: set the domain,
+put the certificate in its volume, and a new certificate is taken up without a restart whenever its
+files change.
+
+You need:
+
+- a domain for the app, e.g. `wayfinderr.example.com`, whose DNS points at this machine (a public
+  record to reach it from outside; a local DNS entry is enough on the LAN);
+- ports **443** and **80** free on this machine (no other web server there) and, to reach the app
+  from outside, open on the router towards it;
+- Docker Compose **2.24.4** or later (`docker compose version`);
+- a certificate for the domain, by name or a wildcard of one level (`*.example.com` covers
+  `wayfinderr.example.com`, not `a.wayfinderr.example.com`), with its private key. Getting it from
+  Let's Encrypt by itself and taking a wildcard from Pangolin on another host are on their way
+  ([#97](https://github.com/TehMaat/wayfinderr/issues/97) and [#98](https://github.com/TehMaat/wayfinderr/issues/98)): until then it is copied in, as below.
+
+**Create the account first**, from the LAN (`http://<server>:3000`), before opening the ports. Then:
+
+1. Add to `.env`:
+   ```bash
+   COMPOSE_FILE=docker-compose.yml:docker-compose.https.yml   # on Windows: ; instead of :
+   HTTPS_DOMAIN=wayfinderr.example.com
+   ```
+   `COMPOSE_FILE` makes every `docker compose` command include `docker-compose.https.yml`, which
+   publishes 443 and 80, binds 3000 to `127.0.0.1` and mounts the `wayfinderr-certs` volume.
+2. Start it: `docker compose up -d`. Until the certificate is there the frontend log says what it
+   waits for (`docker compose logs wayfinderr-frontend | grep https`), and the app keeps answering
+   on `http://127.0.0.1:3000` from this machine.
+3. Copy the certificate in: `fullchain.pem` (the certificate followed by the intermediate ones, as
+   certbot names it) and `privkey.pem`:
+   ```bash
+   docker compose cp fullchain.pem wayfinderr-frontend:/app/certs/fullchain.pem
+   docker compose cp privkey.pem wayfinderr-frontend:/app/certs/privkey.pem
+   ```
+4. Check: the log says `HTTPS on port 443 for wayfinderr.example.com: certificate for … valid until
+   …`, and
+   ```bash
+   curl -I https://wayfinderr.example.com/health    # HTTP/1.1 200
+   curl -I http://wayfinderr.example.com/health     # 301 to https://
+   ```
+
+What the frontend does then:
+
+| Port | What |
+|---|---|
+| 443 | The app over HTTPS (TLS 1.2 and 1.3), the `/ws` WebSocket included |
+| 80 | Every request redirected to the same path on `https://<HTTPS_DOMAIN>` (301; 308 for other methods than GET and HEAD). The domain comes from the settings, never from the request |
+| 3000 | The app over plain HTTP, from this machine only |
+
+- **Next.js runs as always** on 3000, and HTTPS is a thin layer in front of it, in the same container.
+- **The client's addresses:** the client's own `X-Forwarded-*`, `Forwarded` and `X-Real-IP`
+  headers are dropped. The frontend sets `X-Forwarded-For` (the login limiter), `X-Forwarded-Proto:
+  https` (the `Secure` session cookie) and `X-Forwarded-Host` (the cross-site check) itself.
+- **A new certificate:** replace the two files, with `docker compose cp` as above or by writing
+  them whole and renaming them into place. It is checked and taken up within a few seconds (every 5
+  minutes at the latest), without a restart and without closing the connections already open.
+- **A certificate that cannot be used is not taken:** the wrong domain, a key that is not its own,
+  out of its dates, not PEM. The reason goes to the log, and the certificate in use stays. Swapping
+  the two files one at a time can log `privkey.pem is not the key of the certificate` for an instant,
+  until the second one is there.
+- **Expiry warning:** from 14 days before the end, the log warns once a day that no new certificate
+  has arrived.
+- **No HSTS header:** going back to plain HTTP stays possible.
+
+The certificate's state is in the frontend log only (`[https]` lines), not in the UI. The
+`wayfinderr-certs` volume holds the private key: keep it, and copies of it, private.
+
+To turn it off, remove `COMPOSE_FILE` and `HTTPS_DOMAIN` from `.env` and run `docker compose up -d`:
+the frontend is back on port 3000 as before.
+
+**Local run** (method C of the [Installation](INSTALLATION.md)): `npm start` in `frontend` reads the
+same settings, `HTTPS_DOMAIN` and the certificate in `frontend/certs` (or `HTTPS_CERT_DIR`). Ports 443
+and 80 need administrator rights; `HTTPS_PORT` and `HTTP_PORT` move them ([Configuration](CONFIGURATION.md#frontend-https)).
+
 ## Reverse Proxy (HTTPS)
+
+Instead of the built-in HTTPS, or when another web server already uses ports 443 and 80.
+
 
 One HTTP entry is enough: point it at the frontend (`http://<frontend>:3000`), never at the backend. WebSockets (`/ws`) go through the same entry. The proxy must:
 
@@ -52,7 +132,7 @@ One HTTP entry is enough: point it at the frontend (`http://<frontend>:3000`), n
 - set `X-Forwarded-For` to the client address (the login limiter counts failures per client);
 - set `X-Forwarded-Proto` (on `https` the session cookie gets the `Secure` flag).
 
-Traefik and Pangolin do all of this by default, WebSockets included. Do not let clients reach port 3000 around the proxy: they could send their own `X-Forwarded-For`. Without a reverse proxy, keep Wayfinderr on the LAN.
+Traefik and Pangolin do all of this by default, WebSockets included. Do not let clients reach port 3000 around the proxy: they could send their own `X-Forwarded-For`. Without a reverse proxy or the [built-in HTTPS](#built-in-https), keep Wayfinderr on the LAN.
 
 ### Pangolin
 
@@ -158,20 +238,23 @@ server {
 
 The backend pings WebSocket clients every 30 seconds, so the default timeouts keep live updates open.
 
-Enable the site:
-```bash
-sudo ln -s /etc/nginx/sites-available/wayfinderr.conf /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl restart nginx
-```
-
-### Let's Encrypt Certificate
+Get the certificate **before** enabling the site: `nginx -t` fails while the files it names do not
+exist. certbot answers Let's Encrypt through the nginx already running, and the deploy hook reloads
+nginx after every renewal, so the renewed certificate is served (certbot's timer renews it by itself):
 
 ```bash
 sudo apt-get install certbot python3-certbot-nginx
-sudo certbot certonly --nginx -d wayfinderr.example.com
-sudo systemctl restart nginx
+sudo certbot certonly --nginx -d wayfinderr.example.com --deploy-hook "systemctl reload nginx"
 ```
+
+Then enable the site:
+```bash
+sudo ln -s /etc/nginx/sites-available/wayfinderr.conf /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Check the renewal once: `sudo certbot renew --dry-run`.
 
 ## Backups
 
@@ -263,6 +346,8 @@ Migrations run by themselves when the backend starts. Pin a release with `WAYFIN
   reopen the page and use the new code from the log.
 - Never commit `.env`; keep the API key secret and regenerate it if it leaks (account menu).
 - Publish no port but the frontend's; behind a reverse proxy bind it to `127.0.0.1` or publish none
-  (ports published by Docker bypass `ufw`).
+  (ports published by Docker bypass `ufw`). The [built-in HTTPS](#built-in-https) publishes 443 and
+  80 and binds 3000 to `127.0.0.1` by itself.
+- The certificate's private key is in the `wayfinderr-certs` volume (built-in HTTPS): keep it private.
 - Prefer SSH keys to passwords for the servers (`SSH_PRIVATE_KEY_PATH`).
 - Database backups contain the password hash and the session key: keep them private.

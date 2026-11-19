@@ -32,8 +32,27 @@ npm test                    # node:test, the *.test.ts files next to the service
 
 cd frontend
 npx tsc --noEmit
+npm test                    # node:test, the built-in HTTPS (https/https.test.js)
 npm run build
 ```
+
+`npm start` runs `server.js`: `next start`, plus the [built-in HTTPS](DEPLOYMENT.md#built-in-https)
+when `HTTPS_DOMAIN` is set. To try it locally without administrator rights, with a self-signed
+certificate for a made-up name:
+
+```bash
+cd frontend
+mkdir -p certs
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 30 \
+  -subj /CN=wayfinderr.example.com -addext subjectAltName=DNS:wayfinderr.example.com \
+  -keyout certs/privkey.pem -out certs/fullchain.pem
+npm run build
+HTTPS_DOMAIN=wayfinderr.example.com HTTPS_PORT=8443 HTTP_PORT=8080 npm start
+curl --resolve wayfinderr.example.com:8443:127.0.0.1 --cacert certs/fullchain.pem \
+  https://wayfinderr.example.com:8443/health
+```
+
+`frontend/certs` is ignored by git and by the Docker build.
 
 The [`Docker images`](../.github/workflows/docker-publish.yml) workflow builds the three images on
 every pull request to `main`.

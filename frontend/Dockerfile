@@ -31,7 +31,12 @@ COPY --from=builder /build/next.config.js ./
 COPY --from=builder /build/node_modules ./node_modules
 COPY --from=builder /build/.next ./.next
 COPY --from=builder /build/public ./public
+# Starts next start, and HTTPS in front of it when HTTPS_DOMAIN is set (docs/DEPLOYMENT.md)
+COPY --from=builder /build/server.js ./
+COPY --from=builder /build/https ./https
 
-EXPOSE 3000
+# 3000: the app over HTTP. 443 and 80: HTTPS and its redirect, only with HTTPS_DOMAIN
+EXPOSE 3000 443 80
 
-CMD ["npm", "start"]
+# node directly (not npm): it gets docker stop's SIGTERM and stops Next.js cleanly
+CMD ["node", "server.js"]
