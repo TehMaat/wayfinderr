@@ -10,13 +10,14 @@ and [add the servers](#add-the-servers).
 | [C. Local run, no Docker](#c-local-run-no-docker) | the Windows PC where MakeMKV runs, development | `npm` only |
 
 Every setting is listed in [Configuration](CONFIGURATION.md). To publish it on a domain with
-HTTPS, see [Deployment](DEPLOYMENT.md#reverse-proxy-https).
+HTTPS, built into the frontend or behind a reverse proxy, see [Deployment](DEPLOYMENT.md#built-in-https).
 
 ## Requirements
 
 - **Upload servers** reachable over SSH/SFTP: Ultra.cc slots, other seedboxes (Whatbox, Feral…) or
   any SSH server (VPS, NAS, a machine on the LAN). A password or an SSH key for each.
-- **Docker** with Compose v2 (methods A and B), or **Node.js 20+** and **ffmpeg/ffprobe** on the
+- **Docker** with Compose v2 (methods A and B; 2.24.4 or later for the
+  [built-in HTTPS](DEPLOYMENT.md#built-in-https)), or **Node.js 20+** and **ffmpeg/ffprobe** on the
   `PATH` (method C).
 - Optional: **MakeMKV** (a registration key, or the free `BETA` key) to rip discs, **qBittorrent**
   with its WebUI to clean up torrents, a **TMDB** API key to name the rips, **Dyadrr** to merge two

@@ -47,6 +47,7 @@ film.
 - 🏷️ **Tracker release**: rename on the server and run your tracker upload command in `tmux`, following its output; or release locally from the qBittorrent machine
 - 🔀 **Merge** (in progress): two rips of a film, better video and Italian audio, merged by [Dyadrr](https://github.com/TehMaat/dyadrr) without re-encoding
 - 🔐 **Login**: one account, sessions, API key for scripts; one reverse proxy entry is enough
+- 🔒 **Built-in HTTPS**: the frontend serves HTTPS itself, no other container, and takes up a renewed certificate without a restart
 - 🌗 **Dark and light theme**, five accent colors
 
 ## Screenshots
@@ -84,7 +85,7 @@ source, local run on Windows without Docker), MakeMKV and Dyadrr in Docker, upda
 | [Installation](docs/INSTALLATION.md) | Docker Compose, local run, first account and server |
 | [Configuration](docs/CONFIGURATION.md) | Every environment variable with its default |
 | [User guide](docs/USAGE.md) | Every page and feature, with screenshots |
-| [Deployment](docs/DEPLOYMENT.md) | HTTPS reverse proxy, backups, logs, updates |
+| [Deployment](docs/DEPLOYMENT.md) | Built-in HTTPS or a reverse proxy, backups, logs, updates |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common problems |
 | [Architecture](docs/ARCHITECTURE.md) | How it is built |
 | [API](docs/API.md) | HTTP endpoints and WebSocket events |

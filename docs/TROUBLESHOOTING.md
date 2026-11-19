@@ -81,8 +81,8 @@ page: the setup screen is back, and the log has a new setup code. Local run:
 
 5 failed logins (or setup codes, or current passwords) in 15 minutes from the same client block it
 until the oldest failure is 15 minutes old. Wait, or restart the backend (the count is in memory).
-The client is the address the reverse proxy forwards in `X-Forwarded-For`; without a reverse proxy
-every device shares one count.
+The client is the address the reverse proxy forwards in `X-Forwarded-For` (with the built-in HTTPS,
+the address the frontend sees); without either every device shares one count.
 
 ### Signed out on every device
 
@@ -94,13 +94,62 @@ Sessions also end after 30 days.
 The reverse proxy must pass the original `Host` header: the backend compares it with the page's
 `Origin` when the browser sends no `Sec-Fetch-Site`. Traefik and Pangolin do by default; in nginx
 use `proxy_set_header Host $host;`. Point the proxy at the frontend, never at the backend. See
-[Deployment](DEPLOYMENT.md#reverse-proxy-https).
+[Deployment](DEPLOYMENT.md#reverse-proxy-https). With the built-in HTTPS, open the app at the
+address the browser shows for it, not at another name of the same machine.
 
 ### No live updates behind a reverse proxy
 
 The WebSocket is `/ws` on the same address as the page. Traefik and Pangolin need no extra settings;
 nginx needs `proxy_http_version 1.1` and the `Upgrade`/`Connection` headers for `/ws` (example in
 [Deployment](DEPLOYMENT.md#nginx)). The status bar at the bottom says *Live* when it is connected.
+
+## HTTPS
+
+These are about the [built-in HTTPS](DEPLOYMENT.md#built-in-https). Its state is in the frontend log:
+`docker compose logs wayfinderr-frontend | grep https`.
+
+### `required variable HTTPS_DOMAIN is missing a value`
+
+`docker-compose.https.yml` is in use (`COMPOSE_FILE` in `.env`) without `HTTPS_DOMAIN`. Set it, or
+remove `COMPOSE_FILE` to go back to plain HTTP. `!override` errors mean a Docker Compose older than
+2.24.4: update it.
+
+### The frontend stops at start: `HTTPS_DOMAIN must be a host name` (or `not a wildcard`)
+
+`HTTPS_DOMAIN` is the app's address alone: `wayfinderr.example.com`, without `https://`, a port or a
+`*`. A wildcard certificate is fine; the domain is the name it covers.
+
+### `HTTPS on port 443 not started yet: no certificate yet`
+
+The certificate is not in the volume: copy `fullchain.pem` and `privkey.pem` (step 3 of
+[Built-in HTTPS](DEPLOYMENT.md#built-in-https)). HTTPS starts within seconds, without a restart.
+
+### `certificate … not used (…)`
+
+The new files were refused, and the certificate in use stays:
+
+- `the certificate is for …, not wayfinderr.example.com`: another domain, or a wildcard of another
+  level (`*.example.com` does not cover `a.wayfinderr.example.com`).
+- `privkey.pem is not the key of the certificate`: the key of another certificate; or the two files
+  were swapped one at a time and the second is not there yet (it fixes itself once it is).
+- `the certificate expired on …`, `valid only from …`: out of its dates (check the clock too).
+- `not a PEM certificate` / `not a PEM private key`: another format (DER, PKCS#12): convert it to PEM.
+
+### `HTTPS cannot listen on port 443` / `the HTTP port 80 is taken`
+
+Another web server (nginx, Traefik, Pangolin) uses the port on this machine: stop it, or use it as
+the [reverse proxy](DEPLOYMENT.md#reverse-proxy-https) instead of the built-in HTTPS. The frontend
+stops, and Docker restarts it.
+
+### The browser says the certificate is not valid
+
+The certificate is self-signed or of another domain, or the chain is missing: `fullchain.pem` must
+hold the certificate **and** the intermediate ones (certbot's `fullchain.pem`, not `cert.pem`).
+
+### `the certificate expires in N days and no new one has arrived`
+
+Whoever renews the certificate has not written a new one in the volume: renew it and copy it in.
+Nothing else is needed: it is taken up without a restart.
 
 ## Servers
 

@@ -17,6 +17,8 @@ node_modules/
 /dist
 
 # Misc
+# HTTPS certificates of a local run (frontend/certs, HTTPS_CERT_DIR)
+frontend/certs/
 .DS_Store
 *.pem
 *.env

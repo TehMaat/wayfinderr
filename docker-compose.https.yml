@@ -1,0 +1,25 @@
+# Optional: HTTPS in the frontend itself, no other container (docs/DEPLOYMENT.md, "Built-in HTTPS").
+# Turn it on in .env, so every docker compose command includes this file:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.https.yml   (on Windows: ; instead of :)
+#   HTTPS_DOMAIN=wayfinderr.example.com
+# Needs Docker Compose 2.24.4 or later (!override).
+#
+# The certificate is read from the wayfinderr-certs volume (fullchain.pem and privkey.pem)
+# and reloaded without a restart when those files change.
+
+services:
+  wayfinderr-frontend:
+    ports: !override
+      # HTTPS
+      - "443:443"
+      # Plain HTTP: redirected to https://<HTTPS_DOMAIN>
+      - "80:80"
+      # The app over plain HTTP from this machine only: no way around HTTPS from outside
+      - "127.0.0.1:3000:3000"
+    environment:
+      - HTTPS_DOMAIN=${HTTPS_DOMAIN:?set HTTPS_DOMAIN in .env (e.g. wayfinderr.example.com)}
+    volumes:
+      - wayfinderr-certs:/app/certs
+
+volumes:
+  wayfinderr-certs:
