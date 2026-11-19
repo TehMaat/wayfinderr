@@ -152,6 +152,30 @@ Whoever renews the certificate has not written a new one in the volume: renew it
 Nothing else is needed: it is taken up without a restart. With the wildcard from Pangolin, see the
 backend's own messages below.
 
+### Let's Encrypt: the frontend log
+
+These are the `Let's Encrypt…` lines of the frontend (`docker compose logs wayfinderr-frontend | grep
+"Let's Encrypt"`). See [Let's Encrypt](DEPLOYMENT.md#lets-encrypt). After a failure the
+certificate in use stays, and the next try comes after 15 minutes, then 30, up to every 12 hours:
+`docker compose restart wayfinderr-frontend` tries at once.
+
+- `the HTTP-01 challenge failed (is port 80 of … reaching this machine?)`: Let's Encrypt could not
+  read the file on port 80. The public DNS record of `HTTPS_DOMAIN` must point at this machine's
+  public address (and the AAAA record, if any, at its IPv6 one), and the router must forward port 80
+  here. The detail after it is Let's Encrypt's own (`Timeout during connect`, `Connection refused`,
+  `DNS problem: NXDOMAIN`…).
+- `rateLimited`, `too many certificates` or `too many failed authorizations`: Let's Encrypt's
+  limits. Wait the time it says, and try with `ACME_STAGING=true` first next time.
+- `HTTPS_CERT_SOURCE=acme needs the HTTP port`: `HTTP_PORT=0` turns port 80 off, and Let's Encrypt
+  needs it.
+- `ARI (renewal information) not available`: Let's Encrypt gave no renewal window; the certificate
+  is renewed when a third of its life is left. Nothing to do.
+- The browser says the certificate is not valid, issued by `(STAGING)`: `ACME_STAGING=true` is still
+  on. Set it to `false` and delete the staging certificate (`docker compose exec wayfinderr-frontend rm
+  /app/certs/fullchain.pem`): a real one is asked for at once.
+- The backend log says `HTTPS_CERT_SSH_HOST is ignored with HTTPS_CERT_SOURCE=acme`: Let's Encrypt
+  and the wildcard from Pangolin both write the same certificate; keep one of the two.
+
 ### Wildcard from Pangolin: the backend log
 
 These are the `HTTPS certificate…` lines of the backend (`docker compose logs wayfinderr-backend | grep

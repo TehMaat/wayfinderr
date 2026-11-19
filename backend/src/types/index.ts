@@ -135,6 +135,7 @@ export interface Config {
 // backend over SSH from another host, e.g. Pangolin's wildcard (services/https)
 export interface HttpsConfig {
   DOMAIN: string; // HTTPS_DOMAIN, lower case ('' when HTTPS is off)
+  CERT_SOURCE: string; // files (by hand, or fetched here over SSH) or acme (the frontend's Let's Encrypt)
   CERT_DIR: string; // where fullchain.pem and privkey.pem are written (the wayfinderr-certs volume)
   SSH: {
     HOST: string; // '' when the certificate is not fetched

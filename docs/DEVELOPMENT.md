@@ -32,7 +32,7 @@ npm test                    # node:test, the *.test.ts files next to the service
 
 cd frontend
 npx tsc --noEmit
-npm test                    # node:test, the built-in HTTPS (https/https.test.js)
+npm test                    # node:test, the built-in HTTPS and its Let's Encrypt (https/*.test.js)
 npm run build
 ```
 

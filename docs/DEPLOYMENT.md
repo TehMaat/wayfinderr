@@ -59,10 +59,13 @@ You need:
   from outside, open on the router towards it;
 - Docker Compose **2.24.4** or later (`docker compose version`);
 - a certificate for the domain, by name or a wildcard of one level (`*.example.com` covers
-  `wayfinderr.example.com`, not `a.wayfinderr.example.com`), with its private key: a wildcard that
-  Pangolin keeps on another host is [fetched and renewed by itself](#wildcard-from-pangolin); any
-  other certificate is copied in. Getting one from Let's Encrypt by itself is on its way
-  ([#97](https://github.com/TehMaat/wayfinderr/issues/97)).
+  `wayfinderr.example.com`, not `a.wayfinderr.example.com`), with its private key. Three ways:
+
+  | Certificate | How it gets there | Renewal | Needs |
+  |---|---|---|---|
+  | [Let's Encrypt](#lets-encrypt) | the frontend asks for it (`HTTPS_CERT_SOURCE=acme`) | by itself, when Let's Encrypt says | port 80 reachable from the Internet, a public DNS record |
+  | [Wildcard from Pangolin](#wildcard-from-pangolin) | the backend fetches it over SSH (`HTTPS_CERT_SSH_HOST`) | by itself, following Pangolin's | SSH to Pangolin's host; works on the LAN only too |
+  | Any other | copied in by hand (step 3) | by hand | – |
 
 **Create the account first**, from the LAN (`http://<server>:3000`), before opening the ports. Then:
 
@@ -76,8 +79,8 @@ You need:
 2. Start it: `docker compose up -d`. Until the certificate is there the frontend log says what it
    waits for (`docker compose logs wayfinderr-frontend | grep https`), and the app keeps answering
    on `http://127.0.0.1:3000` from this machine.
-3. The certificate. With a wildcard on Pangolin's host, let Wayfinderr fetch it and follow its
-   renewals: see [Wildcard from Pangolin](#wildcard-from-pangolin), then go on with step 4.
+3. The certificate. From Let's Encrypt: see [Let's Encrypt](#lets-encrypt). With a wildcard on
+   Pangolin's host: see [Wildcard from Pangolin](#wildcard-from-pangolin). Then go on with step 4.
    Otherwise copy it in: `fullchain.pem` (the certificate followed by the intermediate ones, as
    certbot names it) and `privkey.pem`, again after every renewal:
    ```bash
@@ -116,6 +119,52 @@ What the frontend does then:
 
 The certificate's state is in the frontend log only (`[https]` lines), not in the UI. The
 `wayfinderr-certs` volume holds the private key: keep it, and copies of it, private.
+
+### Let's Encrypt
+
+With `HTTPS_CERT_SOURCE=acme` the frontend gets the certificate of `HTTPS_DOMAIN` from Let's Encrypt
+by itself, and renews it when needed, with nothing to do and no restart. Let's Encrypt checks that
+the domain is yours by asking for a file on port 80 (the HTTP-01 challenge): the frontend answers it
+on port 80, where everything else is redirected to HTTPS.
+
+You need, besides the requirements above:
+
+- a **public** DNS record (A, and AAAA if the machine has IPv6) of `HTTPS_DOMAIN` towards this
+  machine's public address;
+- port **80** reachable **from the Internet** (forwarded by the router to this machine), and 443 to
+  reach the app from outside.
+
+1. Add to `.env`, next to the two lines of step 1 above:
+   ```bash
+   HTTPS_CERT_SOURCE=acme
+   ACME_EMAIL=you@example.com      # optional: the contact of the Let's Encrypt account
+   ```
+   Using it means accepting Let's Encrypt's
+   [Subscriber Agreement](https://letsencrypt.org/repository/).
+2. `docker compose up -d`. The frontend log says `Let's Encrypt: getting the certificate of …`,
+   then within a minute `certificate of … obtained, valid until …` and `HTTPS on port 443 for …`:
+   ```bash
+   docker compose logs wayfinderr-frontend | grep https
+   ```
+
+Then:
+
+- **Renewal when needed (ARI):** for every certificate Let's Encrypt says when to renew it (a window,
+  [ACME Renewal Information](https://www.rfc-editor.org/rfc/rfc9773)). The frontend picks a moment
+  in it, keeps it (`Let's Encrypt renewal window … renewal at …` in the log), renews then, and asks
+  again every 6 hours or as Let's Encrypt says: if the window moves (a revocation, an incident), the
+  renewal moves with it. If Let's Encrypt gives no window, it renews when a third of the certificate's
+  life is left (30 days for 90).
+- **A failure** (port 80 not reaching this machine, DNS, a limit) keeps the certificate in use and is
+  tried again after 15 minutes, then 30, up to every 12 hours, with the reason in the log: under
+  Let's Encrypt's limit of 5 failed validations an hour.
+- **Tries first:** `ACME_STAGING=true` uses Let's Encrypt's staging, with broad limits but
+  certificates browsers do not trust. Back to `false`, delete the staging certificate so a real one
+  is asked for at once: `docker compose exec wayfinderr-frontend rm /app/certs/fullchain.pem`.
+- The Let's Encrypt account key, the certificate and its key are in the `wayfinderr-certs` volume
+  (`/app/certs`, `acme/` for the account): keep it, so a restart or an update asks for nothing new.
+- Not together with the [wildcard from Pangolin](#wildcard-from-pangolin): with both set, the
+  backend leaves `HTTPS_CERT_SSH_HOST` aside and says so in its log.
 
 ### Wildcard from Pangolin
 
@@ -171,7 +220,7 @@ Then:
   `sudo userdel -r wayfinderr-cert && sudo rm /etc/sudoers.d/wayfinderr-cert /usr/local/bin/wayfinderr-cert`.
 - The state is in the backend log (and on the **Logs** page), not in the UI.
 
-To turn it off, remove `COMPOSE_FILE`, `HTTPS_DOMAIN` (and `HTTPS_CERT_SSH_HOST`) from `.env` and run `docker compose up -d`:
+To turn it off, remove `COMPOSE_FILE`, `HTTPS_DOMAIN` (and `HTTPS_CERT_SOURCE`, `HTTPS_CERT_SSH_HOST`) from `.env` and run `docker compose up -d`:
 the frontend is back on port 3000 as before.
 
 **Local run** (method C of the [Installation](INSTALLATION.md)): `npm start` in `frontend` reads the
@@ -405,7 +454,8 @@ Migrations run by themselves when the backend starts. Pin a release with `WAYFIN
 - Publish no port but the frontend's; behind a reverse proxy bind it to `127.0.0.1` or publish none
   (ports published by Docker bypass `ufw`). The [built-in HTTPS](#built-in-https) publishes 443 and
   80 and binds 3000 to `127.0.0.1` by itself.
-- The certificate's private key is in the `wayfinderr-certs` volume (built-in HTTPS): keep it private.
+- The certificate's private key (and, with Let's Encrypt, the account key) is in the
+  `wayfinderr-certs` volume (built-in HTTPS): keep it private.
 - Fetching Pangolin's wildcard, Wayfinderr's SSH key may only print that certificate on Pangolin's
   host (`restrict,command=…`), and the host's key is checked: see
   [Wildcard from Pangolin](#wildcard-from-pangolin).
