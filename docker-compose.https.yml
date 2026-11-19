@@ -5,7 +5,9 @@
 # Needs Docker Compose 2.24.4 or later (!override).
 #
 # The certificate is read from the wayfinderr-certs volume (fullchain.pem and privkey.pem)
-# and reloaded without a restart when those files change.
+# and reloaded without a restart when those files change. With HTTPS_CERT_SSH_HOST the
+# backend writes it there itself, fetched from the host where Pangolin keeps a wildcard,
+# and follows its renewals (docs/DEPLOYMENT.md, "Wildcard from Pangolin").
 
 services:
   wayfinderr-frontend:
@@ -18,6 +20,18 @@ services:
       - "127.0.0.1:3000:3000"
     environment:
       - HTTPS_DOMAIN=${HTTPS_DOMAIN:?set HTTPS_DOMAIN in .env (e.g. wayfinderr.example.com)}
+    volumes:
+      - wayfinderr-certs:/app/certs
+
+  wayfinderr-backend:
+    environment:
+      - HTTPS_DOMAIN=${HTTPS_DOMAIN:?set HTTPS_DOMAIN in .env (e.g. wayfinderr.example.com)}
+      - HTTPS_CERT_DIR=/app/certs
+      # Optional: fetch the certificate over SSH from Pangolin's host (empty: copied by hand)
+      - HTTPS_CERT_SSH_HOST=${HTTPS_CERT_SSH_HOST:-}
+      - HTTPS_CERT_SSH_PORT=${HTTPS_CERT_SSH_PORT:-22}
+      - HTTPS_CERT_SSH_USER=${HTTPS_CERT_SSH_USER:-wayfinderr-cert}
+      - HTTPS_CERT_SSH_HOST_KEY=${HTTPS_CERT_SSH_HOST_KEY:-}
     volumes:
       - wayfinderr-certs:/app/certs
 

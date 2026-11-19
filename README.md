@@ -47,7 +47,7 @@ film.
 - 🏷️ **Tracker release**: rename on the server and run your tracker upload command in `tmux`, following its output; or release locally from the qBittorrent machine
 - 🔀 **Merge** (in progress): two rips of a film, better video and Italian audio, merged by [Dyadrr](https://github.com/TehMaat/dyadrr) without re-encoding
 - 🔐 **Login**: one account, sessions, API key for scripts; one reverse proxy entry is enough
-- 🔒 **Built-in HTTPS**: the frontend serves HTTPS itself, no other container, and takes up a renewed certificate without a restart
+- 🔒 **Built-in HTTPS**: the frontend serves HTTPS itself, no other container; a wildcard Pangolin keeps on another host is fetched and its renewals followed by themselves, without a restart
 - 🌗 **Dark and light theme**, five accent colors
 
 ## Screenshots

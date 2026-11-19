@@ -128,6 +128,21 @@ export interface Config {
   RIP: RipConfig;
   MERGE: MergeConfig;
   LOGS: LogsConfig;
+  HTTPS: HttpsConfig;
+}
+
+// The built-in HTTPS of the frontend: the certificate it serves can be fetched by the
+// backend over SSH from another host, e.g. Pangolin's wildcard (services/https)
+export interface HttpsConfig {
+  DOMAIN: string; // HTTPS_DOMAIN, lower case ('' when HTTPS is off)
+  CERT_DIR: string; // where fullchain.pem and privkey.pem are written (the wayfinderr-certs volume)
+  SSH: {
+    HOST: string; // '' when the certificate is not fetched
+    PORT: number;
+    USER: string;
+    HOST_KEY: string; // SHA256:… of the host key; '' to trust the first one seen and keep it
+    KEY_DIR: string; // Wayfinderr's own SSH key and the host key seen, in the data volume
+  };
 }
 
 // The log history on disk (services/logs): one file a day per source, kept for a while
