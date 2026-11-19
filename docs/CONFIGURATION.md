@@ -28,7 +28,8 @@ its [HTTPS settings](#frontend-https) are read at start.
 | `DYADRR_REGISTRY` | `ghcr.io/tehmaat` | Where the Dyadrr image comes from |
 | `COMPOSE_PROFILES` | – | Optional services started by plain `docker compose up -d`: `makemkv`, `merge`, or both (`makemkv,merge`) |
 | `COMPOSE_FILE` | – | `docker-compose.yml:docker-compose.https.yml` (`;` on Windows) for the [built-in HTTPS](DEPLOYMENT.md#built-in-https): every `docker compose` command then includes the HTTPS file |
-| `HTTPS_DOMAIN` | – | With `docker-compose.https.yml`: the app's domain, passed to the frontend ([Frontend (HTTPS)](#frontend-https)). Required there: compose stops without it |
+| `HTTPS_DOMAIN` | – | With `docker-compose.https.yml`: the app's domain, passed to the frontend ([Frontend (HTTPS)](#frontend-https)) and the backend. Required there: compose stops without it |
+| `HTTPS_CERT_SSH_HOST`, `HTTPS_CERT_SSH_PORT`, `HTTPS_CERT_SSH_USER`, `HTTPS_CERT_SSH_HOST_KEY` | – | With `docker-compose.https.yml`: passed to the backend, to fetch Pangolin's wildcard ([HTTPS certificate from Pangolin](#https-certificate-from-pangolin)) |
 
 ## Backend
 
@@ -52,6 +53,23 @@ its [HTTPS settings](#frontend-https) are read at start.
 | `LOG_RETENTION_DAYS` | `30` | Days of log history kept on disk (the **Logs** page), today included. `0`: forever |
 | `LOG_MAX_SIZE_MB` | `500` | Most space of the whole log folder; past it the oldest days go first. `0`: no limit |
 | `LOG_DIR` | `<database folder>/logs` | Where the log history is kept |
+
+### HTTPS certificate from Pangolin
+
+The backend fetches the certificate of the [built-in HTTPS](DEPLOYMENT.md#wildcard-from-pangolin)
+over SSH from the host where Pangolin keeps a wildcard, writes it for the frontend, and follows its
+renewals (every 6 hours). Off without `HTTPS_CERT_SSH_HOST`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `HTTPS_CERT_SSH_HOST` | – | SSH address of Pangolin's host. Set: the certificate is fetched at start and every 6 hours |
+| `HTTPS_CERT_SSH_PORT` | `22` | Its SSH port |
+| `HTTPS_CERT_SSH_USER` | `wayfinderr-cert` | The user `pangolin-cert-setup.sh` creates there |
+| `HTTPS_CERT_SSH_HOST_KEY` | – | Fingerprint of the host's key (`SHA256:…`). Empty: the key seen at the first connection is kept and checked from then on |
+| `HTTPS_DOMAIN` | – | The app's domain: the certificate must cover it. *Set by `docker-compose.https.yml`* |
+| `HTTPS_CERT_DIR` | `/app/certs` | Where `fullchain.pem` and `privkey.pem` are written: the folder the frontend reads. *Fixed in `docker-compose.https.yml`* (the `wayfinderr-certs` volume); for a local run, the frontend's `certs` folder |
+
+Wayfinderr's own SSH key and the host key it keeps are in `https/` next to the database.
 
 ### Automatic ripping
 

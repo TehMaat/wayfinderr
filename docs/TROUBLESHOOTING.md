@@ -149,7 +149,37 @@ hold the certificate **and** the intermediate ones (certbot's `fullchain.pem`, n
 ### `the certificate expires in N days and no new one has arrived`
 
 Whoever renews the certificate has not written a new one in the volume: renew it and copy it in.
-Nothing else is needed: it is taken up without a restart.
+Nothing else is needed: it is taken up without a restart. With the wildcard from Pangolin, see the
+backend's own messages below.
+
+### Wildcard from Pangolin: the backend log
+
+These are the `HTTPS certificate…` lines of the backend (`docker compose logs wayfinderr-backend | grep
+"HTTPS certificate"`, or the **Logs** page). See [Wildcard from Pangolin](DEPLOYMENT.md#wildcard-from-pangolin).
+
+- `refused Wayfinderr's SSH key: the host is not set up for it yet`: run `pangolin-cert-setup.sh` on
+  Pangolin's host with the key of the `HTTPS certificate from …` line (single quotes around it).
+  Done already: the key changed (a new data volume), run it again with the new one; or sshd allows
+  only some users (`AllowUsers`/`AllowGroups`: add `wayfinderr-cert`).
+- `the host key of … is not the expected one`: the host answering is not the one seen the first
+  time. If Pangolin's host was reinstalled, compare the new key with `ssh-keygen -lf
+  /etc/ssh/ssh_host_ed25519_key.pub` there, then set `HTTPS_CERT_SSH_HOST_KEY` to it, or delete
+  `/app/data/https/host-key` in the backend (`docker compose exec wayfinderr-backend rm
+  /app/data/https/host-key`) to trust it again. Otherwise someone is in between: do not.
+- `the command on … failed: … no certificate for *.example.com`: the wildcard is not in `acme.json`
+  any more (renamed, another resolver): run the setup script again (`--dry-run` shows what it finds).
+- `the command on … failed: sudo: a password is required`: the sudo rule is missing: run the setup
+  script again.
+- `the certificate is for …, not wayfinderr.example.com`: the wildcard does not cover `HTTPS_DOMAIN`
+  (`*.example.com` covers one level only).
+- `no answer from … in 60 s`, `connect ECONNREFUSED`, `getaddrinfo ENOTFOUND`: SSH on Pangolin's
+  host is not reachable from here: the address, `HTTPS_CERT_SSH_PORT`, a firewall.
+- `it expires in N days and … has no newer one: is it renewing it?`: Pangolin has not renewed the
+  wildcard; look at its Traefik log (the DNS challenge).
+
+The setup script itself says what it misses: `no acme.json found` or `more than one acme.json` (pass
+`--acme-json`), `more than one wildcard` (pass `--domain`), `sudo is needed`, `jq or python3 is
+needed`.
 
 ## Servers
 

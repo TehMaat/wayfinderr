@@ -59,9 +59,10 @@ You need:
   from outside, open on the router towards it;
 - Docker Compose **2.24.4** or later (`docker compose version`);
 - a certificate for the domain, by name or a wildcard of one level (`*.example.com` covers
-  `wayfinderr.example.com`, not `a.wayfinderr.example.com`), with its private key. Getting it from
-  Let's Encrypt by itself and taking a wildcard from Pangolin on another host are on their way
-  ([#97](https://github.com/TehMaat/wayfinderr/issues/97) and [#98](https://github.com/TehMaat/wayfinderr/issues/98)): until then it is copied in, as below.
+  `wayfinderr.example.com`, not `a.wayfinderr.example.com`), with its private key: a wildcard that
+  Pangolin keeps on another host is [fetched and renewed by itself](#wildcard-from-pangolin); any
+  other certificate is copied in. Getting one from Let's Encrypt by itself is on its way
+  ([#97](https://github.com/TehMaat/wayfinderr/issues/97)).
 
 **Create the account first**, from the LAN (`http://<server>:3000`), before opening the ports. Then:
 
@@ -75,8 +76,10 @@ You need:
 2. Start it: `docker compose up -d`. Until the certificate is there the frontend log says what it
    waits for (`docker compose logs wayfinderr-frontend | grep https`), and the app keeps answering
    on `http://127.0.0.1:3000` from this machine.
-3. Copy the certificate in: `fullchain.pem` (the certificate followed by the intermediate ones, as
-   certbot names it) and `privkey.pem`:
+3. The certificate. With a wildcard on Pangolin's host, let Wayfinderr fetch it and follow its
+   renewals: see [Wildcard from Pangolin](#wildcard-from-pangolin), then go on with step 4.
+   Otherwise copy it in: `fullchain.pem` (the certificate followed by the intermediate ones, as
+   certbot names it) and `privkey.pem`, again after every renewal:
    ```bash
    docker compose cp fullchain.pem wayfinderr-frontend:/app/certs/fullchain.pem
    docker compose cp privkey.pem wayfinderr-frontend:/app/certs/privkey.pem
@@ -114,7 +117,61 @@ What the frontend does then:
 The certificate's state is in the frontend log only (`[https]` lines), not in the UI. The
 `wayfinderr-certs` volume holds the private key: keep it, and copies of it, private.
 
-To turn it off, remove `COMPOSE_FILE` and `HTTPS_DOMAIN` from `.env` and run `docker compose up -d`:
+### Wildcard from Pangolin
+
+Pangolin (its Traefik) keeps its certificates in `acme.json` on its host, a wildcard among them
+(`*.example.com`), and renews them. The Wayfinderr backend can fetch that wildcard over SSH and save
+it where the frontend reads it: at start and every 6 hours, so a renewal is served within hours,
+with nothing to do and no restart.
+
+Wayfinderr reads that one certificate and nothing else. On Pangolin's host a dedicated user,
+`wayfinderr-cert`, may run one command only (`restrict,command=…` in its `authorized_keys`), which
+prints that certificate and its key: never the other certificates, nor Pangolin's ACME account.
+Pangolin's host must be reachable over SSH from the Wayfinderr machine.
+
+1. Add to `.env`, next to the two lines of step 1 above, the SSH address of Pangolin's host:
+   ```bash
+   HTTPS_CERT_SSH_HOST=pangolin.example.com
+   ```
+   (`HTTPS_CERT_SSH_PORT` when SSH is not on port 22.)
+2. `docker compose up -d`. The backend makes its own SSH key (once, in the data volume) and logs the
+   command to run on Pangolin's host, with that key:
+   ```bash
+   docker compose logs wayfinderr-backend | grep "HTTPS certificate from"
+   ```
+3. On Pangolin's host, download the setup script, read it, and run it as root with the key from
+   the log, in single quotes:
+   ```bash
+   curl -fsSLO https://raw.githubusercontent.com/TehMaat/wayfinderr/main/scripts/https/pangolin-cert-setup.sh
+   ```
+   ```bash
+   sudo sh pangolin-cert-setup.sh 'ecdsa-sha2-nistp256 AAAA… wayfinderr-https'
+   ```
+   It finds `acme.json` and the wildcard in it by itself (otherwise it says so: pass
+   `--acme-json <path>` and `--domain '*.example.com'`), sets up the user, the command and the
+   sudo rule, checks that they work, and prints the host's key fingerprints. `--dry-run` finds and
+   checks everything without changing anything. It needs `sudo`, and `jq` or `python3`.
+4. Within 15 minutes, or at once with `docker compose restart wayfinderr-backend`, the backend log
+   says `HTTPS certificate fetched from pangolin.example.com and saved: for *.example.com…`, and the
+   frontend log `HTTPS on port 443 for wayfinderr.example.com: certificate for *.example.com…`.
+
+Then:
+
+- **Renewals:** checked every 6 hours; a new certificate on the host is saved and served without a
+  restart (`HTTPS certificate fetched … and saved` in the backend log, `new certificate in use` in
+  the frontend's). A failure is retried after 15 minutes, then 30, up to every 6 hours, and the
+  reason is logged. From 21 days before the end, the backend warns once a day if Pangolin has no
+  newer certificate.
+- **The host's key:** the first connection trusts it and keeps it (`/app/data/https/host-key`),
+  and says so in the log with its fingerprint: compare it with the ones the setup script printed.
+  After that a different key is refused, nothing is fetched and the log says why. To pin it from the
+  start, set `HTTPS_CERT_SSH_HOST_KEY=SHA256:…`.
+- **Wayfinderr's key** is in the data volume (`/app/data/https/ssh-key`), so in the database
+  backups too. To revoke it, on Pangolin's host:
+  `sudo userdel -r wayfinderr-cert && sudo rm /etc/sudoers.d/wayfinderr-cert /usr/local/bin/wayfinderr-cert`.
+- The state is in the backend log (and on the **Logs** page), not in the UI.
+
+To turn it off, remove `COMPOSE_FILE`, `HTTPS_DOMAIN` (and `HTTPS_CERT_SSH_HOST`) from `.env` and run `docker compose up -d`:
 the frontend is back on port 3000 as before.
 
 **Local run** (method C of the [Installation](INSTALLATION.md)): `npm start` in `frontend` reads the
@@ -349,5 +406,8 @@ Migrations run by themselves when the backend starts. Pin a release with `WAYFIN
   (ports published by Docker bypass `ufw`). The [built-in HTTPS](#built-in-https) publishes 443 and
   80 and binds 3000 to `127.0.0.1` by itself.
 - The certificate's private key is in the `wayfinderr-certs` volume (built-in HTTPS): keep it private.
+- Fetching Pangolin's wildcard, Wayfinderr's SSH key may only print that certificate on Pangolin's
+  host (`restrict,command=…`), and the host's key is checked: see
+  [Wildcard from Pangolin](#wildcard-from-pangolin).
 - Prefer SSH keys to passwords for the servers (`SSH_PRIVATE_KEY_PATH`).
 - Database backups contain the password hash and the session key: keep them private.
