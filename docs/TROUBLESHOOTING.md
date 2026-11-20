@@ -222,6 +222,17 @@ part failed.
   ```
 - The remote folder is created if missing: the SSH user must be allowed to.
 
+### `SSH host key of … changed: expected SHA256:…, got SHA256:…`
+
+The server (or the machine of a local release) answered with another SSH host key than the one kept
+at the first connection, so Wayfinderr sent nothing to it. Either the server was reinstalled or
+moved, or something between Wayfinderr and the server is pretending to be it.
+
+Compare the new key with the server's own, from a console or the provider's panel:
+`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` (or the `ecdsa`/`rsa` one). If it matches,
+**Servers** → edit the server → **Host key** → **Forget**, then **Test**: the new key is kept. For a
+local release: **Clients** → edit the client. If it does not match, forget nothing.
+
 ### A server shows "Online via SSH", or "Unreachable"
 
 **Online via SSH**: the storage API did not answer, so the free space was read over SSH (the user's

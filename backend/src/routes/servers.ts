@@ -131,13 +131,33 @@ router.put('/:id', async (req: Request, res: Response) => {
       res.status(400).json({ error: invalid });
       return;
     }
+    // Another host or port is another machine: its host key is kept again at the next connection
+    const moved =
+      (data.sshHost !== undefined && data.sshHost !== current.sshHost) ||
+      (data.sshPort !== undefined && data.sshPort !== current.sshPort);
     // Another type: what it does not use is emptied (Ultra-API endpoint, token, restart)
-    const server = await db.updateServer(req.params.id, { ...data, ...unusedFields(type) });
+    const server = await db.updateServer(req.params.id, {
+      ...data,
+      ...unusedFields(type),
+      ...(moved ? { sshHostKey: null } : {}),
+    });
     res.json(toPublic(server));
   } catch (error) {
     logger.error(error, 'Failed to update server');
     res.status(500).json({ error: 'Failed to update server' });
   }
+});
+
+// DELETE the kept SSH host key: the next connection keeps the key it sees (a reinstalled server)
+router.delete('/:id/ssh-host-key', async (req: Request, res: Response) => {
+  const server = await db.getServerById(req.params.id).catch(() => null);
+  if (!server) {
+    res.status(404).json({ error: 'Server not found' });
+    return;
+  }
+  const updated = await db.updateServer(server.id, { sshHostKey: null });
+  logger.warn({ serverId: server.id, host: server.sshHost, forgotten: server.sshHostKey }, 'SSH host key forgotten');
+  res.json(toPublic(updated));
 });
 
 // POST test server: the space (Ultra.cc: its API, else over SSH; other types: over SSH)

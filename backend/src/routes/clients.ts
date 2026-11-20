@@ -112,6 +112,18 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
+// DELETE the kept SSH host key (local release): the next connection keeps the key it sees
+router.delete('/:id/ssh-host-key', async (req: Request, res: Response) => {
+  const client = await db.getTorrentClientById(req.params.id).catch(() => null);
+  if (!client) {
+    res.status(404).json({ error: 'Client not found' });
+    return;
+  }
+  const updated = await db.updateTorrentClient(client.id, { sshHostKey: null });
+  logger.warn({ clientId: client.id, host: client.sshHost, forgotten: client.sshHostKey }, 'SSH host key forgotten');
+  res.json(toPublic(updated));
+});
+
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     const data = parseClientBody(req.body);
@@ -133,7 +145,11 @@ router.put('/:id', async (req: Request, res: Response) => {
       res.status(400).json({ error: invalid });
       return;
     }
-    const client = await db.updateTorrentClient(req.params.id, data);
+    // Another host or port is another machine: its host key is kept again at the next connection
+    const moved =
+      (data.sshHost !== undefined && data.sshHost !== current.sshHost) ||
+      (data.sshPort !== undefined && data.sshPort !== current.sshPort);
+    const client = await db.updateTorrentClient(req.params.id, moved ? { ...data, sshHostKey: null } : data);
     // A new threshold applies right away
     spaceGuard.check();
     res.json(toPublic(client));

@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input, Label, Select } from '@/components/ui/input';
+import { SshHostKey } from '@/components/ssh-host-key';
 import { clientsApi } from '@/lib/api';
 import { useAppStore, type TorrentClient } from '@/lib/store';
 import { errorMessage } from '@/lib/utils';
@@ -241,6 +242,18 @@ export function ClientDialog({
                     />
                   </Field>
                 </div>
+                {client && (
+                  <SshHostKey
+                    hostKey={client.sshHostKey}
+                    moved={
+                      form.sshHost.trim() !== (client.sshHost ?? '') ||
+                      (form.sshPort.trim() === '' ? 22 : Number(form.sshPort)) !== client.sshPort
+                    }
+                    onForget={async () => {
+                      await clientsApi.forgetHostKey(client.id);
+                    }}
+                  />
+                )}
                 <Field
                   label="Watch folder on that machine"
                   hint="The folder Wayfinderr watches (WATCH_DIR), as that machine sees it. It must be on the same disk as the release folder"

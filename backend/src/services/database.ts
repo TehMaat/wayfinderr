@@ -30,6 +30,28 @@ export class DatabaseService {
     return this.prisma.server.update({ where: { id }, data });
   }
 
+  /**
+   * The SSH host key kept for a server or a download client (local release), and keeping
+   * the first one seen: only while none is kept, so two connections at once cannot
+   * replace one another's (issue #102)
+   */
+  async getSshHostKey(kind: 'server' | 'client', id: string): Promise<string | null> {
+    const row =
+      kind === 'server'
+        ? await this.prisma.server.findUnique({ where: { id }, select: { sshHostKey: true } })
+        : await this.prisma.torrentClient.findUnique({ where: { id }, select: { sshHostKey: true } });
+    return row?.sshHostKey ?? null;
+  }
+
+  async keepSshHostKey(kind: 'server' | 'client', id: string, sshHostKey: string): Promise<boolean> {
+    const where = { id, sshHostKey: null };
+    const { count } =
+      kind === 'server'
+        ? await this.prisma.server.updateMany({ where, data: { sshHostKey } })
+        : await this.prisma.torrentClient.updateMany({ where, data: { sshHostKey } });
+    return count > 0;
+  }
+
   async deleteServer(id: string): Promise<Server> {
     return this.prisma.server.delete({ where: { id } });
   }

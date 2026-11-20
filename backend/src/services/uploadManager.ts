@@ -7,6 +7,7 @@ import logger from '../config/logger.js';
 import { config } from '../config/index.js';
 import { db } from './database.js';
 import { Server } from '@prisma/client';
+import { hostKeyFingerprint } from './https/certificate.js';
 
 export interface UploadOptions {
   uploadId: string;
@@ -37,11 +38,41 @@ export const sftpCall = <T = void>(fn: (cb: (err: Error | null | undefined, res?
 /** The server's upload folder, with forward slashes */
 export const remoteDirOf = (server: Pick<Server, 'sshPath'>) => server.sshPath.replace(/\\/g, '/').replace(/\/+$/, '') || '/';
 
-/** What an SSH connection needs: a server's login, or a download client's (local release) */
-export type SshLogin = Pick<Server, 'id' | 'sshHost' | 'sshPort' | 'sshUsername' | 'sshPassword'>;
+/**
+ * What an SSH connection needs: a server's login, or a download client's (local release,
+ * local: true). The id says whose host key is kept.
+ */
+export type SshLogin = Pick<Server, 'id' | 'sshHost' | 'sshPort' | 'sshUsername' | 'sshPassword'> & { local?: boolean };
+
+/** Where the SSH host keys are kept: the database (a stand-in in the tests) */
+export interface HostKeyStore {
+  get(kind: 'server' | 'client', id: string): Promise<string | null>;
+  keep(kind: 'server' | 'client', id: string, fingerprint: string): Promise<boolean>;
+}
+
+/** The host answered with another key than the one kept: nothing was sent to it */
+export class HostKeyChangedError extends Error {
+  constructor(host: string, expected: string, seen: string, local: boolean) {
+    super(
+      `SSH host key of ${host} changed: expected ${expected}, got ${seen}. Nothing was sent. If the ${
+        local ? 'machine' : 'server'
+      } was reinstalled, forget the old key in its settings (${local ? 'Clients' : 'Servers'} page) and connect again`
+    );
+    this.name = 'HostKeyChangedError';
+  }
+}
 
 export class UploadManager extends EventEmitter {
   private activeConnections: Set<SSHClient> = new Set();
+
+  constructor(
+    private readonly hostKeys: HostKeyStore = {
+      get: (kind, id) => db.getSshHostKey(kind, id),
+      keep: (kind, id, fingerprint) => db.keepSshHostKey(kind, id, fingerprint),
+    }
+  ) {
+    super();
+  }
 
   async uploadFile(options: UploadOptions): Promise<boolean> {
     const { uploadId, filepath, server, signal, onProgress } = options;
@@ -238,13 +269,25 @@ export class UploadManager extends EventEmitter {
     }
   }
 
-  connect(server: SshLogin): Promise<SSHClient> {
+  /**
+   * Opens an SSH connection. The host key is checked (issue #102): the first one seen is
+   * kept for that server or client, and from then on another one is refused before any
+   * password, file or command is sent.
+   */
+  async connect(server: SshLogin): Promise<SSHClient> {
+    const kind = server.local ? 'client' : 'server';
+    const expected = await this.hostKeys.get(kind, server.id);
+    let seen = '';
     const connectConfig: ConnectConfig = {
       host: server.sshHost,
       port: server.sshPort,
       username: server.sshUsername,
       readyTimeout: 20000,
       keepaliveInterval: 15000,
+      hostVerifier: (key: Buffer) => {
+        seen = hostKeyFingerprint(key);
+        return !expected || seen === expected;
+      },
     };
 
     if (server.sshPassword) {
@@ -252,12 +295,10 @@ export class UploadManager extends EventEmitter {
     } else if (config.SSH_PRIVATE_KEY_PATH) {
       connectConfig.privateKey = readFileSync(config.SSH_PRIVATE_KEY_PATH);
     } else {
-      return Promise.reject(
-        new Error('No SSH credentials: set a password on the server or SSH_PRIVATE_KEY_PATH')
-      );
+      throw new Error('No SSH credentials: set a password on the server or SSH_PRIVATE_KEY_PATH');
     }
 
-    return new Promise((resolve, reject) => {
+    const conn = await new Promise<SSHClient>((resolve, reject) => {
       const conn = new SSHClient();
       let ready = false;
 
@@ -269,6 +310,12 @@ export class UploadManager extends EventEmitter {
       });
 
       conn.on('error', (err) => {
+        if (!ready && expected && seen && seen !== expected) {
+          const changed = new HostKeyChangedError(server.sshHost, expected, seen, Boolean(server.local));
+          logger.error({ serverId: server.id, host: server.sshHost, expected, seen }, changed.message);
+          reject(changed);
+          return;
+        }
         logger.error({ serverId: server.id, error: err.message }, 'SSH connection error');
         if (!ready) reject(err);
       });
@@ -279,6 +326,21 @@ export class UploadManager extends EventEmitter {
 
       conn.connect(connectConfig);
     });
+
+    // First connection: the key is kept from now on
+    if (!expected && seen) {
+      try {
+        if (await this.hostKeys.keep(kind, server.id, seen)) {
+          logger.info(
+            { serverId: server.id, host: server.sshHost, hostKey: seen },
+            `SSH host key of ${server.sshHost} kept at the first connection: ${seen}`
+          );
+        }
+      } catch (error) {
+        logger.warn({ serverId: server.id, error: (error as Error).message }, 'Could not keep the SSH host key');
+      }
+    }
+    return conn;
   }
 
   close(): void {

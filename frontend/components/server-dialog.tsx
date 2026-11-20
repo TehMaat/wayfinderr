@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input, Label, Select } from '@/components/ui/input';
+import { SshHostKey } from '@/components/ssh-host-key';
 import { serversApi } from '@/lib/api';
 import { parseUltra, SERVER_TYPES, serverTypeInfo, ULTRA_RELEASE_DIR, ultraFields, type ServerType } from '@/lib/server-types';
 import { useAppStore, type Server } from '@/lib/store';
@@ -237,6 +238,15 @@ export function ServerDialog({
                 />
               </Field>
             </div>
+            {server && (
+              <SshHostKey
+                hostKey={server.sshHostKey}
+                moved={form.sshHost.trim() !== server.sshHost || (parseInt(form.sshPort, 10) || 22) !== server.sshPort}
+                onForget={async () => {
+                  await serversApi.forgetHostKey(server.id);
+                }}
+              />
+            )}
             <Field label="Remote folder" hint="Created if missing">
               <Input
                 name="sshPath"

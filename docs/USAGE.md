@@ -87,6 +87,8 @@ From now on every new `.mkv` in the watch folder, subfolders included, is upload
 
 ![Add server dialog](assets/screenshots/server-dialog.png)
 
+**SSH host key:** at the first connection Wayfinderr keeps the server's host key (its `SHA256:…` fingerprint, shown under the SSH login when you edit the server) and checks it at every other one: a server answering with another key gets neither the password nor any file, and the upload, the test or the release fails with `SSH host key of … changed`. If the server was reinstalled, **Forget** the key there: the next connection keeps the new one. Changing the host or the port forgets it too. The same goes for the machine of a client's local release (**Clients** → edit the client).
+
 Every server card shows its free space and where it was read (the API, or over SSH: the account quota or the disk), and, for an Ultra.cc slot, a **Restart Ultra-API** entry (it can also restart itself when the API stops answering).
 
 ## Automatic ripping

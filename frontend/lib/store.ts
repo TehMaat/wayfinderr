@@ -151,6 +151,8 @@ export interface TorrentClient {
   sshPort: number;
   sshUsername: string | null;
   hasSshPassword: boolean;
+  // SHA256:… of the SSH host key, kept at the first connection (null: none yet)
+  sshHostKey: string | null;
   hostWatchDir: string | null; // the watch folder as that machine sees it
   releaseDir: string | null;
   releaseTag: string | null;
@@ -173,6 +175,8 @@ export interface Server {
   sshUsername: string;
   sshPath: string;
   hasSshPassword: boolean;
+  // SHA256:… of the SSH host key, kept at the first connection (null: none yet)
+  sshHostKey: string | null;
   maxRetries: number;
   backoffStrategy: string;
   mediaCheckPolicy: string;

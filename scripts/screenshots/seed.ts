@@ -113,6 +113,7 @@ async function main() {
       apiEndpoint: 'https://demo.alpha.example.invalid/ultra-api/get_diskquota',
       apiToken: 'demo-token',
       sshHost: 'alpha.example.invalid',
+      sshHostKey: 'SHA256:Xb3Kc0lYw1AqEnmz0ZcVpT9u7oRfX2gD4hJ8sLkQaM0',
       sshUsername: 'demo',
       sshPassword: 'demo',
       sshPath: '/home/demo/media/movies',
