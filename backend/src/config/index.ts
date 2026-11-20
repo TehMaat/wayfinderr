@@ -70,18 +70,6 @@ export const loadConfig = (): Config => {
         ...(seedingDir ? [{ name: 'seeding', dir: seedingDir }] : []),
       ],
     },
-    HTTPS: {
-      DOMAIN: (process.env.HTTPS_DOMAIN || '').trim().toLowerCase().replace(/\.$/, ''),
-      CERT_SOURCE: (process.env.HTTPS_CERT_SOURCE || '').trim().toLowerCase() || 'files',
-      CERT_DIR: path.resolve(process.env.HTTPS_CERT_DIR || '/app/certs'),
-      SSH: {
-        HOST: (process.env.HTTPS_CERT_SSH_HOST || '').trim(),
-        PORT: wholeNumber(process.env.HTTPS_CERT_SSH_PORT, 22) || 22,
-        USER: (process.env.HTTPS_CERT_SSH_USER || '').trim() || 'wayfinderr-cert',
-        HOST_KEY: (process.env.HTTPS_CERT_SSH_HOST_KEY || '').trim(),
-        KEY_DIR: path.join(dataDir(databaseUrl), 'https'),
-      },
-    },
     LOGS: {
       DIR: path.resolve(process.env.LOG_DIR || path.join(dataDir(databaseUrl), 'logs')),
       RETENTION_DAYS: wholeNumber(process.env.LOG_RETENTION_DAYS, 30),

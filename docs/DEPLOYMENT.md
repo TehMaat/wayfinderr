@@ -8,7 +8,7 @@ it first, see [Installation](INSTALLATION.md).
 - [ ] Account created (setup code from the backend log) **before** the app is reachable from outside
 - [ ] HTTPS: [built into the frontend](#built-in-https), or through a [reverse proxy](#reverse-proxy-https)
   pointing at the frontend, never at the backend
-- [ ] Port 3000 not reachable from outside around HTTPS (built-in HTTPS binds it to `127.0.0.1`)
+- [ ] Behind a reverse proxy: port 3000 not reachable from outside around it (with the built-in HTTPS that port is HTTPS only)
 - [ ] Database backups
 - [ ] SSH keys or passwords for every server tested (**Servers** → **Test**)
 
@@ -47,189 +47,83 @@ services:
 
 ## Built-in HTTPS
 
-The frontend can serve HTTPS itself, with no reverse proxy and no other container: set the domain,
-put the certificate in its volume, and a new certificate is taken up without a restart whenever its
-files change.
+The frontend can serve the app over HTTPS itself, on its own port (3000 in the container), with a
+certificate you copy in by hand: no reverse proxy, no other container, no other port. Without it, the
+same port is plain HTTP as always.
 
 You need:
 
 - a domain for the app, e.g. `wayfinderr.example.com`, whose DNS points at this machine (a public
   record to reach it from outside; a local DNS entry is enough on the LAN);
-- ports **443** and **80** free on this machine (no other web server there) and, to reach the app
-  from outside, open on the router towards it;
-- Docker Compose **2.24.4** or later (`docker compose version`);
-- a certificate for the domain, by name or a wildcard of one level (`*.example.com` covers
-  `wayfinderr.example.com`, not `a.wayfinderr.example.com`), with its private key. Three ways:
+- a certificate for that domain, by name or a wildcard of one level (`*.example.com` covers
+  `wayfinderr.example.com`, not `a.wayfinderr.example.com`), with its private key, both in PEM:
+  `fullchain.pem` (the certificate followed by the intermediate ones, as certbot names it) and
+  `privkey.pem`. Get it wherever you like (certbot on another machine, your provider's wildcard…):
+  Wayfinderr does not ask for it nor renew it.
 
-  | Certificate | How it gets there | Renewal | Needs |
-  |---|---|---|---|
-  | [Let's Encrypt](#lets-encrypt) | the frontend asks for it (`HTTPS_CERT_SOURCE=acme`) | by itself, when Let's Encrypt says | port 80 reachable from the Internet, a public DNS record |
-  | [Wildcard from Pangolin](#wildcard-from-pangolin) | the backend fetches it over SSH (`HTTPS_CERT_SSH_HOST`) | by itself, following Pangolin's | SSH to Pangolin's host; works on the LAN only too |
-  | Any other | copied in by hand (step 3) | by hand | – |
-
-**Create the account first**, from the LAN (`http://<server>:3000`), before opening the ports. Then:
+**Create the account first**, over plain HTTP (`http://<server>:3000`), before reaching the app from
+outside. Then:
 
 1. Add to `.env`:
    ```bash
-   COMPOSE_FILE=docker-compose.yml:docker-compose.https.yml   # on Windows: ; instead of :
    HTTPS_DOMAIN=wayfinderr.example.com
    ```
-   `COMPOSE_FILE` makes every `docker compose` command include `docker-compose.https.yml`, which
-   publishes 443 and 80, binds 3000 to `127.0.0.1` and mounts the `wayfinderr-certs` volume.
-2. Start it: `docker compose up -d`. Until the certificate is there the frontend log says what it
-   waits for (`docker compose logs wayfinderr-frontend | grep https`), and the app keeps answering
-   on `http://127.0.0.1:3000` from this machine.
-3. The certificate. From Let's Encrypt: see [Let's Encrypt](#lets-encrypt). With a wildcard on
-   Pangolin's host: see [Wildcard from Pangolin](#wildcard-from-pangolin). Then go on with step 4.
-   Otherwise copy it in: `fullchain.pem` (the certificate followed by the intermediate ones, as
-   certbot names it) and `privkey.pem`, again after every renewal:
+2. Pick the host port in `docker-compose.yml`, under `wayfinderr-frontend` (the container's port
+   stays 3000), e.g.:
+   ```yaml
+       ports:
+         - "8443:3000"
+   ```
+3. `docker compose up -d`. Until the certificate is there the port does not answer, and the frontend
+   log says what it waits for: `docker compose logs wayfinderr-frontend | grep https`.
+4. Copy the certificate in:
    ```bash
    docker compose cp fullchain.pem wayfinderr-frontend:/app/certs/fullchain.pem
+   ```
+   ```bash
    docker compose cp privkey.pem wayfinderr-frontend:/app/certs/privkey.pem
    ```
-4. Check: the log says `HTTPS on port 443 for wayfinderr.example.com: certificate for … valid until
-   …`, and
-   ```bash
-   curl -I https://wayfinderr.example.com/health    # HTTP/1.1 200
-   curl -I http://wayfinderr.example.com/health     # 301 to https://
-   ```
+   then delete the copies you do not need: `privkey.pem` is the private key.
+5. Check: the log says `HTTPS on port 3000 for wayfinderr.example.com: certificate for … valid until
+   …`, and `curl -I https://wayfinderr.example.com:8443/health` answers `HTTP/1.1 200`.
+
+**Renewal:** copy the new `fullchain.pem` and `privkey.pem` in the same way, before the old one
+expires. It is checked and taken up within a few seconds (every 5 minutes at the latest), without a
+restart and without closing the connections already open. From 14 days before the end, the log warns
+once a day that no new certificate has arrived.
 
 What the frontend does then:
 
-| Port | What |
-|---|---|
-| 443 | The app over HTTPS (TLS 1.2 and 1.3), the `/ws` WebSocket included |
-| 80 | Every request redirected to the same path on `https://<HTTPS_DOMAIN>` (301; 308 for other methods than GET and HEAD). The domain comes from the settings, never from the request |
-| 3000 | The app over plain HTTP, from this machine only |
-
-- **Next.js runs as always** on 3000, and HTTPS is a thin layer in front of it, in the same container.
+- **One port, HTTPS only** (TLS 1.2 and 1.3), the `/ws` WebSocket included: no plain HTTP, no
+  redirect. Next.js runs as always behind it, on an inner port of the container (3100, on
+  `127.0.0.1` only).
 - **The client's addresses:** the client's own `X-Forwarded-*`, `Forwarded` and `X-Real-IP`
   headers are dropped. The frontend sets `X-Forwarded-For` (the login limiter), `X-Forwarded-Proto:
   https` (the `Secure` session cookie) and `X-Forwarded-Host` (the cross-site check) itself.
-- **A new certificate:** replace the two files, with `docker compose cp` as above or by writing
-  them whole and renaming them into place. It is checked and taken up within a few seconds (every 5
-  minutes at the latest), without a restart and without closing the connections already open.
 - **A certificate that cannot be used is not taken:** the wrong domain, a key that is not its own,
-  out of its dates, not PEM. The reason goes to the log, and the certificate in use stays. Swapping
+  out of its dates, not PEM. The reason goes to the log, and the certificate in use stays. Copying
   the two files one at a time can log `privkey.pem is not the key of the certificate` for an instant,
   until the second one is there.
-- **Expiry warning:** from 14 days before the end, the log warns once a day that no new certificate
-  has arrived.
 - **No HSTS header:** going back to plain HTTP stays possible.
 
 The certificate's state is in the frontend log only (`[https]` lines), not in the UI. The
 `wayfinderr-certs` volume holds the private key: keep it, and copies of it, private.
 
-### Let's Encrypt
+To turn it off, remove `HTTPS_DOMAIN` from `.env` and run `docker compose up -d`: the port is plain
+HTTP again.
 
-With `HTTPS_CERT_SOURCE=acme` the frontend gets the certificate of `HTTPS_DOMAIN` from Let's Encrypt
-by itself, and renews it when needed, with nothing to do and no restart. Let's Encrypt checks that
-the domain is yours by asking for a file on port 80 (the HTTP-01 challenge): the frontend answers it
-on port 80, where everything else is redirected to HTTPS.
-
-You need, besides the requirements above:
-
-- a **public** DNS record (A, and AAAA if the machine has IPv6) of `HTTPS_DOMAIN` towards this
-  machine's public address;
-- port **80** reachable **from the Internet** (forwarded by the router to this machine), and 443 to
-  reach the app from outside.
-
-1. Add to `.env`, next to the two lines of step 1 above:
-   ```bash
-   HTTPS_CERT_SOURCE=acme
-   ACME_EMAIL=you@example.com      # optional: the contact of the Let's Encrypt account
-   ```
-   Using it means accepting Let's Encrypt's
-   [Subscriber Agreement](https://letsencrypt.org/repository/).
-2. `docker compose up -d`. The frontend log says `Let's Encrypt: getting the certificate of …`,
-   then within a minute `certificate of … obtained, valid until …` and `HTTPS on port 443 for …`:
-   ```bash
-   docker compose logs wayfinderr-frontend | grep https
-   ```
-
-Then:
-
-- **Renewal when needed (ARI):** for every certificate Let's Encrypt says when to renew it (a window,
-  [ACME Renewal Information](https://www.rfc-editor.org/rfc/rfc9773)). The frontend picks a moment
-  in it, keeps it (`Let's Encrypt renewal window … renewal at …` in the log), renews then, and asks
-  again every 6 hours or as Let's Encrypt says: if the window moves (a revocation, an incident), the
-  renewal moves with it. If Let's Encrypt gives no window, it renews when a third of the certificate's
-  life is left (30 days for 90).
-- **A failure** (port 80 not reaching this machine, DNS, a limit) keeps the certificate in use and is
-  tried again after 15 minutes, then 30, up to every 12 hours, with the reason in the log: under
-  Let's Encrypt's limit of 5 failed validations an hour.
-- **Tries first:** `ACME_STAGING=true` uses Let's Encrypt's staging, with broad limits but
-  certificates browsers do not trust. Back to `false`, delete the staging certificate so a real one
-  is asked for at once: `docker compose exec wayfinderr-frontend rm /app/certs/fullchain.pem`.
-- The Let's Encrypt account key, the certificate and its key are in the `wayfinderr-certs` volume
-  (`/app/certs`, `acme/` for the account): keep it, so a restart or an update asks for nothing new.
-- Not together with the [wildcard from Pangolin](#wildcard-from-pangolin): with both set, the
-  backend leaves `HTTPS_CERT_SSH_HOST` aside and says so in its log.
-
-### Wildcard from Pangolin
-
-Pangolin (its Traefik) keeps its certificates in `acme.json` on its host, a wildcard among them
-(`*.example.com`), and renews them. The Wayfinderr backend can fetch that wildcard over SSH and save
-it where the frontend reads it: at start and every 6 hours, so a renewal is served within hours,
-with nothing to do and no restart.
-
-Wayfinderr reads that one certificate and nothing else. On Pangolin's host a dedicated user,
-`wayfinderr-cert`, may run one command only (`restrict,command=…` in its `authorized_keys`), which
-prints that certificate and its key: never the other certificates, nor Pangolin's ACME account.
-Pangolin's host must be reachable over SSH from the Wayfinderr machine.
-
-1. Add to `.env`, next to the two lines of step 1 above, the SSH address of Pangolin's host:
-   ```bash
-   HTTPS_CERT_SSH_HOST=pangolin.example.com
-   ```
-   (`HTTPS_CERT_SSH_PORT` when SSH is not on port 22.)
-2. `docker compose up -d`. The backend makes its own SSH key (once, in the data volume) and logs the
-   command to run on Pangolin's host, with that key:
-   ```bash
-   docker compose logs wayfinderr-backend | grep "HTTPS certificate from"
-   ```
-3. On Pangolin's host, download the setup script, read it, and run it as root with the key from
-   the log, in single quotes:
-   ```bash
-   curl -fsSLO https://raw.githubusercontent.com/TehMaat/wayfinderr/main/scripts/https/pangolin-cert-setup.sh
-   ```
-   ```bash
-   sudo sh pangolin-cert-setup.sh 'ecdsa-sha2-nistp256 AAAA… wayfinderr-https'
-   ```
-   It finds `acme.json` and the wildcard in it by itself (otherwise it says so: pass
-   `--acme-json <path>` and `--domain '*.example.com'`), sets up the user, the command and the
-   sudo rule, checks that they work, and prints the host's key fingerprints. `--dry-run` finds and
-   checks everything without changing anything. It needs `sudo`, and `jq` or `python3`.
-4. Within 15 minutes, or at once with `docker compose restart wayfinderr-backend`, the backend log
-   says `HTTPS certificate fetched from pangolin.example.com and saved: for *.example.com…`, and the
-   frontend log `HTTPS on port 443 for wayfinderr.example.com: certificate for *.example.com…`.
-
-Then:
-
-- **Renewals:** checked every 6 hours; a new certificate on the host is saved and served without a
-  restart (`HTTPS certificate fetched … and saved` in the backend log, `new certificate in use` in
-  the frontend's). A failure is retried after 15 minutes, then 30, up to every 6 hours, and the
-  reason is logged. From 21 days before the end, the backend warns once a day if Pangolin has no
-  newer certificate.
-- **The host's key:** the first connection trusts it and keeps it (`/app/data/https/host-key`),
-  and says so in the log with its fingerprint: compare it with the ones the setup script printed.
-  After that a different key is refused, nothing is fetched and the log says why. To pin it from the
-  start, set `HTTPS_CERT_SSH_HOST_KEY=SHA256:…`.
-- **Wayfinderr's key** is in the data volume (`/app/data/https/ssh-key`), so in the database
-  backups too. To revoke it, on Pangolin's host:
-  `sudo userdel -r wayfinderr-cert && sudo rm /etc/sudoers.d/wayfinderr-cert /usr/local/bin/wayfinderr-cert`.
-- The state is in the backend log (and on the **Logs** page), not in the UI.
-
-To turn it off, remove `COMPOSE_FILE`, `HTTPS_DOMAIN` (and `HTTPS_CERT_SOURCE`, `HTTPS_CERT_SSH_HOST`) from `.env` and run `docker compose up -d`:
-the frontend is back on port 3000 as before.
+**From 0.38–0.41** (HTTPS on ports 443 and 80, `docker-compose.https.yml`): remove `COMPOSE_FILE`,
+`HTTPS_CERT_SOURCE`, `ACME_*` and `HTTPS_CERT_SSH_*` from `.env`, set the port of step 2, and
+`docker compose up -d`. The certificate already in the volume is kept, a Let's Encrypt one too until
+it expires; the `acme/` folder in it can be deleted.
 
 **Local run** (method C of the [Installation](INSTALLATION.md)): `npm start` in `frontend` reads the
-same settings, `HTTPS_DOMAIN` and the certificate in `frontend/certs` (or `HTTPS_CERT_DIR`). Ports 443
-and 80 need administrator rights; `HTTPS_PORT` and `HTTP_PORT` move them ([Configuration](CONFIGURATION.md#frontend-https)).
+same settings, `HTTPS_DOMAIN` and the certificate in `frontend/certs` (or `HTTPS_CERT_DIR`), on
+`PORT` ([Configuration](CONFIGURATION.md#frontend-https)).
 
 ## Reverse Proxy (HTTPS)
 
-Instead of the built-in HTTPS, or when another web server already uses ports 443 and 80.
+Instead of the built-in HTTPS: the reverse proxy keeps the certificate (and renews it, if it can).
 
 
 One HTTP entry is enough: point it at the frontend (`http://<frontend>:3000`), never at the backend. WebSockets (`/ws`) go through the same entry. The proxy must:
@@ -452,12 +346,9 @@ Migrations run by themselves when the backend starts. Pin a release with `WAYFIN
   reopen the page and use the new code from the log.
 - Never commit `.env`; keep the API key secret and regenerate it if it leaks (account menu).
 - Publish no port but the frontend's; behind a reverse proxy bind it to `127.0.0.1` or publish none
-  (ports published by Docker bypass `ufw`). The [built-in HTTPS](#built-in-https) publishes 443 and
-  80 and binds 3000 to `127.0.0.1` by itself.
-- The certificate's private key (and, with Let's Encrypt, the account key) is in the
+  (ports published by Docker bypass `ufw`). With the [built-in HTTPS](#built-in-https) the
+  frontend's port is HTTPS only.
+- The certificate's private key is in the
   `wayfinderr-certs` volume (built-in HTTPS): keep it private.
-- Fetching Pangolin's wildcard, Wayfinderr's SSH key may only print that certificate on Pangolin's
-  host (`restrict,command=…`), and the host's key is checked: see
-  [Wildcard from Pangolin](#wildcard-from-pangolin).
 - Prefer SSH keys to passwords for the servers (`SSH_PRIVATE_KEY_PATH`).
 - Database backups contain the password hash and the session key: keep them private.

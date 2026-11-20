@@ -27,10 +27,7 @@ its [HTTPS settings](#frontend-https) are read at start.
 | `DYADRR_TAG` | `latest` | Dyadrr image version: `latest`, a release like `0.21.0`, or `sha-<commit>` |
 | `DYADRR_REGISTRY` | `ghcr.io/tehmaat` | Where the Dyadrr image comes from |
 | `COMPOSE_PROFILES` | – | Optional services started by plain `docker compose up -d`: `makemkv`, `merge`, or both (`makemkv,merge`) |
-| `COMPOSE_FILE` | – | `docker-compose.yml:docker-compose.https.yml` (`;` on Windows) for the [built-in HTTPS](DEPLOYMENT.md#built-in-https): every `docker compose` command then includes the HTTPS file |
-| `HTTPS_DOMAIN` | – | With `docker-compose.https.yml`: the app's domain, passed to the frontend ([Frontend (HTTPS)](#frontend-https)) and the backend. Required there: compose stops without it |
-| `HTTPS_CERT_SSH_HOST`, `HTTPS_CERT_SSH_PORT`, `HTTPS_CERT_SSH_USER`, `HTTPS_CERT_SSH_HOST_KEY` | – | With `docker-compose.https.yml`: passed to the backend, to fetch Pangolin's wildcard ([HTTPS certificate from Pangolin](#https-certificate-from-pangolin)) |
-| `HTTPS_CERT_SOURCE`, `ACME_EMAIL`, `ACME_STAGING` | `files`, –, `false` | With `docker-compose.https.yml`: passed to the frontend, for [Let's Encrypt](DEPLOYMENT.md#lets-encrypt) ([Frontend (HTTPS)](#frontend-https)) |
+| `HTTPS_DOMAIN` | – | The app's domain, passed to the frontend: its port speaks HTTPS with the certificate copied in ([Frontend (HTTPS)](#frontend-https)). Empty: plain HTTP |
 
 ## Backend
 
@@ -54,24 +51,6 @@ its [HTTPS settings](#frontend-https) are read at start.
 | `LOG_RETENTION_DAYS` | `30` | Days of log history kept on disk (the **Logs** page), today included. `0`: forever |
 | `LOG_MAX_SIZE_MB` | `500` | Most space of the whole log folder; past it the oldest days go first. `0`: no limit |
 | `LOG_DIR` | `<database folder>/logs` | Where the log history is kept |
-
-### HTTPS certificate from Pangolin
-
-The backend fetches the certificate of the [built-in HTTPS](DEPLOYMENT.md#wildcard-from-pangolin)
-over SSH from the host where Pangolin keeps a wildcard, writes it for the frontend, and follows its
-renewals (every 6 hours). Off without `HTTPS_CERT_SSH_HOST`.
-
-| Variable | Default | Description |
-|---|---|---|
-| `HTTPS_CERT_SSH_HOST` | – | SSH address of Pangolin's host. Set: the certificate is fetched at start and every 6 hours |
-| `HTTPS_CERT_SSH_PORT` | `22` | Its SSH port |
-| `HTTPS_CERT_SSH_USER` | `wayfinderr-cert` | The user `pangolin-cert-setup.sh` creates there |
-| `HTTPS_CERT_SSH_HOST_KEY` | – | Fingerprint of the host's key (`SHA256:…`). Empty: the key seen at the first connection is kept and checked from then on |
-| `HTTPS_DOMAIN` | – | The app's domain: the certificate must cover it. *Set by `docker-compose.https.yml`* |
-| `HTTPS_CERT_SOURCE` | `files` | With `acme` (Let's Encrypt writes the certificate) nothing is fetched, and the log says so. *Set by `docker-compose.https.yml`* |
-| `HTTPS_CERT_DIR` | `/app/certs` | Where `fullchain.pem` and `privkey.pem` are written: the folder the frontend reads. *Fixed in `docker-compose.https.yml`* (the `wayfinderr-certs` volume); for a local run, the frontend's `certs` folder |
-
-Wayfinderr's own SSH key and the host key it keeps are in `https/` next to the database.
 
 ### Automatic ripping
 
@@ -124,19 +103,17 @@ rebuilding.
 ## Frontend (HTTPS)
 
 Read when the frontend starts (`npm start`, the Docker image). Without `HTTPS_DOMAIN` the frontend
-serves the app on port 3000 over plain HTTP, as always. See [Built-in HTTPS](DEPLOYMENT.md#built-in-https).
+serves the app on its port over plain HTTP, as always; with it, the same port speaks HTTPS only, with
+the certificate copied in by hand. See [Built-in HTTPS](DEPLOYMENT.md#built-in-https).
 
 | Variable | Default | Description |
 |---|---|---|
-| `HTTPS_DOMAIN` | – | The app's domain, e.g. `wayfinderr.example.com` (a host name, no wildcard, no port): turns HTTPS on. The certificate must cover it, and port 80 redirects there. A wrong value stops the frontend with the reason in the log |
+| `HTTPS_DOMAIN` | – | The app's domain, e.g. `wayfinderr.example.com` (a host name, no wildcard, no port): turns HTTPS on. The certificate must cover it. A wrong value stops the frontend with the reason in the log |
 | `HTTPS_CERT_DIR` | `certs` in the frontend folder (`/app/certs`, the `wayfinderr-certs` volume, in the image) | Folder with `fullchain.pem` and `privkey.pem`, reloaded when they change |
-| `HTTPS_CERT_SOURCE` | `files` | Where the certificate comes from: `files` (put in the folder by hand, or by the backend from Pangolin's host) or `acme` ([Let's Encrypt](DEPLOYMENT.md#lets-encrypt): got and renewed by the frontend, needs `HTTP_PORT`) |
-| `ACME_EMAIL` | – | With `acme`: contact of the Let's Encrypt account (optional) |
-| `ACME_STAGING` | `false` | With `acme`: Let's Encrypt's staging, for tries (certificates browsers do not trust) |
-| `ACME_DIRECTORY_URL` | Let's Encrypt | With `acme`: another ACME server's directory (another CA, a test server). Wins over `ACME_STAGING` |
-| `HTTPS_PORT` | `443` | HTTPS port inside the container (or of a local run) |
-| `HTTP_PORT` | `80` | Port that redirects to HTTPS. `0`: none |
-| `PORT` | `3000` | Port of the app over plain HTTP (Next.js), where HTTPS forwards |
+| `PORT` | `3000` | The app's port: plain HTTP, or HTTPS with `HTTPS_DOMAIN` (Next.js then runs on 3100, on `127.0.0.1` only). In Docker, publish it on the host port you like (`"8443:3000"`) |
+
+`HTTPS_CERT_SOURCE`, `ACME_*`, `HTTPS_PORT` and `HTTP_PORT` (Let's Encrypt and the ports 443 and 80,
+up to 0.41) are no longer read: the log says so when one is still set.
 
 ## MakeMKV container
 

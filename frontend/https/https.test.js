@@ -16,7 +16,6 @@ const tls = require('node:tls');
 const { readConfig } = require('./config');
 const { checkCertificate, readCertificate, daysLeft } = require('./certificate');
 const { clientAddress, withoutHopByHop, forwardedHeaders } = require('./proxy');
-const { redirectLocation } = require('./redirect');
 const { startHttps } = require('./server');
 
 const fixture = (name) => fs.readFileSync(path.join(__dirname, 'fixtures', name), 'utf8');
@@ -45,21 +44,27 @@ function install(dir, { cert, key }) {
 
 // --- settings ---
 
-test('without HTTPS_DOMAIN there is no HTTPS', () => {
-  assert.deepEqual(readConfig({}, '/app'), { https: null, nextPort: 3000 });
-  assert.deepEqual(readConfig({ HTTPS_DOMAIN: '  ', PORT: '3100' }, '/app'), { https: null, nextPort: 3100 });
+test('without HTTPS_DOMAIN there is no HTTPS: the app on PORT, as always', () => {
+  assert.deepEqual(readConfig({}, '/app'), { port: 3000, https: null, ignored: [] });
+  assert.deepEqual(readConfig({ HTTPS_DOMAIN: '  ', PORT: '3200' }, '/app'), { port: 3200, https: null, ignored: [] });
 });
 
-test('HTTPS settings and their defaults', () => {
-  const { https: settings } = readConfig({ HTTPS_DOMAIN: ' Wayfinderr.Example.com. ' }, '/app');
-  assert.deepEqual(settings, { domain: DOMAIN, certDir: '/app/certs', httpsPort: 443, httpPort: 80, certSource: 'files', acme: null });
-  const custom = readConfig(
-    { HTTPS_DOMAIN: DOMAIN, HTTPS_CERT_DIR: 'my-certs', HTTPS_PORT: '8443', HTTP_PORT: '0' },
+test('with HTTPS_DOMAIN the app port speaks HTTPS, Next.js on an inner port', () => {
+  const settings = readConfig({ HTTPS_DOMAIN: ' Wayfinderr.Example.com. ' }, '/app');
+  assert.deepEqual(settings, { port: 3000, ignored: [], https: { domain: DOMAIN, certDir: '/app/certs', nextPort: 3100 } });
+  const custom = readConfig({ HTTPS_DOMAIN: DOMAIN, HTTPS_CERT_DIR: 'my-certs', PORT: '3100' }, '/app');
+  assert.equal(custom.https.certDir, '/app/my-certs');
+  assert.equal(custom.port, 3100);
+  assert.equal(custom.https.nextPort, 3101, 'never the same port as the app');
+});
+
+test('settings of earlier versions are reported, not used', () => {
+  const settings = readConfig(
+    { HTTPS_DOMAIN: DOMAIN, HTTPS_CERT_SOURCE: 'acme', ACME_EMAIL: 'admin@example.com', HTTPS_PORT: '443', HTTP_PORT: '80' },
     '/app',
-  ).https;
-  assert.equal(custom.certDir, '/app/my-certs');
-  assert.equal(custom.httpsPort, 8443);
-  assert.equal(custom.httpPort, null);
+  );
+  assert.deepEqual(settings.ignored, ['HTTPS_CERT_SOURCE', 'ACME_EMAIL', 'HTTPS_PORT', 'HTTP_PORT']);
+  assert.equal(settings.port, 3000);
 });
 
 test('wrong HTTPS settings stop the start with a clear message', () => {
@@ -67,8 +72,7 @@ test('wrong HTTPS settings stop the start with a clear message', () => {
   assert.throws(() => readConfig({ HTTPS_DOMAIN: 'https://wayfinderr.example.com' }, '/app'), /host name/);
   assert.throws(() => readConfig({ HTTPS_DOMAIN: 'wayfinderr' }, '/app'), /host name/);
   assert.throws(() => readConfig({ HTTPS_DOMAIN: 'wayfinderr.example.com:8443' }, '/app'), /host name/);
-  assert.throws(() => readConfig({ HTTPS_DOMAIN: DOMAIN, HTTPS_PORT: '70000' }, '/app'), /HTTPS_PORT/);
-  assert.throws(() => readConfig({ HTTPS_DOMAIN: DOMAIN, HTTPS_PORT: '0' }, '/app'), /HTTPS_PORT/);
+  assert.throws(() => readConfig({ HTTPS_DOMAIN: DOMAIN, PORT: '70000' }, '/app'), /PORT/);
 });
 
 // --- certificate checks ---
@@ -108,7 +112,7 @@ test('a missing certificate says which file is missing', () => {
   assert.equal(readCertificate(dir, DOMAIN).info.names[0], DOMAIN);
 });
 
-// --- headers and redirect ---
+// --- headers ---
 
 test("the client's own forwarding headers are replaced by the connection's", () => {
   const headers = forwardedHeaders(
@@ -139,12 +143,6 @@ test('hop-by-hop headers are not forwarded', () => {
     withoutHopByHop({ connection: 'keep-alive, x-custom', 'keep-alive': 'timeout=5', 'x-custom': '1', 'transfer-encoding': 'chunked', accept: '*/*' }),
     { accept: '*/*' },
   );
-});
-
-test('the redirect goes to the configured domain, never to the Host header', () => {
-  assert.equal(redirectLocation(DOMAIN, '/merge?pair=1'), `https://${DOMAIN}/merge?pair=1`);
-  assert.equal(redirectLocation(DOMAIN, 'http://elsewhere.example.org/x'), `https://${DOMAIN}/`);
-  assert.equal(redirectLocation(DOMAIN, '//elsewhere.example.org/x'), `https://${DOMAIN}//elsewhere.example.org/x`);
 });
 
 // --- the server, end to end ---
@@ -198,7 +196,7 @@ function servedCertificate(port) {
   });
 }
 
-test('HTTPS end to end: proxy, headers, WebSocket, redirect, reload', async (t) => {
+test('HTTPS end to end: proxy, headers, WebSocket, reload', async (t) => {
   const next = await fakeNext();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-certs-'));
   const log = quietLog();
@@ -206,8 +204,7 @@ test('HTTPS end to end: proxy, headers, WebSocket, redirect, reload', async (t) 
   const layer = await startHttps({
     domain: DOMAIN,
     certDir: dir,
-    httpsPort: 0,
-    httpPort: 0,
+    port: 0,
     target: { host: '127.0.0.1', port: next.address().port },
     log,
     onFatal: (err) => fatal.push(err),
@@ -219,7 +216,7 @@ test('HTTPS end to end: proxy, headers, WebSocket, redirect, reload', async (t) 
   });
 
   await t.test('without a certificate HTTPS waits, and says why once', async () => {
-    assert.equal(layer.ports().https, null);
+    assert.equal(layer.port(), null);
     await layer.reload();
     const waiting = log.lines.filter((l) => l.message.includes('not started yet'));
     assert.equal(waiting.length, 1);
@@ -229,13 +226,13 @@ test('HTTPS end to end: proxy, headers, WebSocket, redirect, reload', async (t) 
   await t.test('the certificate arrives: HTTPS starts without a restart', async () => {
     install(dir, SITE);
     await layer.reload();
-    assert.ok(layer.ports().https > 0);
-    assert.equal(await servedCertificate(layer.ports().https), DOMAIN);
+    assert.ok(layer.port() > 0);
+    assert.equal(await servedCertificate(layer.port()), DOMAIN);
     assert.deepEqual(fatal, []);
   });
 
   await t.test('requests reach Next.js with trusted forwarding headers', async () => {
-    const { res, data } = await get(layer.ports().https, {
+    const { res, data } = await get(layer.port(), {
       method: 'POST',
       path: '/api/auth/login?x=1',
       headers: { 'x-forwarded-for': '203.0.113.9', 'x-forwarded-proto': 'http', 'content-type': 'application/json' },
@@ -255,7 +252,7 @@ test('HTTPS end to end: proxy, headers, WebSocket, redirect, reload', async (t) 
 
   await t.test('the WebSocket upgrade goes through both ways', async () => {
     const reply = await new Promise((resolve, reject) => {
-      const socket = tls.connect({ host: '127.0.0.1', port: layer.ports().https, servername: DOMAIN, ca: SITE.cert }, () => {
+      const socket = tls.connect({ host: '127.0.0.1', port: layer.port(), servername: DOMAIN, ca: SITE.cert }, () => {
         socket.write(
           `GET /ws HTTP/1.1\r\nhost: ${DOMAIN}\r\nupgrade: websocket\r\nconnection: Upgrade\r\nx-forwarded-for: 203.0.113.9\r\n\r\n`,
         );
@@ -278,7 +275,7 @@ test('HTTPS end to end: proxy, headers, WebSocket, redirect, reload', async (t) 
 
   await t.test('a refused upgrade is passed on', async () => {
     const reply = await new Promise((resolve, reject) => {
-      const socket = tls.connect({ host: '127.0.0.1', port: layer.ports().https, servername: DOMAIN, ca: SITE.cert }, () => {
+      const socket = tls.connect({ host: '127.0.0.1', port: layer.port(), servername: DOMAIN, ca: SITE.cert }, () => {
         socket.write(`GET /other HTTP/1.1\r\nhost: ${DOMAIN}\r\nupgrade: websocket\r\nconnection: Upgrade\r\n\r\n`);
       });
       let data = '';
@@ -290,31 +287,20 @@ test('HTTPS end to end: proxy, headers, WebSocket, redirect, reload', async (t) 
     assert.match(reply, /^HTTP\/1\.1 401 /);
   });
 
-  await t.test('plain HTTP is redirected to the domain', async () => {
-    const res = await new Promise((resolve, reject) => {
-      http
-        .get({ host: '127.0.0.1', port: layer.ports().http, path: '/merge?x=1', headers: { host: 'elsewhere.example.org' } }, resolve)
-        .on('error', reject);
-    });
-    res.resume();
-    assert.equal(res.statusCode, 301);
-    assert.equal(res.headers.location, `https://${DOMAIN}/merge?x=1`);
-  });
-
   await t.test('a wrong certificate is not used: the one in service stays', async () => {
     install(dir, OTHER);
     await layer.reload();
-    assert.equal(await servedCertificate(layer.ports().https), DOMAIN);
+    assert.equal(await servedCertificate(layer.port()), DOMAIN);
     assert.ok(log.lines.some((l) => l.level === 'warn' && /not used \(the certificate is for other\.example\.net/.test(l.message)));
   });
 
   await t.test('a new certificate is served without a restart, open connections untouched', async () => {
     install(dir, WILDCARD);
     await layer.reload();
-    assert.equal(await servedCertificate(layer.ports().https), '*.example.com');
+    assert.equal(await servedCertificate(layer.port()), '*.example.com');
     assert.equal(layer.certificate().names[0], '*.example.com');
     assert.ok(log.lines.some((l) => l.message.startsWith('new certificate in use, without a restart')));
-    const { res } = await get(layer.ports().https, { ca: WILDCARD.cert });
+    const { res } = await get(layer.port(), { ca: WILDCARD.cert });
     assert.equal(res.statusCode, 200);
   });
 });
@@ -329,8 +315,7 @@ test('a certificate close to its end is said in the log, once a day', async () =
   const layer = await startHttps({
     domain: DOMAIN,
     certDir: dir,
-    httpsPort: 0,
-    httpPort: null,
+    port: 0,
     target: { host: '127.0.0.1', port: next.address().port },
     log,
     onFatal: () => {},
@@ -347,7 +332,6 @@ test('a certificate close to its end is said in the log, once a day', async () =
     clock = new Date(clock.getTime() + 24 * 3_600_000);
     await layer.reload();
     assert.equal(warnings().length, 2);
-    assert.equal(layer.ports().http, null);
   } finally {
     await layer.close();
     next.close();

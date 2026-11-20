@@ -35,8 +35,8 @@ COPY --from=builder /build/public ./public
 COPY --from=builder /build/server.js ./
 COPY --from=builder /build/https ./https
 
-# 3000: the app over HTTP. 443 and 80: HTTPS and its redirect, only with HTTPS_DOMAIN
-EXPOSE 3000 443 80
+# 3000: the app, over HTTP, or HTTPS with HTTPS_DOMAIN and the certificate in /app/certs
+EXPOSE 3000
 
 # node directly (not npm): it gets docker stop's SIGTERM and stops Next.js cleanly
 CMD ["node", "server.js"]

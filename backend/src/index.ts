@@ -37,7 +37,6 @@ import { mergePairs } from './services/merge/pairs.js';
 import { HOLD_ALL_MESSAGE, manualHolds, RIP_MESSAGE } from './services/merge/manual.js';
 import { mergePlans } from './services/merge/plans.js';
 import { logSeedingState } from './services/seeding.js';
-import { httpsCertFetcher } from './services/https/index.js';
 
 // Prisma returns BigInt for sizes: serialize them as strings in JSON responses
 (BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function () {
@@ -452,7 +451,6 @@ const shutdown = async (signal: string) => {
     // Tracker commands go on in tmux on the servers, followed again at the next start
     releaseManager.shutdown();
     spaceGuard.stop();
-    httpsCertFetcher?.stop();
     logs.stop();
     // Close the browsers' WebSockets, or the HTTP server would wait for them
     wss.clients.forEach((client) => client.close(1001, 'Server shutting down'));
@@ -499,8 +497,12 @@ const startServer = async () => {
     await torrentCleanup.resumePending();
     await releaseManager.resumePending();
 
-    // The built-in HTTPS certificate, fetched over SSH from another host (HTTPS_CERT_SSH_HOST)
-    httpsCertFetcher?.start();
+    // Fetching the HTTPS certificate from Pangolin's host was removed (issue #105)
+    if ((process.env.HTTPS_CERT_SSH_HOST || '').trim()) {
+      logger.warn(
+        'HTTPS_CERT_SSH_HOST is no longer supported: copy the certificate by hand (docs/DEPLOYMENT.md, "Built-in HTTPS"). The certificate already there is served until it expires'
+      );
+    }
 
     // Start file watcher
     fileWatcher.start();

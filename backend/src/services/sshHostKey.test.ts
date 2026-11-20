@@ -1,15 +1,25 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash, generateKeyPairSync } from 'crypto';
 import { AddressInfo } from 'net';
-import { Server } from 'ssh2';
-import { generateSshKey, hostKeyFingerprint } from './https/certificate.js';
+import { Server, utils as sshUtils } from 'ssh2';
+import { hostKeyFingerprint } from './sshHostKey.js';
 import { HostKeyChangedError, HostKeyStore, UploadManager } from './uploadManager.js';
-import { utils as sshUtils } from 'ssh2';
 
 // SSH host keys of servers and clients (issue #102): kept at the first connection,
 // checked at every other one. Against SSH servers started in the test.
 
-const startHost = async (hostKey = generateSshKey('host').privateKey) => {
+/** A throwaway host key (ECDSA, a format ssh2 reads) */
+const newHostKey = () =>
+  generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey.export({ type: 'sec1', format: 'pem' }).toString();
+
+test('host key fingerprints are written as OpenSSH does', () => {
+  const blob = Buffer.from('made-up host key');
+  const expected = createHash('sha256').update(blob).digest('base64').replace(/=+$/, '');
+  assert.equal(hostKeyFingerprint(blob), `SHA256:${expected}`);
+});
+
+const startHost = async (hostKey = newHostKey()) => {
   const passwords: string[] = [];
   const server = new Server({ hostKeys: [hostKey] }, (client) => {
     client.on('authentication', (ctx) => {

@@ -61,7 +61,16 @@ services:
   wayfinderr-frontend:
     image: ${WAYFINDERR_REGISTRY:-ghcr.io/tehmaat}/wayfinderr-frontend:${WAYFINDERR_TAG:-latest}
     ports:
+      # The app: plain HTTP, or HTTPS with HTTPS_DOMAIN. Publish it on the host port you like,
+      # e.g. "8443:3000"
       - "3000:3000"
+    environment:
+      # Optional HTTPS (docs/DEPLOYMENT.md, "Built-in HTTPS"): the app's domain; the port
+      # above then speaks HTTPS with the certificate copied into the wayfinderr-certs volume
+      - HTTPS_DOMAIN=${HTTPS_DOMAIN:-}
+    volumes:
+      # fullchain.pem and privkey.pem, copied in by hand (docker compose cp), only with HTTPS_DOMAIN
+      - wayfinderr-certs:/app/certs
     depends_on:
       - wayfinderr-backend
     restart: unless-stopped
@@ -117,6 +126,7 @@ services:
 volumes:
   wayfinderr-data:
   makemkv-config:
+  wayfinderr-certs:
 
 networks:
   wayfinderr:
