@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="t d">
   <title id="t">Wayfinderr architecture</title>
-  <desc id="d">The browser talks only to the frontend, over HTTP on the LAN, over HTTPS served by the frontend itself (optional, its certificate from Let's Encrypt or from the Pangolin host), or through a reverse proxy; the frontend proxies the API and the WebSocket to the backend. The backend keeps its data in SQLite, watches the watch folder, exchanges job files with the MakeMKV and Dyadrr containers through it, uploads over SFTP to the servers, talks to qBittorrent and TMDB, and can fetch the HTTPS wildcard from the Pangolin host over SSH.</desc>
+  <desc id="d">The browser talks only to the frontend, over HTTP on the LAN, over HTTPS served by the frontend itself (optional, its certificate from Let's Encrypt), or through a reverse proxy; the frontend proxies the API and the WebSocket to the backend. The backend keeps its data in SQLite, watches the watch folder, exchanges job files with the MakeMKV and Dyadrr containers through it, uploads over SFTP to the servers, and talks to qBittorrent and TMDB.</desc>
   <style>
     .bg { fill: #ffffff; }
     .zone { fill: #f6f8fa; stroke: #d0d7de; }
@@ -87,25 +87,20 @@
 
   <!-- Outside -->
   <text class="zlabel" x="44" y="454">ON THE NETWORK</text>
-  <rect class="ext" x="30" y="472" width="210" height="84" rx="10"/>
-  <text class="title" x="135" y="500" text-anchor="middle">Upload servers</text>
-  <text class="sub" x="135" y="520" text-anchor="middle">Ultra.cc, seedboxes, SSH</text>
-  <text class="sub" x="135" y="538" text-anchor="middle">SFTP · space via API or SSH</text>
+  <rect class="ext" x="60" y="472" width="250" height="84" rx="10"/>
+  <text class="title" x="185" y="500" text-anchor="middle">Upload servers</text>
+  <text class="sub" x="185" y="520" text-anchor="middle">Ultra.cc, seedboxes, SSH servers</text>
+  <text class="sub" x="185" y="538" text-anchor="middle">SFTP · space via API or SSH</text>
 
-  <rect class="ext" x="255" y="472" width="210" height="84" rx="10"/>
-  <text class="title" x="360" y="500" text-anchor="middle">qBittorrent</text>
-  <text class="sub" x="360" y="520" text-anchor="middle">WebUI API · downloads</text>
-  <text class="sub" x="360" y="538" text-anchor="middle">cleanup, local release</text>
+  <rect class="ext" x="355" y="472" width="250" height="84" rx="10"/>
+  <text class="title" x="480" y="500" text-anchor="middle">qBittorrent</text>
+  <text class="sub" x="480" y="520" text-anchor="middle">WebUI API · downloads</text>
+  <text class="sub" x="480" y="538" text-anchor="middle">torrent cleanup, local release</text>
 
-  <rect class="ext" x="480" y="472" width="210" height="84" rx="10"/>
-  <text class="title" x="585" y="500" text-anchor="middle">TMDB</text>
-  <text class="sub" x="585" y="520" text-anchor="middle">film titles in every language</text>
-  <text class="sub" x="585" y="538" text-anchor="middle">file names, name matching</text>
-
-  <rect class="ext" x="705" y="472" width="210" height="84" rx="10"/>
-  <text class="title" x="810" y="500" text-anchor="middle">Pangolin host</text>
-  <text class="sub" x="810" y="520" text-anchor="middle">optional · SSH, one command</text>
-  <text class="sub" x="810" y="538" text-anchor="middle">the wildcard for HTTPS</text>
+  <rect class="ext" x="650" y="472" width="250" height="84" rx="10"/>
+  <text class="title" x="775" y="500" text-anchor="middle">TMDB</text>
+  <text class="sub" x="775" y="520" text-anchor="middle">film titles in every language</text>
+  <text class="sub" x="775" y="538" text-anchor="middle">file names, name matching</text>
 
   <!-- Edges -->
   <path class="edge" d="M410 82 C 330 110, 230 130, 190 164" marker-end="url(#a)"/>
@@ -128,11 +123,10 @@
   <path class="edge" d="M668 342 L 597 342" marker-end="url(#a)" marker-start="url(#a)"/>
   <text class="elabel" x="608" y="334">jobs</text>
 
-  <path class="edge" d="M365 236 H 308 V 440 H 135 V 470" marker-end="url(#a)"/>
+  <path class="edge" d="M365 236 H 308 V 440 H 185 V 470" marker-end="url(#a)"/>
   <text class="elabel" x="200" y="432">SFTP upload</text>
 
-  <path class="edge" d="M595 236 H 652 V 440 H 360 V 470" marker-end="url(#a)"/>
-  <path class="edge" d="M585 440 V 470" marker-end="url(#a)"/>
-  <path class="edge" d="M652 440 H 810 V 470" marker-end="url(#a)"/>
-  <text class="elabel" x="662" y="432">HTTP APIs · SSH (certificate)</text>
+  <path class="edge" d="M595 236 H 652 V 440 H 480 V 470" marker-end="url(#a)"/>
+  <path class="edge" d="M652 440 H 775 V 470" marker-end="url(#a)"/>
+  <text class="elabel" x="662" y="432">HTTP APIs</text>
 </svg>

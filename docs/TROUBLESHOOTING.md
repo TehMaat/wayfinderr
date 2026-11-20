@@ -149,8 +149,8 @@ hold the certificate **and** the intermediate ones (certbot's `fullchain.pem`, n
 ### `the certificate expires in N days and no new one has arrived`
 
 Whoever renews the certificate has not written a new one in the volume: renew it and copy it in.
-Nothing else is needed: it is taken up without a restart. With the wildcard from Pangolin, see the
-backend's own messages below.
+Nothing else is needed: it is taken up without a restart. Or let Let's Encrypt renew it by itself
+(`HTTPS_CERT_SOURCE=acme`).
 
 ### Let's Encrypt: the frontend log
 
@@ -173,37 +173,10 @@ certificate in use stays, and the next try comes after 15 minutes, then 30, up t
 - The browser says the certificate is not valid, issued by `(STAGING)`: `ACME_STAGING=true` is still
   on. Set it to `false` and delete the staging certificate (`docker compose exec wayfinderr-frontend rm
   /app/certs/fullchain.pem`): a real one is asked for at once.
-- The backend log says `HTTPS_CERT_SSH_HOST is ignored with HTTPS_CERT_SOURCE=acme`: Let's Encrypt
-  and the wildcard from Pangolin both write the same certificate; keep one of the two.
-
-### Wildcard from Pangolin: the backend log
-
-These are the `HTTPS certificate…` lines of the backend (`docker compose logs wayfinderr-backend | grep
-"HTTPS certificate"`, or the **Logs** page). See [Wildcard from Pangolin](DEPLOYMENT.md#wildcard-from-pangolin).
-
-- `refused Wayfinderr's SSH key: the host is not set up for it yet`: run `pangolin-cert-setup.sh` on
-  Pangolin's host with the key of the `HTTPS certificate from …` line (single quotes around it).
-  Done already: the key changed (a new data volume), run it again with the new one; or sshd allows
-  only some users (`AllowUsers`/`AllowGroups`: add `wayfinderr-cert`).
-- `the host key of … is not the expected one`: the host answering is not the one seen the first
-  time. If Pangolin's host was reinstalled, compare the new key with `ssh-keygen -lf
-  /etc/ssh/ssh_host_ed25519_key.pub` there, then set `HTTPS_CERT_SSH_HOST_KEY` to it, or delete
-  `/app/data/https/host-key` in the backend (`docker compose exec wayfinderr-backend rm
-  /app/data/https/host-key`) to trust it again. Otherwise someone is in between: do not.
-- `the command on … failed: … no certificate for *.example.com`: the wildcard is not in `acme.json`
-  any more (renamed, another resolver): run the setup script again (`--dry-run` shows what it finds).
-- `the command on … failed: sudo: a password is required`: the sudo rule is missing: run the setup
-  script again.
-- `the certificate is for …, not wayfinderr.example.com`: the wildcard does not cover `HTTPS_DOMAIN`
-  (`*.example.com` covers one level only).
-- `no answer from … in 60 s`, `connect ECONNREFUSED`, `getaddrinfo ENOTFOUND`: SSH on Pangolin's
-  host is not reachable from here: the address, `HTTPS_CERT_SSH_PORT`, a firewall.
-- `it expires in N days and … has no newer one: is it renewing it?`: Pangolin has not renewed the
-  wildcard; look at its Traefik log (the DNS challenge).
-
-The setup script itself says what it misses: `no acme.json found` or `more than one acme.json` (pass
-`--acme-json`), `more than one wildcard` (pass `--domain`), `sudo is needed`, `jq or python3 is
-needed`.
+- The backend log says `HTTPS_CERT_SSH_HOST is no longer supported`: fetching the certificate from
+  Pangolin's host was removed in 0.42.0. Remove `HTTPS_CERT_SSH_HOST` (and `HTTPS_CERT_SSH_*`) from
+  `.env`, and use `HTTPS_CERT_SOURCE=acme` or copy the certificate in: the one already there is served
+  until it expires.
 
 ## Servers
 

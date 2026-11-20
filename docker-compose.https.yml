@@ -7,8 +7,6 @@
 # The certificate is read from the wayfinderr-certs volume (fullchain.pem and privkey.pem)
 # and reloaded without a restart when those files change. It gets there:
 # - by hand (docker compose cp);
-# - with HTTPS_CERT_SSH_HOST: fetched by the backend from the host where Pangolin keeps a
-#   wildcard, its renewals followed (docs/DEPLOYMENT.md, "Wildcard from Pangolin");
 # - with HTTPS_CERT_SOURCE=acme: from Let's Encrypt, got and renewed by the frontend
 #   (docs/DEPLOYMENT.md, "Let's Encrypt"); port 80 must reach this machine from the Internet.
 
@@ -23,23 +21,10 @@ services:
       - "127.0.0.1:3000:3000"
     environment:
       - HTTPS_DOMAIN=${HTTPS_DOMAIN:?set HTTPS_DOMAIN in .env (e.g. wayfinderr.example.com)}
-      # files (by hand, or from Pangolin's host) or acme (Let's Encrypt)
+      # files (copied by hand) or acme (Let's Encrypt)
       - HTTPS_CERT_SOURCE=${HTTPS_CERT_SOURCE:-files}
       - ACME_EMAIL=${ACME_EMAIL:-}
       - ACME_STAGING=${ACME_STAGING:-false}
-    volumes:
-      - wayfinderr-certs:/app/certs
-
-  wayfinderr-backend:
-    environment:
-      - HTTPS_DOMAIN=${HTTPS_DOMAIN:?set HTTPS_DOMAIN in .env (e.g. wayfinderr.example.com)}
-      - HTTPS_CERT_SOURCE=${HTTPS_CERT_SOURCE:-files}
-      - HTTPS_CERT_DIR=/app/certs
-      # Optional: fetch the certificate over SSH from Pangolin's host (empty: copied by hand)
-      - HTTPS_CERT_SSH_HOST=${HTTPS_CERT_SSH_HOST:-}
-      - HTTPS_CERT_SSH_PORT=${HTTPS_CERT_SSH_PORT:-22}
-      - HTTPS_CERT_SSH_USER=${HTTPS_CERT_SSH_USER:-wayfinderr-cert}
-      - HTTPS_CERT_SSH_HOST_KEY=${HTTPS_CERT_SSH_HOST_KEY:-}
     volumes:
       - wayfinderr-certs:/app/certs
 

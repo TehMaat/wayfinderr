@@ -7,7 +7,7 @@ import logger from '../config/logger.js';
 import { config } from '../config/index.js';
 import { db } from './database.js';
 import { Server } from '@prisma/client';
-import { hostKeyFingerprint } from './https/certificate.js';
+import { hostKeyFingerprint } from './sshHostKey.js';
 
 export interface UploadOptions {
   uploadId: string;

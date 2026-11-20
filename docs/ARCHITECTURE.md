@@ -12,7 +12,6 @@ For the HTTP API see [API.md](API.md).
 | **Frontend** | Next.js 14, React, Tailwind, Zustand | The web UI, and a same-origin proxy: `/api`, `/health` and the `/ws` WebSocket go to the backend (`next.config.js` rewrites, `BACKEND_URL` compiled in). The only container with published ports |
 | **Built-in HTTPS** (optional) | Node.js `https`, in the frontend container (`server.js`, `https/`) | With `HTTPS_DOMAIN`: TLS on 443 with the certificate of the `wayfinderr-certs` volume (reloaded when it changes), the redirect on 80, and the requests and the WebSocket forwarded to Next.js on 3000 with `X-Forwarded-*` set from the connection ([Deployment](DEPLOYMENT.md#built-in-https)) |
 | **Let's Encrypt** (optional) | `acme-client`, in the frontend (`https/acme.js`) | With `HTTPS_CERT_SOURCE=acme`: gets the certificate of `HTTPS_DOMAIN` (HTTP-01, answered on port 80) and renews it in the window Let's Encrypt gives (ARI, RFC 9773), else at a third of its life; writes it in the `wayfinderr-certs` volume, taken up without a restart ([Deployment](DEPLOYMENT.md#lets-encrypt)) |
-| **Certificate from Pangolin** (optional) | the backend, `ssh2` (`services/https`) | With `HTTPS_CERT_SSH_HOST`: fetches the wildcard Pangolin keeps on its host over SSH, through a command that prints that certificate only, and writes it in the `wayfinderr-certs` volume for the frontend; at start and every 6 hours ([Deployment](DEPLOYMENT.md#wildcard-from-pangolin)) |
 | **Backend** | Node.js 20+, Express, `ws`, Prisma | Watches the watch folder, reads the tracks (ffprobe), queues and runs the uploads (SFTP), rips, merges, torrent cleanup, releases; REST API and live events |
 | **Database** | SQLite (Prisma, migrations in `backend/prisma/migrations`) | Servers, uploads, rips, clients, merge pairs, settings, the login account. In the `wayfinderr-data` volume |
 | **MakeMKV container** (optional) | jlesage/makemkv + a shell runner | Rips the discs. Shares the watch folder with the backend: the backend writes a job file in `<watch folder>/.wayfinderr`, the runner claims it, runs `makemkvcon` and writes back its progress and result |
@@ -87,8 +86,7 @@ backend/
         ├── ripper/           downloads scan, RAR, TMDB, title choice, MakeMKV jobs, remux, joins
         ├── merge/            holding, pairs, planned pairs, Dyadrr jobs
         ├── release/          release name, tracker command in tmux, its output and .torrent
-        ├── logs/             log history on disk, retention, Dyadrr logs
-        └── https/            the built-in HTTPS certificate fetched from Pangolin's host
+        └── logs/             log history on disk, retention, Dyadrr logs
 
 frontend/
 ├── server.js                 starts next start, and the built-in HTTPS with HTTPS_DOMAIN
@@ -101,8 +99,7 @@ frontend/
 └── lib/                      API client, Zustand store, WebSocket hook, helpers
 
 makemkv/                      the wayfinderr-makemkv image: jlesage/makemkv + the rip runner
-scripts/                      Docker helpers, logos, screenshots of the docs, and
-                              https/pangolin-cert-setup.sh (run on Pangolin's host)
+scripts/                      Docker helpers, logos, screenshots of the docs
 ```
 
 ## Data model
@@ -137,11 +134,6 @@ Full schema: [`backend/prisma/schema.prisma`](../backend/prisma/schema.prisma).
   port 3000 is bound to `127.0.0.1`. A certificate is used only if it covers `HTTPS_DOMAIN`, matches
   its key and is in its dates. No HSTS. With Let's Encrypt, port 80 answers only the challenges of
   orders in progress; the account key stays in the volume.
-- **Certificate from Pangolin**: Wayfinderr's SSH key (made at the first start, in the data volume)
-  may only run, as `wayfinderr-cert` on Pangolin's host, the command that prints the wildcard
-  (`restrict,command=…`, then a sudo rule for that command alone), never the rest of `acme.json`.
-  The host key is checked: pinned by `HTTPS_CERT_SSH_HOST_KEY`, else kept at the first connection.
-  The private key never goes to the log.
 - **SSH host keys**: the first key a server (or a local release machine) shows is kept
   (`sshHostKey`, SHA256 fingerprint) and checked at every connection (`uploadManager.connect`);
   another one is refused before the password, a file or a command is sent. Emptied when the host or

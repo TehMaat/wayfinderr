@@ -45,8 +45,7 @@ function readConfig(env, baseDir) {
   // 0: no HTTP port (no redirect)
   const httpPort = port(env, 'HTTP_PORT', 80, { allowZero: true }) || null;
 
-  // Where the certificate comes from: files put there (by hand, or by the backend from
-  // Pangolin's host), or Let's Encrypt (acme)
+  // Where the certificate comes from: files copied there by hand, or Let's Encrypt (acme)
   const certSource = (env.HTTPS_CERT_SOURCE || '').trim().toLowerCase() || 'files';
   if (!['files', 'acme'].includes(certSource)) {
     throw new Error(`HTTPS_CERT_SOURCE must be files or acme, not "${env.HTTPS_CERT_SOURCE}"`);
