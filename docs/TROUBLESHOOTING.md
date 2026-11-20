@@ -108,21 +108,20 @@ nginx needs `proxy_http_version 1.1` and the `Upgrade`/`Connection` headers for 
 These are about the [built-in HTTPS](DEPLOYMENT.md#built-in-https). Its state is in the frontend log:
 `docker compose logs wayfinderr-frontend | grep https`.
 
-### `required variable HTTPS_DOMAIN is missing a value`
-
-`docker-compose.https.yml` is in use (`COMPOSE_FILE` in `.env`) without `HTTPS_DOMAIN`. Set it, or
-remove `COMPOSE_FILE` to go back to plain HTTP. `!override` errors mean a Docker Compose older than
-2.24.4: update it.
-
 ### The frontend stops at start: `HTTPS_DOMAIN must be a host name` (or `not a wildcard`)
 
 `HTTPS_DOMAIN` is the app's address alone: `wayfinderr.example.com`, without `https://`, a port or a
 `*`. A wildcard certificate is fine; the domain is the name it covers.
 
-### `HTTPS on port 443 not started yet: no certificate yet`
+### The page does not open, and the log says `HTTPS on port 3000 not started yet: no certificate yet`
 
-The certificate is not in the volume: copy `fullchain.pem` and `privkey.pem` (step 3 of
-[Built-in HTTPS](DEPLOYMENT.md#built-in-https)). HTTPS starts within seconds, without a restart.
+With `HTTPS_DOMAIN` the port answers only once the certificate is in the volume: copy `fullchain.pem`
+and `privkey.pem` (step 4 of [Built-in HTTPS](DEPLOYMENT.md#built-in-https)). HTTPS starts within
+seconds, without a restart.
+
+### The browser says the connection was reset, or `ERR_SSL_PROTOCOL_ERROR` on `http://`
+
+With `HTTPS_DOMAIN` the port speaks HTTPS only, with no redirect: open `https://<domain>:<port>`.
 
 ### `certificate … not used (…)`
 
@@ -131,15 +130,9 @@ The new files were refused, and the certificate in use stays:
 - `the certificate is for …, not wayfinderr.example.com`: another domain, or a wildcard of another
   level (`*.example.com` does not cover `a.wayfinderr.example.com`).
 - `privkey.pem is not the key of the certificate`: the key of another certificate; or the two files
-  were swapped one at a time and the second is not there yet (it fixes itself once it is).
+  were copied one at a time and the second is not there yet (it fixes itself once it is).
 - `the certificate expired on …`, `valid only from …`: out of its dates (check the clock too).
 - `not a PEM certificate` / `not a PEM private key`: another format (DER, PKCS#12): convert it to PEM.
-
-### `HTTPS cannot listen on port 443` / `the HTTP port 80 is taken`
-
-Another web server (nginx, Traefik, Pangolin) uses the port on this machine: stop it, or use it as
-the [reverse proxy](DEPLOYMENT.md#reverse-proxy-https) instead of the built-in HTTPS. The frontend
-stops, and Docker restarts it.
 
 ### The browser says the certificate is not valid
 
@@ -148,35 +141,14 @@ hold the certificate **and** the intermediate ones (certbot's `fullchain.pem`, n
 
 ### `the certificate expires in N days and no new one has arrived`
 
-Whoever renews the certificate has not written a new one in the volume: renew it and copy it in.
-Nothing else is needed: it is taken up without a restart. Or let Let's Encrypt renew it by itself
-(`HTTPS_CERT_SOURCE=acme`).
+Renew the certificate where you got it and copy the two new files in: they are taken up without a
+restart.
 
-### Let's Encrypt: the frontend log
+### `… no longer used (Let's Encrypt and the ports 443 and 80 were removed)`
 
-These are the `Let's Encrypt…` lines of the frontend (`docker compose logs wayfinderr-frontend | grep
-"Let's Encrypt"`). See [Let's Encrypt](DEPLOYMENT.md#lets-encrypt). After a failure the
-certificate in use stays, and the next try comes after 15 minutes, then 30, up to every 12 hours:
-`docker compose restart wayfinderr-frontend` tries at once.
-
-- `the HTTP-01 challenge failed (is port 80 of … reaching this machine?)`: Let's Encrypt could not
-  read the file on port 80. The public DNS record of `HTTPS_DOMAIN` must point at this machine's
-  public address (and the AAAA record, if any, at its IPv6 one), and the router must forward port 80
-  here. The detail after it is Let's Encrypt's own (`Timeout during connect`, `Connection refused`,
-  `DNS problem: NXDOMAIN`…).
-- `rateLimited`, `too many certificates` or `too many failed authorizations`: Let's Encrypt's
-  limits. Wait the time it says, and try with `ACME_STAGING=true` first next time.
-- `HTTPS_CERT_SOURCE=acme needs the HTTP port`: `HTTP_PORT=0` turns port 80 off, and Let's Encrypt
-  needs it.
-- `ARI (renewal information) not available`: Let's Encrypt gave no renewal window; the certificate
-  is renewed when a third of its life is left. Nothing to do.
-- The browser says the certificate is not valid, issued by `(STAGING)`: `ACME_STAGING=true` is still
-  on. Set it to `false` and delete the staging certificate (`docker compose exec wayfinderr-frontend rm
-  /app/certs/fullchain.pem`): a real one is asked for at once.
-- The backend log says `HTTPS_CERT_SSH_HOST is no longer supported`: fetching the certificate from
-  Pangolin's host was removed in 0.42.0. Remove `HTTPS_CERT_SSH_HOST` (and `HTTPS_CERT_SSH_*`) from
-  `.env`, and use `HTTPS_CERT_SOURCE=acme` or copy the certificate in: the one already there is served
-  until it expires.
+A setting of 0.38–0.41 is still in `.env` (`HTTPS_CERT_SOURCE`, `ACME_*`, `HTTPS_PORT`, `HTTP_PORT`;
+in the backend log, `HTTPS_CERT_SSH_HOST is no longer supported`): remove it, and `COMPOSE_FILE` too.
+The app's port now speaks HTTPS: see [Built-in HTTPS](DEPLOYMENT.md#built-in-https).
 
 ## Servers
 

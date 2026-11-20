@@ -47,7 +47,7 @@ film.
 - 🏷️ **Tracker release**: rename on the server and run your tracker upload command in `tmux`, following its output; or release locally from the qBittorrent machine
 - 🔀 **Merge** (in progress): two rips of a film, better video and Italian audio, merged by [Dyadrr](https://github.com/TehMaat/dyadrr) without re-encoding
 - 🔐 **Login**: one account, sessions, API key for scripts; one reverse proxy entry is enough
-- 🔒 **Built-in HTTPS**: the frontend serves HTTPS itself, no other container, with a Let's Encrypt certificate renewed by itself when Let's Encrypt says (or one copied in), taken up without a restart
+- 🔒 **Built-in HTTPS**: with a certificate you copy in, the app's own port speaks HTTPS, no other container or port; a new certificate is taken up without a restart
 - 🌗 **Dark and light theme**, five accent colors
 
 ## Screenshots

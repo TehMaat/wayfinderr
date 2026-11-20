@@ -1,8 +1,8 @@
 'use strict';
 
 // The certificate served on HTTPS: fullchain.pem (the certificate first, then the
-// chain) and privkey.pem in the certificate folder. Whoever writes them (by hand, the
-// Let's Encrypt client, the copy from another host) replaces them whole, by a rename.
+// chain) and privkey.pem in the certificate folder, copied there by hand
+// (docker compose cp). A new one is taken up without a restart.
 
 const fs = require('node:fs');
 const path = require('node:path');

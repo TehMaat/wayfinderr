@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="t d">
   <title id="t">Wayfinderr architecture</title>
-  <desc id="d">The browser talks only to the frontend, over HTTP on the LAN, over HTTPS served by the frontend itself (optional, its certificate from Let's Encrypt), or through a reverse proxy; the frontend proxies the API and the WebSocket to the backend. The backend keeps its data in SQLite, watches the watch folder, exchanges job files with the MakeMKV and Dyadrr containers through it, uploads over SFTP to the servers, and talks to qBittorrent and TMDB.</desc>
+  <desc id="d">The browser talks only to the frontend, over HTTP on the LAN, over HTTPS served by the frontend itself on the same port (optional, with a certificate copied in), or through a reverse proxy; the frontend proxies the API and the WebSocket to the backend. The backend keeps its data in SQLite, watches the watch folder, exchanges job files with the MakeMKV and Dyadrr containers through it, uploads over SFTP to the servers, and talks to qBittorrent and TMDB.</desc>
   <style>
     .bg { fill: #ffffff; }
     .zone { fill: #f6f8fa; stroke: #d0d7de; }
@@ -40,11 +40,6 @@
   <text class="title" x="480" y="49" text-anchor="middle">Browser</text>
   <text class="sub" x="480" y="68" text-anchor="middle">LAN, or HTTPS: built in or a reverse proxy</text>
 
-  <!-- Let's Encrypt (optional) -->
-  <rect class="ext" x="30" y="24" width="200" height="58" rx="10"/>
-  <text class="title" x="130" y="49" text-anchor="middle">Let's Encrypt</text>
-  <text class="sub" x="130" y="68" text-anchor="middle">optional · ACME, renewals</text>
-
   <!-- Docker host zone -->
   <rect class="zone" x="24" y="118" width="912" height="300" rx="12"/>
   <text class="zlabel" x="44" y="142">DOCKER HOST (OR THIS PC, WITHOUT DOCKER)</text>
@@ -52,7 +47,7 @@
   <!-- Frontend -->
   <rect class="box" x="60" y="166" width="230" height="84" rx="10"/>
   <text class="title" x="175" y="194" text-anchor="middle">Frontend</text>
-  <text class="sub" x="175" y="214" text-anchor="middle">Next.js · 3000 · HTTPS 443 optional</text>
+  <text class="sub" x="175" y="214" text-anchor="middle">Next.js · port 3000, HTTP or HTTPS</text>
   <text class="sub" x="175" y="232" text-anchor="middle">pages + proxy /api, /ws</text>
 
   <!-- Backend -->
@@ -104,10 +99,7 @@
 
   <!-- Edges -->
   <path class="edge" d="M410 82 C 330 110, 230 130, 190 164" marker-end="url(#a)"/>
-  <text class="elabel" x="420" y="104">pages, /api, /ws (HTTP or HTTPS)</text>
-
-  <path class="edge" d="M110 164 V 84" marker-end="url(#a)" marker-start="url(#a)"/>
-  <text class="elabel" x="118" y="104">ACME · HTTP-01</text>
+  <text class="elabel" x="120" y="104">pages, /api, /ws (HTTP or HTTPS)</text>
 
   <path class="edge" d="M290 208 L 363 208" marker-end="url(#a)"/>
   <text class="elabel" x="300" y="200">proxy</text>

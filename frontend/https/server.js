@@ -1,15 +1,13 @@
 'use strict';
 
-// HTTPS of the frontend (issue #96): the HTTPS port with the certificate of the
-// certificate folder, reloaded without a restart when its files change, and the HTTP
-// port that sends everything to HTTPS.
+// HTTPS of the frontend (issues #96, #107): the app's port speaks HTTPS with the
+// certificate copied by hand into the certificate folder, reloaded without a restart
+// when its files change. No other port.
 
 const fs = require('node:fs');
-const http = require('node:http');
 const https = require('node:https');
 const { readCertificate, daysLeft } = require('./certificate');
 const { createRequestProxy, createUpgradeProxy } = require('./proxy');
-const { createRedirectHandler } = require('./redirect');
 
 const CHECK_EVERY_MS = 5 * 60_000; // fs.watch is not always told of changes on volumes
 const SETTLE_MS = 1000; // a writer may replace the two files one after the other
@@ -33,19 +31,17 @@ function describe(info, now) {
 }
 
 /**
- * Starts HTTPS. Resolves once the HTTP port listens; the HTTPS port listens as soon as
- * a valid certificate is there (now, or when it arrives).
+ * Starts HTTPS: the port listens as soon as a valid certificate is there (now, or when
+ * it arrives), and never in plain HTTP.
  * @param {object} options
  * @param {string} options.domain HTTPS_DOMAIN
  * @param {string} options.certDir folder with fullchain.pem and privkey.pem
- * @param {number} options.httpsPort 443, or 0 for any (tests)
- * @param {number|null} options.httpPort 80, null for none (0: any, in tests)
- * @param {{ host: string, port: number }} options.target Next.js
+ * @param {number} options.port the app's port (PORT, 3000), or 0 for any (tests)
+ * @param {{ host: string, port: number }} options.target Next.js, on its inner port
  * @param {{ info: Function, warn: Function, error: Function }} options.log
  * @param {(err: Error) => void} options.onFatal the HTTPS port could not listen
  * @param {() => Date} [options.now]
  * @param {boolean} [options.watch] watch the folder and check it on a timer (off in tests)
- * @param {Map<string, string>} [options.challenges] Let's Encrypt's, answered on the HTTP port
  */
 async function startHttps(options) {
   const { domain, certDir, target, log, onFatal } = options;
@@ -83,7 +79,7 @@ async function startHttps(options) {
         if (current) {
           log.warn(`certificate in ${certDir} not used (${err.message}): HTTPS goes on with the ${describe(current, now())}`);
         } else {
-          log.warn(`HTTPS on port ${options.httpsPort} not started yet: ${err.message}. Checked again when the files change, every 5 minutes at the latest`);
+          log.warn(`HTTPS on port ${options.port} not started yet: ${err.message}. Checked again when the files change, every 5 minutes at the latest`);
         }
       }
       warnIfExpiring();
@@ -101,9 +97,9 @@ async function startHttps(options) {
       // Handshakes that fail (scanners, old clients) are not worth a log line each
       server.on('tlsClientError', () => {});
       try {
-        httpsPort = await listen(server, options.httpsPort);
+        httpsPort = await listen(server, options.port);
       } catch (err) {
-        onFatal(new Error(`HTTPS cannot listen on port ${options.httpsPort}: ${err.code || err.message}`));
+        onFatal(new Error(`HTTPS cannot listen on port ${options.port}: ${err.code || err.message}`));
         return;
       }
       httpsServer = server;
@@ -123,16 +119,6 @@ async function startHttps(options) {
     loading = loading.then(load, load);
     return loading;
   };
-
-  let httpServer = null;
-  let httpPort = null;
-  if (options.httpPort !== null) {
-    httpServer = http.createServer(createRedirectHandler(domain, options.challenges || null));
-    httpPort = await listen(httpServer, options.httpPort);
-    log.info(
-      `HTTP on port ${httpPort}: every request redirected to https://${domain}${options.challenges ? ", Let's Encrypt's challenges answered" : ''}`,
-    );
-  }
 
   await reload();
 
@@ -161,13 +147,13 @@ async function startHttps(options) {
   return {
     reload,
     certificate: () => current,
-    ports: () => ({ https: httpsPort, http: httpPort }),
+    port: () => httpsPort,
     async close() {
       closed = true;
       timers.forEach((stop) => stop());
       if (watcher) watcher.close();
       requestProxy.close();
-      const closing = [httpsServer, httpServer].filter(Boolean).map(
+      const closing = [httpsServer].filter(Boolean).map(
         (server) =>
           new Promise((resolve) => {
             server.close(() => resolve());

@@ -10,8 +10,7 @@ For the HTTP API see [API.md](API.md).
 | Piece | Technology | Role |
 |---|---|---|
 | **Frontend** | Next.js 14, React, Tailwind, Zustand | The web UI, and a same-origin proxy: `/api`, `/health` and the `/ws` WebSocket go to the backend (`next.config.js` rewrites, `BACKEND_URL` compiled in). The only container with published ports |
-| **Built-in HTTPS** (optional) | Node.js `https`, in the frontend container (`server.js`, `https/`) | With `HTTPS_DOMAIN`: TLS on 443 with the certificate of the `wayfinderr-certs` volume (reloaded when it changes), the redirect on 80, and the requests and the WebSocket forwarded to Next.js on 3000 with `X-Forwarded-*` set from the connection ([Deployment](DEPLOYMENT.md#built-in-https)) |
-| **Let's Encrypt** (optional) | `acme-client`, in the frontend (`https/acme.js`) | With `HTTPS_CERT_SOURCE=acme`: gets the certificate of `HTTPS_DOMAIN` (HTTP-01, answered on port 80) and renews it in the window Let's Encrypt gives (ARI, RFC 9773), else at a third of its life; writes it in the `wayfinderr-certs` volume, taken up without a restart ([Deployment](DEPLOYMENT.md#lets-encrypt)) |
+| **Built-in HTTPS** (optional) | Node.js `https`, in the frontend container (`server.js`, `https/`) | With `HTTPS_DOMAIN`: the app's port (3000) speaks HTTPS only, with the certificate copied by hand into the `wayfinderr-certs` volume (reloaded when it changes); requests and the WebSocket go to Next.js on 3100 (`127.0.0.1`) with `X-Forwarded-*` set from the connection ([Deployment](DEPLOYMENT.md#built-in-https)) |
 | **Backend** | Node.js 20+, Express, `ws`, Prisma | Watches the watch folder, reads the tracks (ffprobe), queues and runs the uploads (SFTP), rips, merges, torrent cleanup, releases; REST API and live events |
 | **Database** | SQLite (Prisma, migrations in `backend/prisma/migrations`) | Servers, uploads, rips, clients, merge pairs, settings, the login account. In the `wayfinderr-data` volume |
 | **MakeMKV container** (optional) | jlesage/makemkv + a shell runner | Rips the discs. Shares the watch folder with the backend: the backend writes a job file in `<watch folder>/.wayfinderr`, the runner claims it, runs `makemkvcon` and writes back its progress and result |
@@ -20,7 +19,7 @@ For the HTTP API see [API.md](API.md).
 The backend never calls the two containers over the network: they only share the watch folder, and
 each one writes an `alive` file there so the UI can tell whether it is running. The browser only
 talks to the frontend, so a reverse proxy needs a single entry, and the built-in HTTPS sits in the
-frontend container: `server.js` starts `next start` and, with `HTTPS_DOMAIN`, HTTPS in front of it.
+frontend container: `server.js` starts `next start` and, with `HTTPS_DOMAIN`, HTTPS in front of it on the app's port.
 
 ## How a file goes through it
 
@@ -91,8 +90,7 @@ backend/
 frontend/
 ├── server.js                 starts next start, and the built-in HTTPS with HTTPS_DOMAIN
 ├── https/                    built-in HTTPS: settings, certificate checks, the proxy to Next.js,
-│                             the redirect, reload on change, Let's Encrypt (acme.js; tests:
-│                             node --test, against an ACME server of the test)
+│                             reload on change (tests: node --test)
 ├── app/                      pages: dashboard, uploads (+ details), servers, rips, clients,
 │                             merge (+ pair, report, logs), logs
 ├── components/               UI pieces (dialogs, tables, cards; ui/ = base components)
@@ -131,9 +129,8 @@ Full schema: [`backend/prisma/schema.prisma`](../backend/prisma/schema.prisma).
 - **Login limiter**: 5 failures per 15 minutes per client (`X-Forwarded-For` from the reverse proxy).
 - **Built-in HTTPS**: the frontend is the first hop, so it drops the client's own `X-Forwarded-*`,
   `Forwarded` and `X-Real-IP` and sets `X-Forwarded-For`, `-Proto` and `-Host` from the connection;
-  port 3000 is bound to `127.0.0.1`. A certificate is used only if it covers `HTTPS_DOMAIN`, matches
-  its key and is in its dates. No HSTS. With Let's Encrypt, port 80 answers only the challenges of
-  orders in progress; the account key stays in the volume.
+  the app's port speaks HTTPS only and Next.js listens on `127.0.0.1`. A certificate is used only if
+  it covers `HTTPS_DOMAIN`, matches its key and is in its dates. No HSTS.
 - **SSH host keys**: the first key a server (or a local release machine) shows is kept
   (`sshHostKey`, SHA256 fingerprint) and checked at every connection (`uploadManager.connect`);
   another one is refused before the password, a file or a command is sent. Emptied when the host or

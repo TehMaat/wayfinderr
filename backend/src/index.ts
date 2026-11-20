@@ -500,7 +500,7 @@ const startServer = async () => {
     // Fetching the HTTPS certificate from Pangolin's host was removed (issue #105)
     if ((process.env.HTTPS_CERT_SSH_HOST || '').trim()) {
       logger.warn(
-        'HTTPS_CERT_SSH_HOST is no longer supported: use HTTPS_CERT_SOURCE=acme (Let\'s Encrypt) or copy the certificate by hand. The certificate already there is served until it expires'
+        'HTTPS_CERT_SSH_HOST is no longer supported: copy the certificate by hand (docs/DEPLOYMENT.md, "Built-in HTTPS"). The certificate already there is served until it expires'
       );
     }
 
