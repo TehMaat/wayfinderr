@@ -23,6 +23,9 @@ model Server {
   sshUsername          String
   sshPassword          String?  // Optional: if empty, SSH_PRIVATE_KEY_PATH is used
   sshPath              String   @default("/uploads")
+  // SHA256:… of the SSH host key, kept at the first connection and checked at every other one
+  // (issue #102); emptied when the host or the port changes, or by "Forget" in the UI
+  sshHostKey           String?
 
   // Configuration
   maxRetries           Int      @default(3)
@@ -163,6 +166,7 @@ model TorrentClient {
   sshPort              Int      @default(22)
   sshUsername          String?
   sshPassword          String?  // Optional: if empty, SSH_PRIVATE_KEY_PATH is used
+  sshHostKey           String?  // SHA256:… of the SSH host key, kept at the first connection (issue #102)
   hostWatchDir         String?  // The watch folder as that machine sees it
   releaseDir           String?  // Relative to the SSH home, or absolute
   releaseTag           String?  // "-TAG" at the end of the name (blank = none)

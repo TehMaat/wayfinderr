@@ -109,10 +109,10 @@ scripts/                      Docker helpers, logos, screenshots of the docs, an
 
 | Model | What it holds |
 |---|---|
-| `Server` | An upload server: type (`ULTRA`, `SEEDBOX`, `SSH`), SSH login, remote folder, Ultra-API, retries, media policy, release settings, cached free space |
+| `Server` | An upload server: type (`ULTRA`, `SEEDBOX`, `SSH`), SSH login and host key, remote folder, Ultra-API, retries, media policy, release settings, cached free space |
 | `Upload` | A file: path, size, media info, status (`PENDING`, `QUEUED`, `UPLOADING`, `COMPLETED`, `FAILED`, `SKIPPED`, `CANCELLED`, `HELD`, `MERGED`), progress, server, source torrent, release, hold reason |
 | `Rip` | A disc or archive in the downloads: status (`WAITING` … `DONE`, `NEEDS_ATTENTION`, `FAILED`, `SKIPPED`), scanned titles, the chosen title and TMDB film, progress, the output file |
-| `TorrentClient` | A qBittorrent client: WebUI login, category, removal rules, low-space pause, local release |
+| `TorrentClient` | A qBittorrent client: WebUI login, category, removal rules, low-space pause, local release (SSH login and host key) |
 | `SourceTorrent` | A .torrent sent before its upload exists, kept for good |
 | `MergePair` / `MergePlan` | Two files merged with Dyadrr (analysis, report, merge), and pairs planned before their files arrive |
 | `Setting` | Key/value: the login account, the session key, rip exclusions, merge choices |
@@ -142,6 +142,10 @@ Full schema: [`backend/prisma/schema.prisma`](../backend/prisma/schema.prisma).
   (`restrict,command=…`, then a sudo rule for that command alone), never the rest of `acme.json`.
   The host key is checked: pinned by `HTTPS_CERT_SSH_HOST_KEY`, else kept at the first connection.
   The private key never goes to the log.
+- **SSH host keys**: the first key a server (or a local release machine) shows is kept
+  (`sshHostKey`, SHA256 fingerprint) and checked at every connection (`uploadManager.connect`);
+  another one is refused before the password, a file or a command is sent. Emptied when the host or
+  the port changes, or by **Forget** in the UI.
 - **Secrets** (SSH passwords, API tokens, qBittorrent passwords) are stored in the database and never
   returned by the API (`hasSshPassword`, `hasApiToken`…); logs redact them.
 - Database backups contain the password hash and the session key: keep them private.

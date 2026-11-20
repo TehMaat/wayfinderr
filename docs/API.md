@@ -133,6 +133,8 @@ GET /api/servers
 
 The API token and the SSH password are never returned: `hasApiToken` and `hasSshPassword` say whether one is saved.
 
+`sshHostKey` is the SHA256 fingerprint of the server's SSH host key (`SHA256:…`), kept at the first connection and checked at every other one: a server answering with another key is refused before the password or any file is sent (`SSH host key of … changed: expected …, got …` in the error). `null` until the first connection. Read only: it is emptied when `sshHost` or `sshPort` changes, or by `DELETE /api/servers/:id/ssh-host-key`.
+
 `type` is the kind of server: `ULTRA` (Ultra.cc: its free space from the Ultra-API at `apiEndpoint`, over SSH while it is unreachable; the Ultra-API can be restarted), `SEEDBOX` (another seedbox) or `SSH` (a plain server). `SEEDBOX` and `SSH` have no API (`apiEndpoint` is `null`): their free space is always read over SSH, from the account quota, else from the disk of `sshPath`.
 
 **Response:**
@@ -147,6 +149,7 @@ The API token and the SSH password are never returned: `hasApiToken` and `hasSsh
     "hasSshPassword": false,
     "sshHost": "host.usbx.me",
     "sshPort": 22,
+    "sshHostKey": "SHA256:Xb3Kc0lYw1AqEnmz0ZcVpT9u7oRfX2gD4hJ8sLkQaM0",
     "sshUsername": "user",
     "maxRetries": 3,
     "backoffStrategy": "exponential",
@@ -217,6 +220,16 @@ DELETE /api/servers/:id
 ```
 
 **Response:** 204 No Content
+
+### Forget the SSH Host Key
+
+```
+DELETE /api/servers/:id/ssh-host-key
+```
+
+For a reinstalled server: the next connection keeps the key it sees. Logged at `warn`.
+
+**Response:** 200 OK, the server with `sshHostKey: null`
 
 ### Test Server Connection
 
@@ -779,6 +792,13 @@ POST /api/clients/:id/test
 ```
 
 With `localRelease`, it also logs in over SSH, checks the watch folder, creates the release folder if missing and checks that `tmux` and the tracker command's program are installed (`502` with the reason otherwise).
+
+`sshHostKey` (read only) is the fingerprint of the SSH host key of the local release machine, kept at the first connection and checked at every other one, as for the servers; emptied when `sshHost` or `sshPort` changes, or by:
+
+```
+DELETE /api/clients/:id/ssh-host-key
+```
+
 
 ## Rips API
 

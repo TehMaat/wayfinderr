@@ -74,6 +74,8 @@ export const serversApi = {
   testServer: (id: string) => apiClient.post(`/api/servers/${id}/test`, null, { timeout: 45000 }),
   // SSH login, script (up to 3 min) and up to 30 s waiting for the API to answer again
   restartApi: (id: string) => apiClient.post(`/api/servers/${id}/restart-api`, null, { timeout: 290000 }),
+  // The SSH host key kept: forgotten, the next connection keeps the key it sees (a reinstalled server)
+  forgetHostKey: (id: string) => apiClient.delete(`/api/servers/${id}/ssh-host-key`),
   refreshSpace: (id: string) => apiClient.post(`/api/space/${id}/refresh`),
 };
 
@@ -144,6 +146,8 @@ export const clientsApi = {
   listClients: () => apiClient.get('/api/clients'),
   createClient: (data: Record<string, unknown>) => apiClient.post('/api/clients', data),
   updateClient: (id: string, data: Record<string, unknown>) => apiClient.put(`/api/clients/${id}`, data),
+  // The SSH host key kept for the local release, forgotten (a reinstalled machine)
+  forgetHostKey: (id: string) => apiClient.delete(`/api/clients/${id}/ssh-host-key`),
   deleteClient: (id: string) => apiClient.delete(`/api/clients/${id}`),
   testClient: (id: string) => apiClient.post(`/api/clients/${id}/test`, null, { timeout: 45000 }),
 };
