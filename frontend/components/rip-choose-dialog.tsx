@@ -26,6 +26,11 @@ import { cn, errorMessage, formatBytes, formatRuntime } from '@/lib/utils';
 
 const CHOOSABLE = ['NEEDS_ATTENTION', 'FAILED', 'SKIPPED'];
 const UNSET_VERSION = '__unset';
+const OTHER_VERSION = '__other';
+
+/** The select's value for a version: one of the list, none, other (free text) or not chosen */
+const versionChoice = (v: string | null) =>
+  v === null ? UNSET_VERSION : v === '' || VERSIONS.includes(v) ? v : OTHER_VERSION;
 
 const filmOf = (rip: Rip): TmdbMovie | null =>
   rip.tmdbId
@@ -232,7 +237,8 @@ export function RipChooseDialog({
   const [titleIndex, setTitleIndex] = useState<number | null>(null);
   const [film, setFilm] = useState<TmdbMovie | null>(null);
   const [secondLanguage, setSecondLanguage] = useState<string | null>(null);
-  const [version, setVersion] = useState<string | null>(null);
+  const [versionPick, setVersionPick] = useState(UNSET_VERSION);
+  const [customVersion, setCustomVersion] = useState('');
   const [query, setQuery] = useState('');
   const [year, setYear] = useState('');
   const [results, setResults] = useState<TmdbMovie[] | null>(null);
@@ -278,7 +284,8 @@ export function RipChooseDialog({
     setTitleIndex(rip.titleIndex ?? longest?.index ?? null);
     setFilm(filmOf(rip));
     setSecondLanguage(rip.secondLanguage);
-    setVersion(rip.version);
+    setVersionPick(versionChoice(rip.version));
+    setCustomVersion(rip.version !== null && versionChoice(rip.version) === OTHER_VERSION ? rip.version : '');
     setQuery(q);
     setYear(y);
     setResults(null);
@@ -303,15 +310,19 @@ export function RipChooseDialog({
   const second = others.some((o) => o.lang === secondLanguage) ? secondLanguage : null;
   const original = [...languageCodes(originalLanguage), ...(second ? [second] : [])];
 
+  const version =
+    versionPick === UNSET_VERSION ? null : versionPick === OTHER_VERSION ? customVersion.trim() : versionPick;
+  // Other… needs its text
+  const versionMissing = versionPick === OTHER_VERSION && !customVersion.trim();
   const payload: { titleIndex?: number; tmdbId?: number; secondLanguage?: string | null } = {};
   if (titles && titleIndex !== null && titleIndex !== rip.titleIndex) payload.titleIndex = titleIndex;
   if (film && film.id !== rip.tmdbId) payload.tmdbId = film.id;
   if (titles && second !== rip.secondLanguage) payload.secondLanguage = second;
   // A scanned disc needs a title; an unscanned one can only get its film
-  const canSubmit = allowed && !saving && (titles ? titleIndex !== null : payload.tmdbId !== undefined);
+  const canSubmit = allowed && !saving && !versionMissing && (titles ? titleIndex !== null : payload.tmdbId !== undefined);
   // Save without ripping: anything changed (the film above all, to rip it later)
   const versionChanged = version !== rip.version;
-  const canSave = allowed && !saving && (Object.keys(payload).length > 0 || versionChanged);
+  const canSave = allowed && !saving && !versionMissing && (Object.keys(payload).length > 0 || versionChanged);
 
   const submit = async (queue: boolean) => {
     setSaving(queue ? 'queue' : 'save');
@@ -565,19 +576,30 @@ export function RipChooseDialog({
             <Select
               id="rip-version"
               className="h-8 w-56"
-              value={version === null ? UNSET_VERSION : version}
-              onChange={(e) => setVersion(e.target.value === UNSET_VERSION ? null : e.target.value)}
+              value={versionPick}
+              onChange={(e) => setVersionPick(e.target.value)}
             >
               <option value={UNSET_VERSION}>Not chosen</option>
               <option value="">None (standard version)</option>
-              {[...VERSIONS, ...(version && !VERSIONS.includes(version) ? [version] : [])].map((v) => (
+              {VERSIONS.map((v) => (
                 <option key={v} value={v}>
                   {v}
                 </option>
               ))}
+              <option value={OTHER_VERSION}>Other…</option>
             </Select>
+            {versionPick === OTHER_VERSION && (
+              <Input
+                aria-label="Version"
+                className="h-8 w-56"
+                value={customVersion}
+                onChange={(e) => setCustomVersion(e.target.value.slice(0, 60))}
+                placeholder="e.g. US Version"
+                autoFocus
+              />
+            )}
             <span className="text-xs text-muted-foreground">
-              {rip.suggestion?.version && version === null
+              {rip.suggestion?.version && versionPick === UNSET_VERSION
                 ? `The name says ${rip.suggestion.version}`
                 : 'Written in the release name of its file'}
             </span>

@@ -201,7 +201,7 @@ The release name has the film's version after the year (`NAME.YEAR.EXTENDED…`)
 - on the file: **Version…** in the upload's menu, or *Change…* on its **Tracker** card;
 - from [bookrr](#source-torrent-files-from-bookrr): the version chosen on the film in its release plan comes with the source .torrent and with the merge plan.
 
-Each choice offers the usual versions, *None (standard version)* and *Other…* for any text. The upload list shows the version that will be used as a badge, with where it comes from in its tooltip.
+Each choice (the rip's menu and *Choose…* dialog, the upload, the rename dialog) offers the usual versions, *None (standard version)* and *Other…* for any text up to 60 characters: `US Version` gives `….1997.US.VERSION.…`. The upload list shows the version that will be used as a badge, with where it comes from in its tooltip.
 
 When those places do not agree (the rip says *Extended*, bookrr says *Theatrical*), none of them wins: the upload shows **Version to choose**, and the rename dialog opens with no version selected, says what each one says, and cannot rename until you pick one. The one you pick stays on the file. Changing the version of a rip, or bookrr sending another one, later is followed by its file (unless the file is already renamed: the new version is for the next rename).
 
