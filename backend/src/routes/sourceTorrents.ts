@@ -29,7 +29,8 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// POST a .torrent: the body is the file itself; ?name= its file name, ?tmdbId=, ?label=, ?origin=
+// POST a .torrent: the body is the file itself; ?name= its file name, ?tmdbId=, ?label=, ?origin=,
+// ?version= the film's version for the release name ("" none)
 router.post('/', express.raw({ type: 'application/x-bittorrent', limit: '10mb' }), async (req: Request, res: Response) => {
   if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
     res.status(415).json({ error: 'Send the .torrent file as application/x-bittorrent' });
@@ -41,6 +42,7 @@ router.post('/', express.raw({ type: 'application/x-bittorrent', limit: '10mb' }
       tmdbId: parseTmdbId(req.query.tmdbId),
       label: req.query.label,
       origin: req.query.origin,
+      version: req.query.version,
     });
     res.status(created ? 201 : 200).json(torrent);
   } catch (error) {

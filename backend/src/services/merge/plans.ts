@@ -11,6 +11,8 @@ import { HoldDecision, RIP_UNFINISHED } from './hold.js';
 import { mergeActive } from './index.js';
 import { HOLDABLE, HoldError, manualHolds } from './manual.js';
 import { MergeError, mergePairs } from './pairs.js';
+import { parseVersion } from '../release/version.js';
+import { followSource } from '../release/versionSources.js';
 
 /**
  * Pairs planned before their two files arrive (issue #53, step 3): by hand on the Merge
@@ -173,13 +175,18 @@ class MergePlans extends EventEmitter {
       }
       originalLanguage = value.trim().toLowerCase();
     }
+    // The film's version for the release name of the merged file (issue #108): "" none
+    const version = body.version === undefined || body.version === null ? undefined : parseVersion(body.version);
+    if (body.version !== undefined && body.version !== null && version === undefined) {
+      throw new MergeError('version must be a string ("" none)', 400);
+    }
 
     return this.exclusive(async () => {
       // Already planned: the same two downloads give that plan, one of them in another plan is refused
       for (const plan of await db.getMergePlansByStatus(OPEN)) {
         const [a, b] = [sideOf(plan, 'A'), sideOf(plan, 'B')];
         const same = (sameDownload(a, sides[0]) && sameDownload(b, sides[1])) || (sameDownload(a, sides[1]) && sameDownload(b, sides[0]));
-        if (same) return { created: false, plan: await this.toPublic(plan) };
+        if (same) return { created: false, plan: await this.toPublic(await this.updateVersion(plan, version)) };
         const taken = sides.find((s) => sameDownload(a, s) || sameDownload(b, s));
         if (taken) throw new MergeError(`${describeSide(taken)} is already in another planned pair`);
       }
@@ -200,6 +207,7 @@ class MergePlans extends EventEmitter {
         ...fields('B', { ...sides[1], uploadId: null }),
         tmdbId,
         originalLanguage,
+        ...(version !== undefined ? { version } : {}),
         origin: text(body.origin, MAX_ORIGIN),
       });
       logger.info({ planId: plan.id, sides, tmdbId, origin: plan.origin }, 'Merge pair planned');
@@ -213,6 +221,16 @@ class MergePlans extends EventEmitter {
       this.emit('plan-updated', { planId: plan.id, status: plan.status });
       return { created: true, plan: await this.toPublic(plan) };
     });
+  }
+
+  /** Planned again with another version: its files and its merged file follow it */
+  private async updateVersion(plan: MergePlan, version: string | null | undefined): Promise<MergePlan> {
+    if (version === undefined || version === plan.version) return plan;
+    const updated = await db.updateMergePlan(plan.id, { version });
+    const pair = plan.pairId ? await db.getMergePairById(plan.pairId) : null;
+    await followSource([plan.uploadAId, plan.uploadBId, pair?.outputUploadId], version, `merge plan ${plan.id}`);
+    logger.info({ planId: plan.id, version }, 'Merge plan version set');
+    return updated;
   }
 
   /**

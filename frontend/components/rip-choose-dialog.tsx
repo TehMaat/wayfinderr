@@ -13,17 +13,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { Input, Label, Select } from '@/components/ui/input';
 import { Tooltip } from '@/components/ui/tooltip';
 import { RipJoinDialog } from '@/components/rip-join-dialog';
 import { RIP_STATUS_META } from '@/components/status-badge';
 import { retryRip } from '@/lib/actions';
 import { ripsApi } from '@/lib/api';
 import { canJoin, languageCodes, languageName, otherAudioLanguages, ripName, tmdbUrl } from '@/lib/rips';
+import { VERSIONS } from '@/lib/release';
 import { useAppStore, type DiscStream, type DiscTitle, type Rip, type TmdbMovie } from '@/lib/store';
 import { cn, errorMessage, formatBytes, formatRuntime } from '@/lib/utils';
 
 const CHOOSABLE = ['NEEDS_ATTENTION', 'FAILED', 'SKIPPED'];
+const UNSET_VERSION = '__unset';
 
 const filmOf = (rip: Rip): TmdbMovie | null =>
   rip.tmdbId
@@ -230,6 +232,7 @@ export function RipChooseDialog({
   const [titleIndex, setTitleIndex] = useState<number | null>(null);
   const [film, setFilm] = useState<TmdbMovie | null>(null);
   const [secondLanguage, setSecondLanguage] = useState<string | null>(null);
+  const [version, setVersion] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [year, setYear] = useState('');
   const [results, setResults] = useState<TmdbMovie[] | null>(null);
@@ -275,6 +278,7 @@ export function RipChooseDialog({
     setTitleIndex(rip.titleIndex ?? longest?.index ?? null);
     setFilm(filmOf(rip));
     setSecondLanguage(rip.secondLanguage);
+    setVersion(rip.version);
     setQuery(q);
     setYear(y);
     setResults(null);
@@ -306,13 +310,17 @@ export function RipChooseDialog({
   // A scanned disc needs a title; an unscanned one can only get its film
   const canSubmit = allowed && !saving && (titles ? titleIndex !== null : payload.tmdbId !== undefined);
   // Save without ripping: anything changed (the film above all, to rip it later)
-  const canSave = allowed && !saving && Object.keys(payload).length > 0;
+  const versionChanged = version !== rip.version;
+  const canSave = allowed && !saving && (Object.keys(payload).length > 0 || versionChanged);
 
   const submit = async (queue: boolean) => {
     setSaving(queue ? 'queue' : 'save');
     setError(null);
     try {
-      await ripsApi.chooseRip(rip.id, { ...payload, ...(queue ? {} : { queue: false }) });
+      if (versionChanged) await ripsApi.setVersion(rip.id, version);
+      if (queue || Object.keys(payload).length > 0) {
+        await ripsApi.chooseRip(rip.id, { ...payload, ...(queue ? {} : { queue: false }) });
+      }
       await useAppStore.getState().refreshRip(rip.id);
       const name = film ? ripName({ title: film.title, year: film.year, downloadName: rip.downloadName }) : rip.downloadName;
       const filmShared = joinParts > 0 && (payload.tmdbId !== undefined || payload.secondLanguage !== undefined);
@@ -548,6 +556,31 @@ export function RipChooseDialog({
                 ))}
               </div>
             ) : null}
+          </section>
+
+          <section className="flex flex-wrap items-center gap-2">
+            <Label htmlFor="rip-version" className="text-sm">
+              Version
+            </Label>
+            <Select
+              id="rip-version"
+              className="h-8 w-56"
+              value={version === null ? UNSET_VERSION : version}
+              onChange={(e) => setVersion(e.target.value === UNSET_VERSION ? null : e.target.value)}
+            >
+              <option value={UNSET_VERSION}>Not chosen</option>
+              <option value="">None (standard version)</option>
+              {[...VERSIONS, ...(version && !VERSIONS.includes(version) ? [version] : [])].map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </Select>
+            <span className="text-xs text-muted-foreground">
+              {rip.suggestion?.version && version === null
+                ? `The name says ${rip.suggestion.version}`
+                : 'Written in the release name of its file'}
+            </span>
           </section>
 
           {error && (

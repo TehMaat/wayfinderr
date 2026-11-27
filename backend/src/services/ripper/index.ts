@@ -27,6 +27,7 @@ import { joinDir, joinParts, partFile } from './join.js';
 import { describeExit, DiscTitle, languageCodes, parseInfo, parseProgress, parseRipResult, selectionRule } from './makemkv.js';
 import { playlistNumber } from './mpls.js';
 import { parseDiscLabel, parseReleaseName } from './releaseName.js';
+import { followSource } from '../release/versionSources.js';
 import { missingTools, openSource, RemuxSource, remuxNeeds, remuxTitle, remuxTools, scanDisc } from './remux.js';
 import {
   cancelJob,
@@ -1264,6 +1265,23 @@ class Ripper extends EventEmitter {
         if (part.status !== 'DONE') await this.update(part.id, { holdForMerge: hold });
       }
       logger.info({ ripId: id, parts: parts.length, hold }, 'Rip hold for merge set');
+      return (await db.getRipById(id))!;
+    });
+  }
+
+  /**
+   * The film's version for the release name of its file (issue #108): null not chosen,
+   * "" none. Every part of a join, also once done; the upload of its file follows it.
+   */
+  async setVersion(id: string, version: string | null) {
+    return this.exclusive(async () => {
+      const rip = await this.visibleRip(id);
+      const parts = rip.joinId ? await db.getRipsByJoinId(rip.joinId) : [rip];
+      for (const part of parts) await this.update(part.id, { version });
+      const outputs = parts.map((p) => p.outputFile).filter((f): f is string => Boolean(f));
+      const uploads = await Promise.all(outputs.map((f) => db.getUploadByPath(f)));
+      await followSource(uploads.map((u) => u?.id), version, `rip ${id}`);
+      logger.info({ ripId: id, parts: parts.length, version }, 'Rip version set');
       return (await db.getRipById(id))!;
     });
   }

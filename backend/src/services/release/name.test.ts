@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MediaInfo } from '../../types/index.js';
-import { analyze, buildReleaseName, dotted, isAutoHybrid, pythonTitle, validateFlags, versionTag } from './name.js';
+import { analyze, buildReleaseName, dotted, isAutoHybrid, isTheatrical, pythonTitle, sameVersion, validateFlags, versionTag } from './name.js';
 
 const video = (width: number, height: number, hdr: string | null = null) => ({
   index: 0,
@@ -145,4 +145,28 @@ test('name and year are required', () => {
   assert.equal(validateFlags(flags), null);
   assert.equal(validateFlags({ ...flags, title: ' ' }), 'The film name is missing');
   assert.equal(validateFlags({ ...flags, year: '72' }), 'The year must have 4 digits');
+});
+
+test('Theatrical: asked every time whether it goes in the name (issue #108)', () => {
+  const analysis = analyze(media());
+  const theatrical = { ...flags, version: 'Theatrical' };
+  assert.equal(validateFlags(theatrical), 'Theatrical: say whether to write it in the name');
+  assert.equal(validateFlags({ ...theatrical, theatrical: 'write' }), null);
+  assert.equal(validateFlags({ ...theatrical, theatrical: 'omit' }), null);
+  assert.match(buildReleaseName({ ...theatrical, theatrical: 'write' }, analysis, 'mkv'), /^Il\.Padrino\.1972\.THEATRICAL\.REMUX\./);
+  assert.match(buildReleaseName({ ...theatrical, theatrical: 'omit' }, analysis, 'mkv'), /^Il\.Padrino\.1972\.REMUX\./);
+  // Not Theatrical: the answer changes nothing
+  assert.match(buildReleaseName({ ...flags, version: 'Extended', theatrical: 'omit' }, analysis, 'mkv'), /^Il\.Padrino\.1972\.EXTENDED\./);
+  assert.equal(validateFlags({ ...flags, version: 'Extended' }), null);
+});
+
+test('isTheatrical and sameVersion', () => {
+  assert.equal(isTheatrical('Theatrical'), true);
+  assert.equal(isTheatrical('theatrical cut'), true);
+  assert.equal(isTheatrical('Theatrical Edition'), true);
+  assert.equal(isTheatrical('Extended'), false);
+  assert.equal(isTheatrical(''), false);
+  assert.equal(sameVersion("Director's Cut", 'directors cut'), true);
+  assert.equal(sameVersion('Extended', 'Unrated'), false);
+  assert.equal(sameVersion('', ''), true);
 });

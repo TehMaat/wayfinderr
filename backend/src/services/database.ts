@@ -385,6 +385,11 @@ export class DatabaseService {
     return this.prisma.mergePair.findMany({ where: { OR: [{ uploadAId: uploadId }, { uploadBId: uploadId }] } });
   }
 
+  // The pairs whose merged file is this upload
+  async getMergePairsByOutputUpload(uploadId: string): Promise<MergePair[]> {
+    return this.prisma.mergePair.findMany({ where: { outputUploadId: uploadId } });
+  }
+
   async createMergePair(data: Prisma.MergePairUncheckedCreateInput): Promise<MergePair> {
     return this.prisma.mergePair.create({ data });
   }
@@ -415,6 +420,11 @@ export class DatabaseService {
     return this.prisma.mergePlan.findMany({ where: { OR: [{ uploadAId: uploadId }, { uploadBId: uploadId }] } });
   }
 
+  // The plan a pair was created from
+  async getMergePlanByPairId(pairId: string): Promise<MergePlan | null> {
+    return this.prisma.mergePlan.findFirst({ where: { pairId } });
+  }
+
   async createMergePlan(data: Prisma.MergePlanUncheckedCreateInput): Promise<MergePlan> {
     return this.prisma.mergePlan.create({ data });
   }
@@ -440,6 +450,14 @@ export class DatabaseService {
 
   async getSourceTorrent(infoHash: string): Promise<SourceTorrent | null> {
     return this.prisma.sourceTorrent.findUnique({ where: { infoHash } });
+  }
+
+  // Its version and who sent it, without the file (release/versionSources.ts)
+  async getSourceTorrentVersion(infoHash: string): Promise<Pick<SourceTorrent, 'version' | 'origin' | 'fileName'> | null> {
+    return this.prisma.sourceTorrent.findUnique({
+      where: { infoHash },
+      select: { version: true, origin: true, fileName: true },
+    });
   }
 
   async getSourceTorrentsByNames(names: string[]): Promise<SourceTorrent[]> {

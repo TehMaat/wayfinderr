@@ -2,6 +2,7 @@ import { toast } from 'sonner';
 import { clientsApi, releaseApi, ripsApi, serversApi, uploadsApi } from './api';
 import { useAppStore } from './store';
 import { sshSpaceLabel } from './server-status';
+import { versionLabel } from './release';
 import { errorMessage } from './utils';
 
 export async function retryUpload(id: string) {
@@ -65,6 +66,19 @@ export async function holdUpload(id: string) {
   }
 }
 
+/** The version the release name starts from: null back to its rip, source .torrent or merge plan, "" none */
+export async function setUploadVersion(id: string, version: string | null): Promise<boolean> {
+  try {
+    await uploadsApi.setVersion(id, version);
+    await useAppStore.getState().refreshUpload(id);
+    toast.success(version === null ? 'Version from its sources' : `Version: ${versionLabel(version)}`);
+    return true;
+  } catch (err) {
+    toast.error('Could not set the version', { description: errorMessage(err) });
+    return false;
+  }
+}
+
 /** A file held for a merge is deleted, file and record */
 export async function deleteHeld(id: string): Promise<boolean> {
   try {
@@ -106,6 +120,20 @@ export async function setRipHold(id: string, hold: boolean) {
     toast.success(hold ? 'Its file will be held for a merge' : 'Its file will be handled as usual');
   } catch (err) {
     toast.error('Could not change Hold for merge', { description: errorMessage(err) });
+  }
+}
+
+/** The film's version for the release name: null not chosen, "" none (its upload follows it) */
+export async function setRipVersion(id: string, version: string | null): Promise<boolean> {
+  try {
+    const { data } = await ripsApi.setVersion(id, version);
+    await useAppStore.getState().refreshRip(id);
+    if (data.upload) await useAppStore.getState().refreshUpload(data.upload.id);
+    toast.success(version === null ? 'Version not chosen' : `Version: ${versionLabel(version)}`);
+    return true;
+  } catch (err) {
+    toast.error('Could not set the version', { description: errorMessage(err) });
+    return false;
   }
 }
 

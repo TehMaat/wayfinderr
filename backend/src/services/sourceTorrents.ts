@@ -5,6 +5,8 @@ import logger from '../config/logger.js';
 import { config } from '../config/index.js';
 import { db } from './database.js';
 import { parseTorrent, TorrentFile, torrentTrackers } from './release/torrentFile.js';
+import { parseVersion } from './release/version.js';
+import { followSource } from './release/versionSources.js';
 
 /**
  * Source torrents' .torrent files sent before their upload exists: by bookrr, through
@@ -103,7 +105,7 @@ class SourceTorrents extends EventEmitter {
    */
   async add(
     data: Buffer,
-    options: { fileName?: string; tmdbId?: number | null; label?: unknown; origin?: unknown } = {}
+    options: { fileName?: string; tmdbId?: number | null; label?: unknown; origin?: unknown; version?: unknown } = {}
   ): Promise<{ created: boolean; torrent: SourceTorrentInfo }> {
     let torrent: TorrentFile;
     try {
@@ -116,6 +118,8 @@ class SourceTorrents extends EventEmitter {
 
     const existing = await db.getSourceTorrent(torrent.infoHash);
     const label = text(options.label, MAX_LABEL);
+    // The film's version (issue #108): kept unless given, "" none
+    const version = typeof options.version === 'string' ? parseVersion(options.version) : undefined;
     const fileName = torrentFileName(options.fileName, torrent.name);
     const fields = {
       name: torrent.name,
@@ -126,12 +130,19 @@ class SourceTorrents extends EventEmitter {
       tracker,
       ...(options.tmdbId ? { tmdbId: options.tmdbId } : {}),
       ...(label ? { label } : {}),
+      ...(version !== undefined ? { version } : {}),
     };
     await db.upsertSourceTorrent(torrent.infoHash, { ...fields, fileName, origin: text(options.origin, MAX_ORIGIN) }, fields);
     logger.info(
       { infoHash: torrent.infoHash, name: torrent.name, origin: text(options.origin, MAX_ORIGIN), created: !existing },
       'Source .torrent stored'
     );
+
+    // Its version changed: the uploads it is the source of follow it
+    if (existing && version !== undefined && version !== existing.version) {
+      const uploads = await db.getUploadsByTorrentHash(torrent.infoHash);
+      await followSource(uploads.map((u) => u.id), version ?? null, `source .torrent ${torrent.infoHash}`);
+    }
 
     // Already for an upload: the ones with its hash, or the files of its download
     await this.attachExisting(torrent.infoHash);

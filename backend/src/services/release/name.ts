@@ -93,6 +93,8 @@ export interface ReleaseFlags {
   year: string;
   version: string; // "", one of VERSIONS or free text
   remux: boolean;
+  // A Theatrical version: asked every time whether it goes in the name (issue #108); null not answered
+  theatrical?: 'write' | 'omit' | null;
 }
 
 const languageLabel = (language: string | undefined) => {
@@ -208,6 +210,12 @@ export const dotted = (text: string) =>
 /** "Director's Cut" -> "DIRECTORS.CUT" */
 export const versionTag = (version: string) => dotted(version.toUpperCase().replace(/['’]/g, ''));
 
+/** Theatrical (Cut, Edition, Version): the standard version, asked every time whether to write it */
+export const isTheatrical = (version: string) => /^THEATRICAL(\.(CUT|EDITION|VERSION))?$/.test(versionTag(version.trim()));
+
+/** The two versions are the same in the name: "Director's Cut" and "directors cut" */
+export const sameVersion = (a: string, b: string) => versionTag(a.trim()) === versionTag(b.trim());
+
 const sanitize = (name: string) => name.replace(/[<>:"/\\|?*]/g, '').replace(/\.{2,}/g, '.');
 
 /** REMUX with a Dolby Vision profile 8 layer is a hybrid (moverr's auto-HYBRID), and not VU */
@@ -217,6 +225,9 @@ export const isAutoHybrid = (flags: Pick<ReleaseFlags, 'remux'>, analysis: Relea
 export const validateFlags = (flags: ReleaseFlags): string | null => {
   if (!flags.title.trim()) return 'The film name is missing';
   if (!/^\d{4}$/.test(flags.year.trim())) return 'The year must have 4 digits';
+  if (isTheatrical(flags.version) && flags.theatrical !== 'write' && flags.theatrical !== 'omit') {
+    return 'Theatrical: say whether to write it in the name';
+  }
   return null;
 };
 
@@ -231,7 +242,8 @@ export const buildReleaseName = (
   const { video } = analysis;
 
   const parts = [pythonTitle(dotted(flags.title)), flags.year.trim()];
-  if (flags.version.trim()) parts.push(versionTag(flags.version));
+  const omitted = isTheatrical(flags.version) && flags.theatrical === 'omit';
+  if (flags.version.trim() && !omitted) parts.push(versionTag(flags.version));
   if (hybrid) parts.push('HYBRID');
   if (flags.remux) parts.push('REMUX');
   if (video.resolution) parts.push(video.resolution);

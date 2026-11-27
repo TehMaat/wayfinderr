@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ColGroup, ColumnHeader } from '@/components/column-layout';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/status-badge';
-import { MissingBadge, ReleaseBadge } from '@/components/release-badge';
+import { MissingBadge, ReleaseBadge, VersionBadge } from '@/components/release-badge';
 import { MediaBadges } from '@/components/media-badges';
 import { SelectAllCell, SelectCell } from '@/components/selection';
 import { UploadActions } from '@/components/upload-actions';
@@ -190,6 +190,7 @@ export function UploadTable({
                   <span className="flex items-center gap-1.5">
                     <StatusBadge status={upload.status} />
                     <ReleaseBadge upload={upload} />
+                    <VersionBadge upload={upload} />
                     <MissingBadge upload={upload} />
                   </span>
                 </td>

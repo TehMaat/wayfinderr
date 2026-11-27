@@ -47,11 +47,37 @@ const cases: [string, string, number | null][] = [
 
 for (const [input, title, year] of cases) {
   test(`parseReleaseName: ${input}`, () => {
-    assert.deepEqual(parseReleaseName(input), { title, year });
+    const { title: parsedTitle, year: parsedYear } = parseReleaseName(input);
+    assert.deepEqual({ title: parsedTitle, year: parsedYear }, { title, year });
+  });
+}
+
+// The version (edition) after the title, as the release name's versions (issue #108)
+const editions: [string, string | null][] = [
+  ['Orbita.Silenziosa.2010.Extended.Cut.2160p.UHD.BluRay-XYZ', 'Extended'],
+  ['Orbita Silenziosa (Director’s Cut) (2010)', "Director's Cut"],
+  ['Orbita.Silenziosa.2010.DIRECTORS.CUT.1080p.BluRay', "Director's Cut"],
+  ['Orbita.Silenziosa.2010.Extended.Directors.Cut.1080p', "Director's Cut"],
+  ['Orbita.Silenziosa.2010.Theatrical.Cut.2160p.WEB-DL', 'Theatrical'],
+  ['Orbita.Silenziosa.2010.UNRATED.1080p.BluRay', 'Unrated'],
+  ['Orbita.Silenziosa.2010.25th.Anniversary.Edition.BluRay', 'Anniversary Edition'],
+  ['Orbita.Silenziosa.2010.IMAX.2160p', 'IMAX'],
+  ['Orbita.Silenziosa.2010.REMASTERED.1080p', 'Remastered'],
+  ['Orbita Silenziosa - Extended - ITA (2010)', 'Extended'],
+  ['Orbita.Silenziosa.2010.1080p.BluRay.ITA-ABC', null],
+  // An edition word in the title is not a version
+  ['The.Final.Cut.2004.1080p.BluRay', null],
+  ['Uncut.Gems.2019.1080p.BluRay', null],
+  ['Movie Cut!', null],
+];
+
+for (const [input, version] of editions) {
+  test(`parseReleaseName version: ${input}`, () => {
+    assert.equal(parseReleaseName(input).version, version);
   });
 }
 
 test('parseDiscLabel: upper case with underscores and a disc number', () => {
-  assert.deepEqual(parseDiscLabel('THE_MATRIX_DISC1'), { title: 'The Matrix', year: null });
-  assert.deepEqual(parseDiscLabel('IL_PADRINO'), { title: 'Il Padrino', year: null });
+  assert.deepEqual(parseDiscLabel('THE_MATRIX_DISC1'), { title: 'The Matrix', year: null, version: null });
+  assert.deepEqual(parseDiscLabel('IL_PADRINO'), { title: 'Il Padrino', year: null, version: null });
 });

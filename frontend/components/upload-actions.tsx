@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Eye, FileX2, HardDriveDownload, Merge, MoreHorizontal, RotateCcw, Square, Tags, Trash2, Upload as UploadIcon } from 'lucide-react';
+import { Eye, FileX2, HardDriveDownload, Merge, MoreHorizontal, RotateCcw, Square, Tags, Trash2, Upload as UploadIcon, Clapperboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -14,7 +14,9 @@ import {
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { ReleaseDialog } from '@/components/release-dialog';
 import { canRelease, localReleaseClient, releaseRunning } from '@/components/release-badge';
-import { deleteHeld, deleteUpload, holdUpload, retryUpload, stopUpload, uploadHeld } from '@/lib/actions';
+import { deleteHeld, deleteUpload, holdUpload, retryUpload, setUploadVersion, stopUpload, uploadHeld } from '@/lib/actions';
+import { uploadName } from '@/lib/release';
+import { VersionDialog } from '@/components/version-dialog';
 import { pairIdle, partnerOf } from '@/lib/merge';
 import { useAppStore, type Upload } from '@/lib/store';
 
@@ -94,8 +96,34 @@ export function DeleteHeldDialog({
   );
 }
 
+/** The version its release name starts from, chosen beforehand (issue #108) */
+export function UploadVersionDialog({
+  upload,
+  open,
+  onOpenChange,
+}: {
+  upload: Upload;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const v = upload.releaseVersion;
+  return (
+    <VersionDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      name={uploadName(upload)}
+      current={upload.version}
+      unsetLabel={v?.sources.length ? 'From its rip, bookrr or merge plan' : 'Not chosen'}
+      sources={v?.sources}
+      toChoose={v?.toChoose}
+      onSave={(version) => setUploadVersion(upload.id, version)}
+    />
+  );
+}
+
 export function UploadActions({ upload, onDeleted }: { upload: Upload; onDeleted?: () => void }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [versionOpen, setVersionOpen] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [localOpen, setLocalOpen] = useState(false);
@@ -148,6 +176,12 @@ export function UploadActions({ upload, onDeleted }: { upload: Upload; onDeleted
               {upload.releaseName ? 'Rename again…' : 'Rename & upload to tracker…'}
             </DropdownMenuItem>
           )}
+          {!releaseRunning(upload) && (
+            <DropdownMenuItem onSelect={() => setVersionOpen(true)}>
+              <Clapperboard />
+              Version…
+            </DropdownMenuItem>
+          )}
           {localClient && (
             <DropdownMenuItem onSelect={() => setLocalOpen(true)}>
               <HardDriveDownload />
@@ -176,6 +210,7 @@ export function UploadActions({ upload, onDeleted }: { upload: Upload; onDeleted
       </DropdownMenu>
 
       <StopUploadDialog upload={upload} open={stopOpen} onOpenChange={setStopOpen} />
+      {versionOpen && <UploadVersionDialog upload={upload} open={versionOpen} onOpenChange={setVersionOpen} />}
       <DeleteHeldDialog upload={upload} open={deleteHeldOpen} onOpenChange={setDeleteHeldOpen} onDeleted={onDeleted} />
       {releaseOpen && <ReleaseDialog upload={upload} open={releaseOpen} onOpenChange={setReleaseOpen} />}
       {localOpen && <ReleaseDialog upload={upload} open={localOpen} onOpenChange={setLocalOpen} local />}

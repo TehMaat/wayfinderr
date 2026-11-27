@@ -9,6 +9,36 @@ export interface ParsedName {
   year: number | null;
 }
 
+export interface ParsedRelease extends ParsedName {
+  // The version (edition) the name says after the title: "Extended", "Director's Cut"... (null: none)
+  version: string | null;
+}
+
+// Editions in a name, after the title, as the versions of the release name (release/name.ts VERSIONS);
+// the first that matches wins ("Extended Director's Cut" is a Director's Cut)
+const EDITIONS: [RegExp, string][] = [
+  [/\bdirectors? ?cut\b/, "Director's Cut"],
+  [/\bfinal ?cut\b/, 'Final Cut'],
+  [/\bextended\b/, 'Extended'],
+  [/\bunrated\b/, 'Unrated'],
+  [/\buncut\b/, 'Uncut'],
+  [/\bspecial edition\b/, 'Special Edition'],
+  [/\b(\d+(st|nd|rd|th) )?anniversary( edition)?\b/, 'Anniversary Edition'],
+  [/\bremastered\b/, 'Remastered'],
+  [/\bimax\b/, 'IMAX'],
+  [/\btheatrical( cut| edition)?\b/, 'Theatrical'],
+];
+
+/** The edition among these words of a name (after its title), null when none */
+export const editionOf = (tokens: string[]): string | null => {
+  const text = tokens
+    .join(' ')
+    .toLowerCase()
+    .replace(/['‘’`´ʼ]/g, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ');
+  return EDITIONS.find(([pattern]) => pattern.test(text))?.[1] ?? null;
+};
+
 // Tokens that never belong to a title: they end it wherever they appear
 const TECHNICAL = new Set([
   '4k', 'uhd', 'bluray', 'blu-ray', 'bdrip', 'brrip', 'bdremux', 'remux', 'bdmv', 'bdiso', 'iso', 'img',
@@ -61,7 +91,7 @@ const isTechnical = (token: string) => {
   );
 };
 
-export const parseReleaseName = (input: string): ParsedName => {
+export const parseReleaseName = (input: string): ParsedRelease => {
   const name = input
     .trim()
     .replace(/(\.part\d+)?\.rar$/i, '')
@@ -113,11 +143,12 @@ export const parseReleaseName = (input: string): ParsedName => {
   return {
     title: title || (tokens[0] ?? input),
     year: yearIndex > 0 ? Number(tokens[yearIndex].match(/\d{4}/)![0]) : null,
+    version: editionOf(tokens.slice(Math.max(titleTokens.length, 1))),
   };
 };
 
 /** Disc labels are upper case with underscores, often with a disc number: "THE_MATRIX_DISC1". */
-export const parseDiscLabel = (label: string): ParsedName =>
+export const parseDiscLabel = (label: string): ParsedRelease =>
   parseReleaseName(
     label
       .replace(/[_.]/g, ' ')

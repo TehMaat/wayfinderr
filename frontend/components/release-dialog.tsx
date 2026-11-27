@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Folder, FileVideo, Info, Loader2, TriangleAlert } from 'lucide-react';
+import { Folder, FileVideo, Info, Lightbulb, Loader2, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -17,8 +17,10 @@ import { dismissRelease } from '@/lib/actions';
 import { releaseApi } from '@/lib/api';
 import { useAppStore, type ReleaseAnalysis, type ReleaseFlags, type ReleasePreview, type ReleaseProposal, type Upload } from '@/lib/store';
 import { cn, errorMessage } from '@/lib/utils';
+import { isTheatrical, versionLabel, versionOrigin } from '@/lib/release';
 
 const OTHER = '__other';
+const CHOOSE = '__choose'; // the sources disagree: nothing selected until chosen
 const PREVIEW_DELAY_MS = 200;
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -86,6 +88,7 @@ export function ReleaseDialog({
   const [versionChoice, setVersionChoice] = useState('');
   const [customVersion, setCustomVersion] = useState('');
   const [remux, setRemux] = useState(false);
+  const [theatrical, setTheatrical] = useState<'write' | 'omit' | null>(null);
   const [preview, setPreview] = useState<ReleasePreview | null>(null);
   const [pending, setPending] = useState(false); // the shown name is not the answers' yet
   const [busy, setBusy] = useState(false);
@@ -93,11 +96,21 @@ export function ReleaseDialog({
   const [conflict, setConflict] = useState<string | null>(null);
   const previewSeq = useRef(0);
 
+  const version = versionChoice === OTHER ? customVersion : versionChoice === CHOOSE ? '' : versionChoice;
+  const askTheatrical = isTheatrical(version);
   const flags: ReleaseFlags = {
     title,
     year,
-    version: versionChoice === OTHER ? customVersion : versionChoice,
+    version,
     remux,
+    theatrical: askTheatrical ? theatrical : null,
+  };
+
+  // A version from the list, none, or Other with its text
+  const pick = (value: string, versions: string[]) => {
+    const known = value === '' || versions.includes(value);
+    setVersionChoice(known ? value : OTHER);
+    setCustomVersion(known ? '' : value);
   };
 
   // Fresh analysis and defaults each time it opens
@@ -114,8 +127,13 @@ export function ReleaseDialog({
         setProposal(data);
         setTitle(data.defaults.title);
         setYear(data.defaults.year);
-        setVersionChoice('');
-        setCustomVersion('');
+        if (data.version.toChoose) {
+          setVersionChoice(CHOOSE);
+          setCustomVersion('');
+        } else {
+          pick(data.defaults.version, data.versions);
+        }
+        setTheatrical(null);
         setRemux(data.defaults.remux);
       })
       .catch((err) => setLoadError(errorMessage(err)));
@@ -138,7 +156,10 @@ export function ReleaseDialog({
     }, PREVIEW_DELAY_MS);
     setConflict(null);
     return () => clearTimeout(timer);
-  }, [proposal, title, year, versionChoice, customVersion, remux, upload.id, local]);
+  }, [proposal, title, year, versionChoice, customVersion, remux, theatrical, upload.id, local]);
+
+  // Asked again each time the version changes
+  useEffect(() => setTheatrical(null), [versionChoice, customVersion]);
 
   const confirm = async (overwrite = false) => {
     setBusy(true);
@@ -169,7 +190,13 @@ export function ReleaseDialog({
     : proposal?.hasTrackerCommand
       ? 'Rename & upload'
       : 'Rename';
-  const canConfirm = Boolean(preview && !preview.error) && !pending && !busy;
+  const versionMissing = versionChoice === CHOOSE;
+  const canConfirm = Boolean(preview && !preview.error) && !pending && !busy && !versionMissing;
+  const chosen = proposal?.version;
+  const suggestion =
+    proposal && chosen && chosen.version === null && !chosen.toChoose && proposal.suggestedVersion
+      ? proposal.suggestedVersion
+      : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -245,6 +272,11 @@ export function ReleaseDialog({
                 <div className="space-y-1.5">
                   <Label htmlFor="release-version">Version</Label>
                   <Select id="release-version" value={versionChoice} onChange={(e) => setVersionChoice(e.target.value)}>
+                    {versionChoice === CHOOSE && (
+                      <option value={CHOOSE} disabled>
+                        Choose a version…
+                      </option>
+                    )}
                     <option value="">None (standard version)</option>
                     {proposal.versions.map((v) => (
                       <option key={v} value={v}>
@@ -255,6 +287,21 @@ export function ReleaseDialog({
                   </Select>
                   {versionChoice === OTHER && (
                     <Input value={customVersion} onChange={(e) => setCustomVersion(e.target.value)} placeholder="Version" />
+                  )}
+                  {chosen && !chosen.toChoose && chosen.origin && (
+                    <p className="text-[11px] text-muted-foreground">
+                      {versionOrigin({ origin: chosen.origin, from: chosen.from }).replace(/^./, (c) => c.toUpperCase())}
+                    </p>
+                  )}
+                  {suggestion && versionChoice === '' && (
+                    <button
+                      type="button"
+                      onClick={() => pick(suggestion, proposal!.versions)}
+                      className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                    >
+                      <Lightbulb className="h-3 w-3" />
+                      The file name says {suggestion}: use it
+                    </button>
                   )}
                 </div>
                 <div className="space-y-1.5">
@@ -276,6 +323,48 @@ export function ReleaseDialog({
                   </div>
                 </div>
               </div>
+
+              {chosen?.toChoose && (
+                <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+                  <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    The version is not the same everywhere:{' '}
+                    {chosen.sources.map((s, i) => (
+                      <span key={i}>
+                        {i > 0 && ', '}
+                        <span className="font-medium">{versionLabel(s.version)}</span> {versionOrigin(s)}
+                      </span>
+                    ))}
+                    . Choose the right one: it is kept for this file.
+                  </span>
+                </div>
+              )}
+
+              {askTheatrical && (
+                <div className="space-y-1.5">
+                  <Label>Theatrical: write it in the name?</Label>
+                  <div className="grid grid-cols-2 gap-1 rounded-md border p-0.5">
+                    {(
+                      [
+                        ['write', 'Yes, write THEATRICAL'],
+                        ['omit', 'No, no version in the name'],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setTheatrical(value)}
+                        className={cn(
+                          'h-8 rounded text-sm transition-colors',
+                          theatrical === value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {preview?.autoHybrid && (
                 <div className="flex items-start gap-2 rounded-md border border-info/40 bg-info/10 px-3 py-2 text-sm text-info">
@@ -320,7 +409,11 @@ export function ReleaseDialog({
         )}
 
         {/* Outside the scrolling part: always in sight next to the buttons */}
-        {preview?.error && <p className="text-sm text-destructive">{preview.error}</p>}
+        {versionMissing ? (
+          <p className="text-sm text-warning">Choose the version first</p>
+        ) : (
+          preview?.error && <p className="text-sm text-destructive">{preview.error}</p>
+        )}
         {error && (
           <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>
         )}

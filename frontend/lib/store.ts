@@ -36,6 +36,25 @@ export interface ReleaseFlags {
   year: string;
   version: string;
   remux: boolean;
+  // A Theatrical version: whether it goes in the name, asked every time (null: not answered)
+  theatrical?: 'write' | 'omit' | null;
+}
+
+// Where a version chosen beforehand comes from (issue #108)
+export type VersionOrigin = 'upload' | 'rip' | 'torrent' | 'plan' | 'merge';
+
+export interface VersionSource {
+  origin: VersionOrigin;
+  version: string; // "" none
+  from: string | null;
+}
+
+export interface ReleaseVersion {
+  version: string | null; // null: not chosen, or to choose
+  origin: VersionOrigin | null;
+  from: string | null;
+  toChoose: boolean; // the sources disagree: chosen by hand before the rename
+  sources: VersionSource[];
 }
 
 export interface ReleaseAnalysis {
@@ -58,6 +77,8 @@ export interface ReleaseProposal {
   analysis: ReleaseAnalysis;
   defaults: ReleaseFlags;
   versions: string[];
+  version: ReleaseVersion;
+  suggestedVersion: string | null; // what the names say: only offered
   rip: { tmdbId: number | null; title: string | null; year: number | null } | null;
   remotePath: string;
   releaseDir: string;
@@ -126,6 +147,9 @@ export interface Upload {
   // Held for a merge (status HELD): why, and the twin found
   holdKind: HoldKind | null;
   holdMessage: string | null;
+  // The version its release name starts from: version chosen by hand (null: from its sources)
+  version: string | null;
+  releaseVersion?: ReleaseVersion;
   createdAt: string;
   updatedAt: string;
 }
@@ -311,6 +335,7 @@ export interface Rip {
   secondLanguage: string | null;
   // Hold for merge: its file is held as it arrives (set before the rip is done)
   holdForMerge: boolean;
+  version: string | null; // the film's version for the release name: null not chosen, "" none
   jobId: string | null;
   progress: number;
   outputFile: string | null; // path in the watch folder (or in the downloads' unpack folder), same as the upload's
@@ -319,7 +344,7 @@ export interface Rip {
   createdAt: string;
   updatedAt: string;
   upload: { id: string; status: UploadStatus; progress: number } | null;
-  suggestion: { title: string; year: number | null }; // parsed from the download name
+  suggestion: { title: string; year: number | null; version: string | null }; // parsed from the download name
   canRipAgain: boolean; // done, and its disc still in the downloads
 }
 
@@ -367,6 +392,7 @@ export interface SourceTorrent {
   tracker: string;
   tmdbId: number | null;
   label: string | null;
+  version: string | null; // the film's version for the release name: null not given, "" none
   origin: string | null; // "bookrr", null by hand
   attachedAt: string | null;
   createdAt: string;
@@ -392,6 +418,7 @@ export interface MergePlan {
   files: [MergePlanSide, MergePlanSide];
   tmdbId: number | null;
   originalLanguage: string | null;
+  version: string | null; // the film's version for the merged file's release name: null not given, "" none
   origin: string | null; // "bookrr", null by hand
   pairId: string | null;
   message: string | null;

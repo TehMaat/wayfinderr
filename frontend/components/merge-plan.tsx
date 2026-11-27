@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { CalendarClock, Check, Disc3, FileVideo, Loader2, Magnet, Search, Trash2, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
+import { versionLabel } from '@/lib/release';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import {
@@ -95,6 +96,9 @@ export function MergePlanCard({ plan }: { plan: MergePlan }) {
           {plan.status === 'ERROR' ? 'Not paired' : 'Waiting for its files'}
         </Badge>
         {plan.origin && <span className="text-xs text-muted-foreground">from {plan.origin}</span>}
+        {plan.version !== null && (
+          <Badge variant="secondary">Version {versionLabel(plan.version)}</Badge>
+        )}
         <div className="ml-auto flex gap-1">
           {plan.status === 'ERROR' && (
             <Button size="sm" className="h-7" onClick={pair} disabled={busy}>

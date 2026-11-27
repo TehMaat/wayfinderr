@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Download, FilePlus, FileStack, Loader2, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
+import { versionLabel } from '@/lib/release';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -119,6 +120,7 @@ export function SourceTorrentsCard() {
                 <p className="break-all font-mono text-xs">{t.name}</p>
                 <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                   {t.label && <Badge variant="outline">{t.label}</Badge>}
+                  {t.version !== null && <Badge variant="secondary">Version {versionLabel(t.version)}</Badge>}
                   <Badge variant="secondary">{t.origin ?? 'by hand'}</Badge>
                   <span className="tabular">{formatBytes(t.size)}</span>
                   <span>· {t.tracker}</span>

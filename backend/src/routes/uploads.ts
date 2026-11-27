@@ -11,6 +11,8 @@ import { releaseManager, ReleaseError } from '../services/release/index.js';
 import { mergePairs } from '../services/merge/pairs.js';
 import { HoldError, MANUAL_MESSAGE, manualHolds } from '../services/merge/manual.js';
 import { mergePlans } from '../services/merge/plans.js';
+import { parseVersion } from '../services/release/version.js';
+import { withReleaseVersion } from '../services/release/versionSources.js';
 import logger from '../config/logger.js';
 import { config } from '../config/index.js';
 
@@ -23,7 +25,7 @@ router.get('/', async (req: Request, res: Response) => {
     const offset = req.query.offset ? parseInt(req.query.offset as string) : 0;
 
     const { uploads, total } = await db.getUploads(limit, offset);
-    res.json({ uploads, total, limit, offset });
+    res.json({ uploads: await Promise.all(uploads.map(withReleaseVersion)), total, limit, offset });
   } catch (error) {
     logger.error(error, 'Failed to fetch uploads');
     res.status(500).json({ error: 'Failed to fetch uploads' });
@@ -48,10 +50,33 @@ router.get('/:id', async (req: Request, res: Response) => {
       res.status(404).json({ error: 'Upload not found' });
       return;
     }
-    res.json(upload);
+    res.json(await withReleaseVersion(upload));
   } catch (error) {
     logger.error(error, 'Failed to fetch upload');
     res.status(500).json({ error: 'Failed to fetch upload' });
+  }
+});
+
+// PUT the version its release name starts from ({ version }: a string, "" none, null back to its rip,
+// source .torrent or merge plan)
+router.put('/:id/version', async (req: Request, res: Response) => {
+  const version = parseVersion(req.body?.version);
+  if (version === undefined) {
+    res.status(400).json({ error: 'version must be a string ("" none) or null' });
+    return;
+  }
+  try {
+    const upload = await db.getUploadById(req.params.id);
+    if (!upload) {
+      res.status(404).json({ error: 'Upload not found' });
+      return;
+    }
+    await db.updateUpload(upload.id, { version });
+    logger.info({ uploadId: upload.id, version }, 'Upload version set');
+    res.json(await withReleaseVersion((await db.getUploadById(upload.id))!));
+  } catch (error) {
+    logger.error(error, 'Failed to set the version');
+    res.status(500).json({ error: 'Failed to set the version' });
   }
 });
 

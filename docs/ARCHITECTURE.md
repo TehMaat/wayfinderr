@@ -84,7 +84,7 @@ backend/
         ├── database.ts       Prisma queries
         ├── ripper/           downloads scan, RAR, TMDB, title choice, MakeMKV jobs, remux, joins
         ├── merge/            holding, pairs, planned pairs, Dyadrr jobs
-        ├── release/          release name, tracker command in tmux, its output and .torrent
+        ├── release/          release name and its version, tracker command in tmux, its output and .torrent
         └── logs/             log history on disk, retention, Dyadrr logs
 
 frontend/

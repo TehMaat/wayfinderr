@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { CornerDownLeft, Download, FileUp, HardDriveDownload, Link2, Loader2, Play, Send, Square, Tags } from 'lucide-react';
+import { Clapperboard, CornerDownLeft, Download, FileUp, HardDriveDownload, Link2, Loader2, Play, Send, Square, Tags, TriangleAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Tooltip } from '@/components/ui/tooltip';
 import { ReleaseDialog } from '@/components/release-dialog';
 import { canRelease, localReleaseClient, RELEASE_STATUS, releaseRunning } from '@/components/release-badge';
+import { UploadVersionDialog } from '@/components/upload-actions';
+import { versionLabel, versionOrigin } from '@/lib/release';
 import { addReleaseTorrent, answerRelease, linkRelease, runRelease, stopRelease } from '@/lib/actions';
 import { releaseApi } from '@/lib/api';
 import { useAppStore, type ReleasePrompt, type TorrentClient, type Upload } from '@/lib/store';
@@ -118,6 +120,52 @@ function TrackerTorrent({ upload }: { upload: Upload }) {
   );
 }
 
+/**
+ * The version the rename starts from, chosen beforehand (issue #108): on the file, its
+ * rip, by bookrr; to choose when those disagree. Not shown once nothing was chosen.
+ */
+function VersionLine({ upload }: { upload: Upload }) {
+  const [open, setOpen] = useState(false);
+  const v = upload.releaseVersion;
+  if (!v || (v.version === null && !v.toChoose)) return null;
+  return (
+    <>
+      {v.toChoose ? (
+        <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          <span className="flex-1">
+            Version to choose:{' '}
+            {v.sources.map((s, i) => (
+              <span key={i}>
+                {i > 0 && ', '}
+                <span className="font-medium">{versionLabel(s.version)}</span> {versionOrigin(s)}
+              </span>
+            ))}
+            . The rename waits for it.
+          </span>
+          <Button size="sm" variant="outline" className="h-7" onClick={() => setOpen(true)}>
+            Choose…
+          </Button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 text-sm">
+          <Clapperboard className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span>
+            Version <span className="font-medium">{versionLabel(v.version!)}</span>
+            {v.origin && <span className="text-muted-foreground"> · {versionOrigin({ origin: v.origin, from: v.from })}</span>}
+          </span>
+          {!releaseRunning(upload) && (
+            <Button size="sm" variant="ghost" className="h-7" onClick={() => setOpen(true)}>
+              Change…
+            </Button>
+          )}
+        </div>
+      )}
+      {open && <UploadVersionDialog upload={upload} open={open} onOpenChange={setOpen} />}
+    </>
+  );
+}
+
 /** Not on a server yet: released on the client's machine instead of uploaded */
 function LocalReleaseCard({ upload, client }: { upload: Upload; client: TorrentClient }) {
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -137,6 +185,7 @@ function LocalReleaseCard({ upload, client }: { upload: Upload; client: TorrentC
           {client.trackerCommand ? ', then the tracker command uploads it and seeds it there' : ''}.
           {stops && ' Its upload stops.'}
         </p>
+        <VersionLine upload={upload} />
         <Button size="sm" onClick={() => setDialogOpen(true)}>
           <HardDriveDownload />
           Release locally…
@@ -227,6 +276,8 @@ export function ReleaseCard({ upload }: { upload: Upload }) {
             {!hasCommand && server && ` No tracker command set for ${server.name}.`}
           </p>
         )}
+
+        {!upload.releaseName && <VersionLine upload={upload} />}
 
         {(upload.releaseStatus === 'DONE' || upload.releaseTorrentHash) && <TrackerTorrent upload={upload} />}
 

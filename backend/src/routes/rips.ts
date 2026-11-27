@@ -5,6 +5,7 @@ import { ripper } from '../services/ripper/index.js';
 import { normalizeExclusions, normalizeFolder, normalizeFolders } from '../services/ripper/exclusions.js';
 import { parseReleaseName } from '../services/ripper/releaseName.js';
 import { searchMovies } from '../services/ripper/tmdb.js';
+import { parseVersion } from '../services/release/version.js';
 import { mergeActive } from '../services/merge/index.js';
 import logger from '../config/logger.js';
 
@@ -176,6 +177,20 @@ router.put('/:id/hold', async (req: Request, res: Response) => {
     res.json(await toPublic(await ripper.setHoldForMerge(req.params.id, hold)));
   } catch (error) {
     fail(res, error, 'Failed to set hold for merge');
+  }
+});
+
+// PUT the film's version for the release name ({ version }: a string, "" none, null not chosen)
+router.put('/:id/version', async (req: Request, res: Response) => {
+  const version = parseVersion(req.body?.version);
+  if (version === undefined) {
+    res.status(400).json({ error: 'version must be a string ("" none) or null' });
+    return;
+  }
+  try {
+    res.json(await toPublic(await ripper.setVersion(req.params.id, version)));
+  } catch (error) {
+    fail(res, error, 'Failed to set the version');
   }
 });
 
