@@ -364,8 +364,9 @@ async function main() {
       { index: 2, name: 'Extras', durationSec: 1260, sizeBytes: Math.round(2.4 * GB), chapters: 4, streams: [{ type: 'video', forced: false, commentary: false }] },
     ]);
   await rip(orbita, { status: 'DONE', titles: titles(orbita), titleIndex: 0, progress: 100, outputFile: orbitaUpload.filepath, startedAt: ago(110), completedAt: ago(75) });
-  await rip(aurora, { status: 'DONE', titles: titles(aurora), titleIndex: 0, progress: 100, outputFile: watch(fileOf(aurora)), startedAt: ago(520), completedAt: ago(470) });
-  await rip(faro, { status: 'DONE', titles: titles(faro), titleIndex: 0, progress: 100, outputFile: watch(fileOf(faro)), startedAt: ago(30), completedAt: ago(3) });
+  // Its version disagrees with bookrr's (below): the rename waits for a choice
+  await rip(aurora, { status: 'DONE', titles: titles(aurora), titleIndex: 1, progress: 100, outputFile: watch(fileOf(aurora)), startedAt: ago(520), completedAt: ago(470), version: 'Extended' });
+  await rip(faro, { status: 'DONE', titles: titles(faro), titleIndex: 0, progress: 100, outputFile: watch(fileOf(faro)), startedAt: ago(30), completedAt: ago(3), version: "Director's Cut" });
   // Shown as ripping by the screenshots (fixtures.mjs)
   await rip(sabbia, { status: 'DONE', titles: titles(sabbia), titleIndex: 0, progress: 100, startedAt: ago(12), completedAt: ago(1) });
   await rip(mercante, {
@@ -398,8 +399,9 @@ async function main() {
     },
   });
 
-  // .torrent files sent by bookrr
-  for (const [i, f] of [orbita, lago].entries()) {
+  // .torrent files sent by bookrr, with the film's version
+  const versions = ['', 'Extended', 'Theatrical'];
+  for (const [i, f] of [orbita, lago, aurora].entries()) {
     await prisma.sourceTorrent.create({
       data: {
         infoHash: hash(i + 1),
@@ -410,8 +412,9 @@ async function main() {
         tracker: 'tracker.example.invalid',
         tmdbId: 900000 + f.year,
         label: i === 1 ? 'audio ITA' : null,
+        version: versions[i],
         origin: 'bookrr',
-        attachedAt: i === 0 ? ago(75) : null,
+        attachedAt: i === 1 ? null : ago(75),
       },
     });
   }

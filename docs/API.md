@@ -458,6 +458,31 @@ GET /api/uploads/:id
 
 `mediaInfo` is the ffprobe summary, stored as a JSON string. Uploads detected by earlier versions only have `language`, `codec` and `index` per track, without `container` and `videoTracks`.
 
+### Version of the Release
+
+The version (*Extended*, *Director's Cut*…) the release name starts from, chosen beforehand (issue #108). The list and the details of an upload have `version` (chosen on the file itself: `null` not chosen, `""` none) and `releaseVersion`, what the rename starts from:
+
+```json
+"releaseVersion": {
+  "version": null,
+  "origin": null,
+  "from": null,
+  "toChoose": true,
+  "sources": [
+    { "origin": "rip", "version": "Extended", "from": "Orbita.Silenziosa.2010.COMPLETE.BLURAY-XYZ" },
+    { "origin": "torrent", "version": "Theatrical", "from": "bookrr" }
+  ]
+}
+```
+
+`sources` is what each place says: `rip` (its rip, [`PUT /api/rips/:id/version`](#version-of-a-rip)), `torrent` (its source .torrent, `version` on [`POST /api/source-torrents`](#source-torrent-files-sent-beforehand); `from` who sent it), `plan` (its merge plan, `version` on [`POST /api/merge/plans`](#planned-pairs)) and, for a merged file, `merge` (the version of each of its two files; `from` its file name). The upload's own `version` wins (`origin: "upload"`); otherwise the sources that agree give theirs (`Director's Cut` and `directors cut` are the same), none gives `version: null`, and sources that disagree give `toChoose: true`: the rename dialog waits for a choice. What the file name says is never a source (only `suggestedVersion` in the [rename proposal](#rename-proposal)).
+
+```
+PUT /api/uploads/:id/version   { "version": "Extended" }
+```
+
+`version`: a string up to 60 characters (`""` none), or `null` to follow the sources again. **Response:** the upload with `releaseVersion`; `400` when it is neither, `404`. A rename also sets it to the version confirmed. When a rip, a source .torrent or a merge plan gets another version, the uploads whose own `version` differs drop it (back to `null`), so they follow it (or have a version to choose).
+
 ### Read Media Info Again
 
 ```
@@ -579,7 +604,7 @@ POST /api/source-torrents?name=Orbita.Silenziosa.torrent&tmdbId=900002&label=vid
 Content-Type: application/x-bittorrent
 ```
 
-The body is the .torrent (up to 10 MB); every parameter is optional: `name` its file name, `tmdbId` the film, `label` what it is for (a merge's *video* or *audio ITA*, up to 100 characters), `origin` who sends it (up to 40). The same info hash again replaces the file and keeps the fields not given. **Response:** `201` stored, `200` already there, with the torrent as below; `400` not a .torrent, `415` without the content type, `422` no tracker in it. Each upload it is copied into sends `torrent-updated` with `byHand: true`.
+The body is the .torrent (up to 10 MB); every parameter is optional: `name` its file name, `tmdbId` the film, `label` what it is for (a merge's *video* or *audio ITA*, up to 100 characters), `origin` who sends it (up to 40), `version` the film's version for the release name of its file (up to 60, empty for none; see [Version of the Release](#version-of-the-release)). The same info hash again replaces the file and keeps the fields not given. **Response:** `201` stored, `200` already there, with the torrent as below; `400` not a .torrent, `415` without the content type, `422` no tracker in it. Each upload it is copied into sends `torrent-updated` with `byHand: true`.
 
 ```
 GET /api/source-torrents
@@ -597,6 +622,7 @@ Every stored torrent, the last first, or one by its v1 info hash (`404` when it 
   "tracker": "tracker.example.invalid",
   "tmdbId": 438631,
   "label": "video",
+  "version": "Extended",
   "origin": "bookrr",
   "attachedAt": "2026-11-08T10:47:00.364Z",
   "createdAt": "2026-11-08T10:46:30.226Z",
@@ -637,7 +663,7 @@ An upload on a server is renamed there as a release, the way moverr.py does (`NA
 GET /api/uploads/:id/release
 ```
 
-The media analysis (video, the best audio codec of each language, subtitles, languages other than ITA/ENG) and the prefilled answers: film name and year from the rip's TMDB match, else from the file name; `remux` true for a ripped disc. Uploads probed before the video details were stored are probed again, from the local file or with ffprobe on the server.
+The media analysis (video, the best audio codec of each language, subtitles, languages other than ITA/ENG) and the prefilled answers: film name and year from the rip's TMDB match, else from the file name; `remux` true for a ripped disc; `version` the one chosen beforehand (`version.version`, empty when none or to choose). `version` is the upload's [`releaseVersion`](#version-of-the-release): with `toChoose` the dialog selects nothing and cannot rename until a version is picked. `suggestedVersion` is what the names say (the file, its rip's download, its source torrent: `Extended`, `Director's Cut`, `Theatrical`…), only offered. Uploads probed before the video details were stored are probed again, from the local file or with ffprobe on the server.
 
 ```json
 {
@@ -648,8 +674,10 @@ The media analysis (video, the best audio codec of each language, subtitles, lan
     "subtitles": ["ITA", "ENG"],
     "extraLanguages": { "audio": [], "subtitles": [] }
   },
-  "defaults": { "title": "La città sommersa", "year": "2019", "version": "", "remux": true },
+  "defaults": { "title": "La città sommersa", "year": "2019", "version": "Extended", "remux": true },
   "versions": ["Theatrical", "Extended", "Director's Cut", ...],
+  "version": { "version": "Extended", "origin": "torrent", "from": "bookrr", "toChoose": false, "sources": [...] },
+  "suggestedVersion": null,
   "rip": { "tmdbId": 900001, "title": "La città sommersa", "year": 2019 },
   "remotePath": "/home/user/uploads/La Città Sommersa (2019).mkv",
   "releaseDir": "downloads/qbittorrent",
@@ -668,7 +696,7 @@ Content-Type: application/json
 { "title": "La città sommersa", "year": "2019", "version": "Extended", "remux": true }
 ```
 
-Nothing changes. Returns `{ filename, folder, path, autoHybrid, error }`: `autoHybrid` when a REMUX has a Dolby Vision profile 8 layer (HYBRID, no VU); `error` when the name or the year is missing.
+Nothing changes. Returns `{ filename, folder, path, autoHybrid, error }`: `autoHybrid` when a REMUX has a Dolby Vision profile 8 layer (HYBRID, no VU); `error` when the name or the year is missing, or when a *Theatrical* version (`Theatrical`, `Theatrical Cut`…) comes without `theatrical`: `"write"` puts `THEATRICAL` in the name, `"omit"` leaves the name without a version. It is asked every time, never remembered.
 
 ### Rename and Upload to the Tracker
 
@@ -679,7 +707,7 @@ Content-Type: application/json
 { "title": "La città sommersa", "year": "2019", "version": "", "remux": true, "overwrite": false }
 ```
 
-Moves the file on the server (SFTP rename) into `<releaseDir>/<name>/<name>.mkv`, then queues the tracker command (`releaseStatus` `QUEUED`, or `RENAMED` without a command). `409` with `code: "exists"` when that file is already there: send again with `overwrite: true` to replace it. Renaming again moves the file from its current name (and removes the earlier folder if empty).
+Same fields as the preview (with `theatrical` for a Theatrical version, else `400`). The version confirmed becomes the upload's own `version`. Moves the file on the server (SFTP rename) into `<releaseDir>/<name>/<name>.mkv`, then queues the tracker command (`releaseStatus` `QUEUED`, or `RENAMED` without a command). `409` with `code: "exists"` when that file is already there: send again with `overwrite: true` to replace it. Renaming again moves the file from its current name (and removes the earlier folder if empty).
 
 ### Answer, Stop, Run Again, Dismiss
 
@@ -899,6 +927,14 @@ PUT /api/rips/:id/hold   { "hold": true }
 
 With merging on: the rip's file is held for a merge as it arrives (`holdKind: "MANUAL"`), without looking for a twin. Set at any time before the rip is `DONE` (also `WAITING`, while the torrent downloads), on every part of a join; it applies to the joined film and to the `.mkv` of an archive. `holdForMerge` rip field. **Response:** 200 OK (the rip), 400 when `hold` is not a boolean, 404, 409 when the rip is done (hold its upload instead) or, for `true`, with merging off.
 
+### Version of a Rip
+
+```
+PUT /api/rips/:id/version   { "version": "Director's Cut" }
+```
+
+The film's version for the release name of its file (see [Version of the Release](#version-of-the-release)): a string up to 60 characters, `""` none, `null` not chosen. Any time, also once the rip is done; on every part of a join. `version` rip field; `suggestion.version` is what the download's name says. **Response:** 200 OK (the rip), 400 when it is neither, 404.
+
 ### Retry, Skip
 
 ```
@@ -1093,6 +1129,7 @@ X-Api-Key: <the API key>
   ],
   "tmdbId": 438631,
   "originalLanguage": "en",
+  "version": "Extended",
   "origin": "bookrr"
 }
 ```
@@ -1106,7 +1143,7 @@ X-Api-Key: <the API key>
 | `ripId` | A rip of the Rips page: its download (and its file, once ripped) |
 | `uploadId` | A file already there, not on a server yet (`PENDING`, `QUEUED`, `FAILED`, `SKIPPED`, `CANCELLED`) or held: it is held for the pair at once |
 
-and optionally `label` (what it is for, e.g. `video`, `audio ITA`, up to 100 characters). `tmdbId`, `originalLanguage` (passed to the pair; without it, the film's original language on TMDB when `tmdbId` is given, else as for a pair) and `origin` (who plans it, up to 40 characters) are optional.
+and optionally `label` (what it is for, e.g. `video`, `audio ITA`, up to 100 characters). `tmdbId`, `originalLanguage` (passed to the pair; without it, the film's original language on TMDB when `tmdbId` is given, else as for a pair), `version` (the film's version for the release name of the merged file, up to 60 characters, `""` none: see [Version of the Release](#version-of-the-release)) and `origin` (who plans it, up to 40 characters) are optional. The same pair planned again with another `version` takes it.
 
 A new file is a side of a plan when:
 

@@ -181,7 +181,7 @@ How a torrent is matched and removed:
 1. Account menu (your username at the bottom of the sidebar) → **API key** → copy it
 2. In bookrr, give that client the address of Wayfinderr and the key
 
-Once the download is complete bookrr sends the .torrent (`POST /api/source-torrents`); Wayfinderr keeps it and copies it into the upload as soon as the rip of that download is done (the rip's download has the torrent's name), or when a file in the watch folder sits under that name. **Clients** → *Source .torrent files* lists them (with the ones still waiting for their rip), downloads and deletes them, and takes .torrent files by hand too. They are kept for good. With a merge, each of the two files gets its own; the merged file's page shows both.
+Once the download is complete bookrr sends the .torrent (`POST /api/source-torrents`); Wayfinderr keeps it and copies it into the upload as soon as the rip of that download is done (the rip's download has the torrent's name), or when a file in the watch folder sits under that name. **Clients** → *Source .torrent files* lists them (with the ones still waiting for their rip), downloads and deletes them, and takes .torrent files by hand too. They are kept for good. With a merge, each of the two files gets its own; the merged file's page shows both. The film's version (*Extended*, *Director's Cut*…) chosen in bookrr comes with it and prefills the rename (see [The version](#the-version-extended-directors-cut)).
 
 The API key works for every API: keep it secret, and regenerate it from the same dialog if it leaks.
 
@@ -192,6 +192,24 @@ A completed upload can be released on a tracker from the server it is on: the **
 Once the tracker accepts it (on a server or locally, the first run or a run again), Wayfinderr checks where the file is now, by its exact size: where it was released, else in the release and upload folders (as **Link** does). If the tracker command moved it, the **Remote path** follows it and the log says `Release moved by the tracker command: <old> → <new>`; if it is nowhere, the path is kept and the file shows as missing. An SSH error changes nothing. Besides the rename and **Link**, which set the path where they just moved or found the file, this is the only time it is checked: never at start, never on a timer.
 
 Set it per server in **Servers** → edit: the release folder, the release tag (`-TAG` at the end of the name) and the tracker command (e.g. `uploader -u {path}`; `{path}`, `{folder}` and `{name}` are replaced). With **After each upload** → *Ask for the release name right away*, the card asks right after every upload. The server needs `tmux` and `bash`. See the [Release API](API.md#release-api) for every detail.
+
+### The version: Extended, Director's Cut…
+
+The release name has the film's version after the year (`NAME.YEAR.EXTENDED…`). It can be chosen in the rename dialog, or **beforehand**, so the dialog opens with it:
+
+- on the rip: **Version…** in its menu, or *Version* in its *Choose…* dialog (handy when the disc has several cuts of the same length), any time, also once it is done; it shows as a badge next to the disc;
+- on the file: **Version…** in the upload's menu, or *Change…* on its **Tracker** card;
+- from [bookrr](#source-torrent-files-from-bookrr): the version chosen on the film in its release plan comes with the source .torrent and with the merge plan.
+
+Each choice offers the usual versions, *None (standard version)* and *Other…* for any text. The upload list shows the version that will be used as a badge, with where it comes from in its tooltip.
+
+When those places do not agree (the rip says *Extended*, bookrr says *Theatrical*), none of them wins: the upload shows **Version to choose**, and the rename dialog opens with no version selected, says what each one says, and cannot rename until you pick one. The one you pick stays on the file. Changing the version of a rip, or bookrr sending another one, later is followed by its file (unless the file is already renamed: the new version is for the next rename).
+
+What the file name says (`…Extended.Cut…`, `…Directors.Cut…`) is only offered: *The file name says Extended: use it* under the version, never chosen on its own.
+
+**Theatrical** is the standard cut, and some releases write it while others leave the name without a version: when the version is *Theatrical*, the dialog asks every time whether to write `THEATRICAL` in the name, and renames only once you answered.
+
+![Rename dialog with a version to choose](assets/screenshots/release-version.png)
 
 ## Release locally
 

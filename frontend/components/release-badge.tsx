@@ -1,7 +1,7 @@
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Clapperboard } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip } from '@/components/ui/tooltip';
-import { missingInfo } from '@/lib/release';
+import { missingInfo, versionLabel, versionOrigin } from '@/lib/release';
 import type { ReleaseStatus, TorrentClient, Upload } from '@/lib/store';
 
 export const RELEASE_STATUS: Record<
@@ -52,6 +52,35 @@ export function MissingBadge({ upload }: { upload: Upload }) {
       <Badge variant="warning">
         <AlertTriangle />
         {missing.length === 1 ? `Missing ${missing[0]}` : `Missing ${missing.length}`}
+      </Badge>
+    </Tooltip>
+  );
+}
+
+/**
+ * The version its release name starts from (issue #108), chosen beforehand; a warning
+ * when its sources disagree (the rename waits for a choice). Nothing once released.
+ */
+export function VersionBadge({ upload }: { upload: Upload }) {
+  const v = upload.releaseVersion;
+  if (!v || upload.releaseName) return null;
+  if (v.toChoose) {
+    const said = v.sources.map((s) => `${versionLabel(s.version)} ${versionOrigin(s)}`).join(', ');
+    return (
+      <Tooltip content={`The sources disagree: ${said}`}>
+        <Badge variant="warning">
+          <AlertTriangle />
+          Version to choose
+        </Badge>
+      </Tooltip>
+    );
+  }
+  if (!v.version) return null;
+  return (
+    <Tooltip content={v.origin ? `Version ${versionOrigin({ origin: v.origin, from: v.from })}` : 'Version'}>
+      <Badge variant="secondary">
+        <Clapperboard />
+        {v.version}
       </Badge>
     </Tooltip>
   );

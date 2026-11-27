@@ -33,6 +33,8 @@ import { fromProbe, mediaInfoParser, ProbeData } from '../mediaInfo.js';
 import { jobQueue } from '../jobQueue.js';
 import { remoteDirOf, sftpCall, SshLogin, uploadManager } from '../uploadManager.js';
 import { parseReleaseName } from '../ripper/releaseName.js';
+import { ReleaseVersion } from './version.js';
+import { releaseVersionOf } from './versionSources.js';
 import { MediaInfo } from '../../types/index.js';
 import { analyze, buildReleaseName, isAutoHybrid, ReleaseAnalysis, ReleaseFlags, validateFlags, VERSIONS } from './name.js';
 import { appendOutput, detectPrompt, exitCode, EXIT_MARKER, hashedFor, parseOutcome, Prompt, tmdbIdOf, withoutMarker } from './output.js';
@@ -118,6 +120,10 @@ export interface Proposal {
   analysis: ReleaseAnalysis;
   defaults: ReleaseFlags;
   versions: string[];
+  // Chosen beforehand (on the upload, its rip, by bookrr), or to choose when those disagree
+  version: ReleaseVersion;
+  // What the names (file, download, source torrent) say: only offered, never prefilled
+  suggestedVersion: string | null;
   rip: { tmdbId: number | null; title: string | null; year: number | null } | null;
   remotePath: string;
   releaseDir: string;
@@ -653,16 +659,21 @@ class ReleaseManager extends EventEmitter {
     const rip = await db.getRipByOutputFile(upload.filepath);
     const parsed = parseReleaseName(upload.releaseName ?? upload.filename);
     const remux = rip ? rip.contentType !== 'MKV' : /\bremux\b/i.test(upload.filename.replace(/[._]/g, ' '));
+    const version = await releaseVersionOf(upload);
+    const names = [upload.releaseName ?? upload.filename, rip?.downloadName, upload.torrentName];
+    const suggestedVersion = names.map((n) => (n ? parseReleaseName(n).version : null)).find(Boolean) ?? null;
 
     return {
       analysis,
       defaults: {
         title: rip?.title ?? parsed.title,
         year: String(rip?.year ?? parsed.year ?? ''),
-        version: '',
+        version: version.version ?? '',
         remux,
       },
       versions: VERSIONS,
+      version,
+      suggestedVersion,
       rip: rip ? { tmdbId: rip.tmdbId, title: rip.title, year: rip.year } : null,
       remotePath: remotePathOf(upload, server),
       releaseDir: releaseDirOf(server),
@@ -710,6 +721,8 @@ class ReleaseManager extends EventEmitter {
 
     const { filename, folder } = await this.name(upload, server, flags);
     const { ssh, sftp, home } = await this.connect(server);
+    // The version confirmed is the upload's own from now on (it settles a disagreement)
+    const version = flags.version.trim();
     let target = '';
     try {
       const absolute = (p: string) => (path.posix.isAbsolute(p) ? p : path.posix.join(home, p));
@@ -768,6 +781,7 @@ class ReleaseManager extends EventEmitter {
         : {}),
       remotePath: target,
       remoteFound: true,
+      version,
       releaseName: filename,
       releaseStatus: hasCommand ? 'QUEUED' : 'RENAMED',
       releaseMessage: hasCommand ? null : server.local ? `Moved on ${server.name}` : 'Renamed on the server',

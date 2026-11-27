@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Ban, Check, Combine, ExternalLink, ListChecks, Merge, MoreHorizontal, Play, Repeat, RotateCcw, Trash2, UploadCloud, Wrench } from 'lucide-react';
+import { Ban, Check, Clapperboard, Combine, ExternalLink, ListChecks, Merge, MoreHorizontal, Play, Repeat, RotateCcw, Trash2, UploadCloud, Wrench } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -13,7 +13,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { RipJoinDialog } from '@/components/rip-join-dialog';
-import { remuxRip, removeRip, retryRip, ripAgain, setRipHold, skipRip } from '@/lib/actions';
+import { remuxRip, removeRip, retryRip, ripAgain, setRipHold, setRipVersion, skipRip } from '@/lib/actions';
+import { VersionDialog } from '@/components/version-dialog';
 import { canJoin, isArchivedMkv, ripName, tmdbUrl } from '@/lib/rips';
 import { useAppStore, type Rip, type RipperStatus } from '@/lib/store';
 
@@ -41,6 +42,7 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [againOpen, setAgainOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+  const [versionOpen, setVersionOpen] = useState(false);
   const tools = useAppStore((s) => s.ripStatus?.remux ?? null);
   const remux = canRemux(rip, tools);
   const joinable = useAppStore((s) => canJoin(rip, s.rips));
@@ -67,7 +69,11 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
   const mergeOn = useAppStore((s) => Boolean(s.mergeStatus?.enabled && s.mergeStatus.languageSupported));
   const holdable = canHoldRip(rip) && (mergeOn || rip.holdForMerge);
 
+  // The film's version for the release name: any time, not on a skipped disc
+  const versionable = rip.status !== 'SKIPPED';
+
   const hasItems =
+    versionable ||
     attention || canRetry(rip) || canSkip(rip) || remux || joinable || rip.canRipAgain || rip.upload || rip.tmdbId || holdable;
 
   return (
@@ -147,6 +153,12 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
               <DropdownMenuItem onSelect={() => setJoinOpen(true)}>
                 <Combine />
                 {rip.joinId ? 'Join discs again…' : 'Join discs…'}
+              </DropdownMenuItem>
+            )}
+            {versionable && (
+              <DropdownMenuItem onSelect={() => setVersionOpen(true)}>
+                <Clapperboard />
+                Version…
               </DropdownMenuItem>
             )}
             {holdable && (
@@ -241,6 +253,17 @@ export function RipActions({ rip, onChoose }: { rip: Rip; onChoose: (rip: Rip) =
         confirmLabel="Rip again"
         onConfirm={() => ripAgain(rip.id)}
       />
+      {versionOpen && (
+        <VersionDialog
+          open={versionOpen}
+          onOpenChange={setVersionOpen}
+          name={ripName(rip)}
+          current={rip.version}
+          unsetLabel="Not chosen"
+          suggestion={rip.suggestion.version}
+          onSave={(version) => setRipVersion(rip.id, version)}
+        />
+      )}
       {(joinable || joinOpen) && <RipJoinDialog rip={rip} open={joinOpen} onOpenChange={setJoinOpen} />}
     </div>
   );

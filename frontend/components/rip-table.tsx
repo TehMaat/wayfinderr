@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ExternalLink, FileVideo, PackageOpen } from 'lucide-react';
 import { ColGroup, ColumnHeader } from '@/components/column-layout';
 import { Badge } from '@/components/ui/badge';
+import { versionLabel } from '@/lib/release';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -71,6 +72,13 @@ function SourceCell({ rip }: { rip: Rip }) {
           <Badge variant="secondary" className="shrink-0 tabular">
             Part {rip.joinPart}
             {parts > 1 ? `/${parts}` : ''}
+          </Badge>
+        </Tooltip>
+      )}
+      {rip.version !== null && (
+        <Tooltip content="Version for the release name of its file">
+          <Badge variant="secondary" className="shrink-0">
+            {versionLabel(rip.version)}
           </Badge>
         </Tooltip>
       )}

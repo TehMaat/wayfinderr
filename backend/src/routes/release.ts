@@ -12,6 +12,7 @@ const flagsOf = (body: Record<string, unknown>): ReleaseFlags => ({
   year: typeof body.year === 'string' || typeof body.year === 'number' ? String(body.year) : '',
   version: typeof body.version === 'string' ? body.version.slice(0, 60) : '',
   remux: body.remux === true,
+  theatrical: body.theatrical === 'write' || body.theatrical === 'omit' ? body.theatrical : null,
 });
 
 // ?local=1: release a file not uploaded yet on the machine of its download client

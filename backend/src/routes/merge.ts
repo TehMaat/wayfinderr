@@ -207,7 +207,7 @@ router.get('/plans', async (req: Request, res: Response) => {
   }
 });
 
-// POST plan a pair: { files: [{ infoHash?, name?, ripId?, uploadId?, label? }, {...}], tmdbId?, originalLanguage?, origin? }
+// POST plan a pair: { files: [{ infoHash?, name?, ripId?, uploadId?, label? }, {...}], tmdbId?, originalLanguage?, version?, origin? }
 router.post('/plans', async (req: Request, res: Response) => {
   try {
     const { created, plan } = await mergePlans.create(req.body ?? {});

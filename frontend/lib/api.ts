@@ -90,6 +90,7 @@ export const uploadsApi = {
   deleteUpload: (id: string) => apiClient.delete(`/api/uploads/${id}`),
   // Held for a merge by hand (not on a server yet; a queued one is stopped first, up to 10 s)
   hold: (id: string) => apiClient.post<Upload>(`/api/uploads/${id}/hold`, null, { timeout: 30000 }),
+  setVersion: (id: string, version: string | null) => apiClient.put<Upload>(`/api/uploads/${id}/version`, { version }),
   // A file held for a merge: uploaded as it is, or deleted with its file
   uploadHeld: (id: string) => apiClient.post<Upload>(`/api/uploads/${id}/hold/upload`),
   deleteHeld: (id: string) => apiClient.post(`/api/uploads/${id}/hold/delete`),
@@ -177,6 +178,7 @@ export const ripsApi = {
   skipRip: (id: string) => apiClient.post<Rip>(`/api/rips/${id}/skip`),
   // Hold for merge: its file is held as it arrives
   setHold: (id: string, hold: boolean) => apiClient.put<Rip>(`/api/rips/${id}/hold`, { hold }),
+  setVersion: (id: string, version: string | null) => apiClient.put<Rip>(`/api/rips/${id}/version`, { version }),
   removeRip: (id: string) => apiClient.delete(`/api/rips/${id}`),
   joinRips: (ripIds: string[], tmdbId?: number) => apiClient.post<Rip[]>('/api/rips/join', { ripIds, tmdbId }),
   clearSkippedRips: () => apiClient.post<{ removed: number }>('/api/rips/clear-skipped'),

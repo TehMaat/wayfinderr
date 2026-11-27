@@ -44,7 +44,7 @@ film.
 - 📊 **Live dashboard**: progress, speed and time left over WebSocket; free space of every server and of the local disks
 - 💿 **Automatic ripping**: discs (ISO, Blu-ray, DVD, also inside RAR archives) identified on TMDB and ripped with MakeMKV, Italian + original language; anything unsure waits for a choice. Unencrypted discs can be ripped without MakeMKV (mkvmerge, ffmpeg)
 - 🧲 **Torrent cleanup**: once uploaded, the source torrent is found (its download, or names and TMDB titles in every language) and removed from qBittorrent
-- 🏷️ **Tracker release**: rename on the server and run your tracker upload command in `tmux`, following its output; or release locally from the qBittorrent machine
+- 🏷️ **Tracker release**: rename on the server and run your tracker upload command in `tmux`, following its output; or release locally from the qBittorrent machine. The version (Extended, Director's Cut…) can be chosen beforehand, on the rip or from bookrr
 - 🔀 **Merge** (in progress): two rips of a film, better video and Italian audio, merged by [Dyadrr](https://github.com/TehMaat/dyadrr) without re-encoding
 - 🔐 **Login**: one account, sessions, API key for scripts; one reverse proxy entry is enough
 - 🔒 **Built-in HTTPS**: with a certificate you copy in, the app's own port speaks HTTPS, no other container or port; a new certificate is taken up without a restart

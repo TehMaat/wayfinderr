@@ -17,6 +17,21 @@ export const shots = [
       return `/uploads/${upload.id}`;
     },
   },
+  {
+    // A version to choose: the rip says Extended, bookrr Theatrical
+    name: 'release-version',
+    path: async (api) => {
+      const { uploads } = await api('/api/uploads?limit=50');
+      const upload = uploads.find((u) => u.filename.startsWith('Codice Aurora'));
+      return `/uploads/${upload.id}`;
+    },
+    prepare: async (page) => {
+      await page.getByRole('button', { name: /^Rename/ }).first().click();
+      await page.getByRole('dialog').waitFor();
+      await page.getByText('The version is not the same everywhere').waitFor();
+      await page.waitForTimeout(600);
+    },
+  },
   { name: 'servers', path: '/servers' },
   {
     name: 'server-dialog',
