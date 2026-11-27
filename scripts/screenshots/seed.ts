@@ -373,6 +373,8 @@ async function main() {
     status: 'NEEDS_ATTENTION',
     titles: titles(mercante),
     reason: 'Two long titles with Italian audio: choose the film’s one',
+    // A version typed by hand (Other…)
+    version: 'US Version',
   });
   await prisma.rip.create({
     data: {
